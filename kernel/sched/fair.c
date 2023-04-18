@@ -9186,6 +9186,91 @@ group_type group_classify(unsigned int imbalance_pct,
 	return group_has_spare;
 }
 
+/* return true if group a is busier than group b(busiest), return false otherwise */
+static bool group_is_busier(struct sched_group *sg_a,
+			    struct sg_lb_stats *sgs_a,
+			    struct sched_group *sg_b,
+			    struct sg_lb_stats *sgs_b)
+{
+	/* Make sure that there is at least one task to pull */
+	if (!sgs_a->sum_h_nr_running)
+		return false;
+
+	if (sgs_a->group_type > sgs_b->group_type)
+		return true;
+
+	if (sgs_a->group_type < sgs_b->group_type)
+		return false;
+
+	/*
+	 * The candidate and the current busiest group are the same type of
+	 * group. Let check which one is the busiest according to the type.
+	 */
+
+	switch (sgs_a->group_type) {
+	case group_overloaded:
+		/* Select the overloaded group with highest avg_load. */
+		if (sgs_a->avg_load <= sgs_b->avg_load)
+			return false;
+		break;
+
+	case group_imbalanced:
+		/*
+		 * Select the 1st imbalanced group as we don't have any way to
+		 * choose one more than another.
+		 */
+		return false;
+
+	case group_asym_packing:
+		/* Prefer to move from lowest priority CPU's work */
+		if (sched_asym_prefer(sg_a->asym_prefer_cpu, sg_b->asym_prefer_cpu))
+			return false;
+		break;
+
+	case group_misfit_task:
+		/*
+		 * If we have more than one misfit sg go with the biggest
+		 * misfit.
+		 */
+		if (sgs_a->group_misfit_task_load < sgs_b->group_misfit_task_load)
+			return false;
+		break;
+
+	case group_fully_busy:
+		/*
+		 * Select the fully busy group with highest avg_load. In
+		 * theory, there is no need to pull task from such kind of
+		 * group because tasks have all compute capacity that they need
+		 * but we can still improve the overall throughput by reducing
+		 * contention when accessing shared HW resources.
+		 *
+		 * XXX for now avg_load is not computed and always 0 so we
+		 * select the 1st one.
+		 */
+		if (sgs_a->avg_load <= sgs_b->avg_load)
+			return false;
+		break;
+
+	case group_has_spare:
+		/*
+		 * Select not overloaded group with lowest number of idle cpus
+		 * and highest number of running tasks. We could also compare
+		 * the spare capacity which is more stable but it can end up
+		 * that the group has less spare capacity but finally more idle
+		 * CPUs which means less opportunity to pull tasks.
+		 */
+		if (sgs_a->idle_cpus > sgs_b->idle_cpus)
+			return false;
+		else if ((sgs_a->idle_cpus == sgs_b->idle_cpus) &&
+			 (sgs_a->sum_nr_running <= sgs_b->sum_nr_running))
+			return false;
+
+		break;
+	}
+
+	return true;
+}
+
 /**
  * asym_smt_can_pull_tasks - Check whether the load balancing CPU can pull tasks
  * @dst_cpu:	Destination CPU of the load balancing
@@ -9420,74 +9505,8 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 	if (sgs->group_type > busiest->group_type)
 		return true;
 
-	if (sgs->group_type < busiest->group_type)
+	if (!group_is_busier(sg, sgs, sds->busiest, busiest))
 		return false;
-
-	/*
-	 * The candidate and the current busiest group are the same type of
-	 * group. Let check which one is the busiest according to the type.
-	 */
-
-	switch (sgs->group_type) {
-	case group_overloaded:
-		/* Select the overloaded group with highest avg_load. */
-		if (sgs->avg_load <= busiest->avg_load)
-			return false;
-		break;
-
-	case group_imbalanced:
-		/*
-		 * Select the 1st imbalanced group as we don't have any way to
-		 * choose one more than another.
-		 */
-		return false;
-
-	case group_asym_packing:
-		/* Prefer to move from lowest priority CPU's work */
-		if (sched_asym_prefer(sg->asym_prefer_cpu, sds->busiest->asym_prefer_cpu))
-			return false;
-		break;
-
-	case group_misfit_task:
-		/*
-		 * If we have more than one misfit sg go with the biggest
-		 * misfit.
-		 */
-		if (sgs->group_misfit_task_load < busiest->group_misfit_task_load)
-			return false;
-		break;
-
-	case group_fully_busy:
-		/*
-		 * Select the fully busy group with highest avg_load. In
-		 * theory, there is no need to pull task from such kind of
-		 * group because tasks have all compute capacity that they need
-		 * but we can still improve the overall throughput by reducing
-		 * contention when accessing shared HW resources.
-		 *
-		 * XXX for now avg_load is not computed and always 0 so we
-		 * select the 1st one.
-		 */
-		if (sgs->avg_load <= busiest->avg_load)
-			return false;
-		break;
-
-	case group_has_spare:
-		/*
-		 * Select not overloaded group with lowest number of idle cpus
-		 * and highest number of running tasks. We could also compare
-		 * the spare capacity which is more stable but it can end up
-		 * that the group has less spare capacity but finally more idle
-		 * CPUs which means less opportunity to pull tasks.
-		 */
-		if (sgs->idle_cpus > busiest->idle_cpus)
-			return false;
-		else if ((sgs->idle_cpus == busiest->idle_cpus) &&
-			 (sgs->sum_nr_running <= busiest->sum_nr_running))
-			return false;
-
-		break;
-	}
 
 	/*
 	 * Candidate sg has no more than one task per CPU and has higher
