@@ -8259,51 +8259,6 @@ static unsigned long __read_mostly max_load_balance_interval = HZ/10;
 
 enum fbq_type { regular, remote, all };
 
-/*
- * 'group_type' describes the group of CPUs at the moment of load balancing.
- *
- * The enum is ordered by pulling priority, with the group with lowest priority
- * first so the group_type can simply be compared when selecting the busiest
- * group. See update_sd_pick_busiest().
- */
-enum group_type {
-	/* The group has spare capacity that can be used to run more tasks.  */
-	group_has_spare = 0,
-	/*
-	 * The group is fully used and the tasks don't compete for more CPU
-	 * cycles. Nevertheless, some tasks might wait before running.
-	 */
-	group_fully_busy,
-	/*
-	 * One task doesn't fit with CPU's capacity and must be migrated to a
-	 * more powerful CPU.
-	 */
-	group_misfit_task,
-	/*
-	 * SD_ASYM_PACKING only: One local CPU with higher capacity is available,
-	 * and the task should be migrated to it instead of running on the
-	 * current CPU.
-	 */
-	group_asym_packing,
-	/*
-	 * The tasks' affinity constraints previously prevented the scheduler
-	 * from balancing the load across the system.
-	 */
-	group_imbalanced,
-	/*
-	 * The CPU is overloaded and can't provide expected CPU cycles to all
-	 * tasks.
-	 */
-	group_overloaded
-};
-
-enum migration_type {
-	migrate_load = 0,
-	migrate_util,
-	migrate_task,
-	migrate_misfit
-};
-
 #define LBF_ALL_PINNED	0x01
 #define LBF_NEED_BREAK	0x02
 #define LBF_DST_PINNED  0x04
@@ -8971,44 +8926,6 @@ static void update_blocked_averages(int cpu)
 }
 
 /********** Helpers for find_busiest_group ************************/
-
-/*
- * sg_lb_stats - stats of a sched_group required for load_balancing
- */
-struct sg_lb_stats {
-	unsigned long avg_load; /*Avg load across the CPUs of the group */
-	unsigned long group_load; /* Total load over the CPUs of the group */
-	unsigned long group_capacity;
-	unsigned long group_util; /* Total utilization over the CPUs of the group */
-	unsigned long group_runnable; /* Total runnable time over the CPUs of the group */
-	unsigned int sum_nr_running; /* Nr of tasks running in the group */
-	unsigned int sum_h_nr_running; /* Nr of CFS tasks running in the group */
-	unsigned int idle_cpus;
-	unsigned int group_weight;
-	enum group_type group_type;
-	unsigned int group_asym_packing; /* Tasks should be moved to preferred CPU */
-	unsigned long group_misfit_task_load; /* A CPU has a task too big for its capacity */
-#ifdef CONFIG_NUMA_BALANCING
-	unsigned int nr_numa_running;
-	unsigned int nr_preferred_running;
-#endif
-};
-
-/*
- * sd_lb_stats - Structure to store the statistics of a sched_domain
- *		 during load balancing.
- */
-struct sd_lb_stats {
-	struct sched_group *busiest;	/* Busiest group in this sd */
-	struct sched_group *local;	/* Local group in this sd */
-	unsigned long total_load;	/* Total load of all groups in sd */
-	unsigned long total_capacity;	/* Total capacity of all groups in sd */
-	unsigned long avg_load;	/* Average load across all groups in sd */
-	unsigned int prefer_sibling; /* tasks should go to sibling first */
-
-	struct sg_lb_stats busiest_stat;/* Statistics of the busiest group */
-	struct sg_lb_stats local_stat;	/* Statistics of the local group */
-};
 
 static inline void init_sd_lb_stats(struct sd_lb_stats *sds)
 {
