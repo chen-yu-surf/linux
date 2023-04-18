@@ -76,12 +76,15 @@ struct sched_domain_attr {
 extern int sched_domain_level_max;
 
 struct sched_group;
+struct sg_snapshot;
+struct sd_snapshot;
 
 struct sched_domain_shared {
 	atomic_t	ref;
 	atomic_t	nr_busy_cpus;
 	int		has_idle_cores;
 	int		nr_idle_scan;
+	struct sd_fast_ilb *ilb;
 };
 
 struct sched_domain {
@@ -150,6 +153,7 @@ struct sched_domain {
 		struct rcu_head rcu;	/* used during destruction */
 	};
 	struct sched_domain_shared *shared;
+	struct sg_snapshot *sg_snapshot;
 
 	unsigned int span_weight;
 	/*

@@ -1941,6 +1941,24 @@ struct sd_lb_stats {
 	struct sg_lb_stats local_stat;	/* Statistics of the local group */
 };
 
+struct sg_snapshot {
+	struct sg_lb_stats *sgs;
+	struct sched_group *sg;
+};
+
+struct sd_fast_ilb {
+	/*
+	 * index into the sg_snapshot:
+	 * when new idle balance happens on CPUi,
+	 * it should pull tasks from sg_snapshot[idx_grp_busy[i]],
+	 * with the local group sg_snapshot[idx_grp_local[i]]
+	 */
+	int		*idx_grp_busy, *idx_grp_local;
+	struct sg_snapshot *sg_snapshot;
+	struct sd_lb_stats *sds;
+	unsigned long	last_lb;
+};
+
 static inline struct cpumask *sched_group_span(struct sched_group *sg)
 {
 	return to_cpumask(sg->cpumask);
