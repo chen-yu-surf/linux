@@ -47,6 +47,7 @@
 #include <linux/psi.h>
 #include <linux/ratelimit.h>
 #include <linux/task_work.h>
+#include <linux/sort.h>
 
 #include <asm/switch_to.h>
 
@@ -9163,6 +9164,28 @@ group_is_overloaded(unsigned int imbalance_pct, struct sg_lb_stats *sgs)
 	return false;
 }
 
+static bool is_llc_sd(struct lb_env *env)
+{
+	if (!sched_feat(LB_FAST))
+		return false;
+
+	if (env->sd->span_weight != per_cpu(sd_llc_size, env->dst_cpu))
+		return false;
+
+	return true;
+}
+
+static struct sched_domain *get_llc_sd(struct lb_env *env)
+{
+	return is_llc_sd(env) ? env->sd : NULL;
+}
+
+static struct sched_domain_shared *get_llc_share(struct lb_env *env)
+{
+	return is_llc_sd(env) ?
+		rcu_dereference(per_cpu(sd_llc_shared, env->dst_cpu)) : NULL;
+}
+
 static inline enum
 group_type group_classify(unsigned int imbalance_pct,
 			  struct sched_group *group,
@@ -9269,6 +9292,84 @@ static bool group_is_busier(struct sched_group *sg_a,
 	}
 
 	return true;
+}
+
+static int compare_busy_grp(const void *a, const void *b)
+{
+	struct sg_snapshot *grp_a = (struct sg_snapshot *)a;
+	struct sg_snapshot *grp_b = (struct sg_snapshot *)b;
+
+	return group_is_busier(grp_a->sg, grp_a->sgs,
+				grp_b->sg, grp_b->sgs);
+}
+
+/*
+ * Sort group's statistics by load. Then
+ * give each low load group a hint which points to a busy
+ * group to pull task from.
+ */
+static void sort_sg_lb_stats(struct lb_env *env, int nr_grps,
+			     struct sched_domain *sd,
+			     struct sched_domain_shared *sd_share,
+			     struct sd_lb_stats *sds)
+{
+	struct sg_snapshot *grps = sd->sg_snapshot;
+	struct sd_fast_ilb *ilb = sd_share->ilb;
+	int i;
+
+	/* sort the groups by their load, from low to high */
+	sort(grps, nr_grps, sizeof(struct sg_snapshot),
+	     compare_busy_grp, NULL);
+
+	/*
+	 * Generate recommended suggestion for the low load CPUs
+	 * where to pull tasks from.
+	 * For example, CPUs in group[0] should pull from group[nr - 1],
+	 * CPUs in group[1] should pull from group[nr - 2], etc.
+	 * But it requires extra check between the loca cpu and its
+	 * corresponding busy CPU for SD_ASYM_CPUCAPACITY.
+	 */
+	for (i = 0; i < (nr_grps / 2); i++) {
+		int cpu, from, to;
+
+		for_each_cpu(cpu, sched_group_span(grps[i].sg)) {
+			from = nr_grps - i - 1;
+			to = i;
+			/*
+			 * newidle "cpu" should pull tasks from sg[from],
+			 * to its local sg[to]
+			 */
+			ilb->idx_grp_busy[cpu] = from;
+			ilb->idx_grp_local[cpu] = to;
+		}
+	}
+
+	/* save the sds->total_load, total_capacity and all the statistics */
+	memcpy(ilb->sds, sds, sizeof(struct sd_lb_stats));
+	/* reuse current cpu's sd information later */
+	ilb->sg_snapshot = grps;
+}
+
+static void load_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sds,
+			     struct sched_domain_shared *sd_share)
+{
+	struct sd_fast_ilb *ilb = sd_share->ilb;
+	struct sg_snapshot *grps = ilb->sg_snapshot;
+	int idx_grp_to, idx_grp_from;
+
+	/* Load all the statistics */
+	memcpy(sds, ilb->sds, sizeof(*sds));
+
+	/* Overwrite local/busiest statistics, pull task from busy to local */
+	idx_grp_to = ilb->idx_grp_local[env->dst_cpu];
+	idx_grp_from = ilb->idx_grp_busy[env->dst_cpu];
+
+	sds->local = grps[idx_grp_to].sg;
+	memcpy(&sds->local_stat, grps[idx_grp_to].sgs,
+		sizeof(struct sg_lb_stats));
+	sds->busiest = grps[idx_grp_from].sg;
+	memcpy(&sds->busiest_stat, grps[idx_grp_from].sgs,
+		sizeof(struct sg_lb_stats));
 }
 
 /**
@@ -9955,6 +10056,46 @@ static void update_idle_cpu_scan(struct lb_env *env,
 		WRITE_ONCE(sd_share->nr_idle_scan, (int)y);
 }
 
+#define FAST_IDLE_LB_TIMEOUT 10
+
+static bool can_save_snapshot(struct lb_env *env, struct sched_domain_shared *sd_share)
+{
+	if (env->idle == CPU_NEWLY_IDLE)
+		return false;
+
+	if (time_before(jiffies, sd_share->ilb->last_lb + FAST_IDLE_LB_TIMEOUT))
+		return false;
+
+	return true;
+}
+
+static bool can_load_snapshot(struct lb_env *env, struct sched_domain_shared *sd_share)
+{
+	if (env->idle != CPU_NEWLY_IDLE)
+		return false;
+
+	if (!sd_share->ilb->last_lb)
+		return false;
+
+	if (time_after(jiffies, sd_share->ilb->last_lb + FAST_IDLE_LB_TIMEOUT))
+		return false;
+
+	return true;
+}
+
+static void save_lb_snapshot(struct sched_domain *dst_sd, struct sched_group *in_sg,
+				struct sg_lb_stats *in_sgs, int grp_idx)
+{
+	/* save corresponding statistics of this group */
+	struct sched_group *dst_sg = dst_sd->sg_snapshot[grp_idx].sg;
+	struct sg_lb_stats *dst_sgs = dst_sd->sg_snapshot[grp_idx].sgs;
+
+	memcpy(dst_sg, in_sg, sizeof(*in_sg));
+	cpumask_copy(sched_group_span(dst_sg), sched_group_span(in_sg));
+
+	memcpy(dst_sgs, in_sgs, sizeof(*in_sgs));
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -9969,6 +10110,23 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	struct sg_lb_stats tmp_sgs;
 	unsigned long sum_util = 0;
 	int sg_status = 0;
+	struct sched_domain_shared *sd_share = get_llc_share(env);
+	struct sched_domain *tmp_sd = NULL;
+	int grp_idx = 0;
+
+	if (sd_share) {
+		if (can_load_snapshot(env, sd_share)) {
+			load_sd_lb_stats(env, sds, sd_share);
+
+			goto done;
+		}
+
+		if (can_save_snapshot(env, sd_share)) {
+			tmp_sd = get_llc_sd(env);
+			if (tmp_sd)
+				sd_share->ilb->last_lb = jiffies;
+		}
+	}
 
 	do {
 		struct sg_lb_stats *sgs = &tmp_sgs;
@@ -9985,6 +10143,12 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		}
 
 		update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+
+		/* save the statistic for later sorting */
+		if (tmp_sd) {
+			save_lb_snapshot(tmp_sd, sg, sgs, grp_idx);
+			grp_idx++;
+		}
 
 		if (local_group)
 			goto next_group;
@@ -10004,6 +10168,10 @@ next_group:
 		sg = sg->next;
 	} while (sg != env->sd->groups);
 
+	if (tmp_sd)
+		sort_sg_lb_stats(env, grp_idx, tmp_sd, sd_share, sds);
+
+done:
 	/* Tag domain that child domain prefers tasks go to siblings first */
 	sds->prefer_sibling = child && child->flags & SD_PREFER_SIBLING;
 
