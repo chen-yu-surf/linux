@@ -1538,6 +1538,85 @@ static struct cpumask		***sched_domains_numa_masks;
 	 SD_NUMA		|	\
 	 SD_ASYM_PACKING)
 
+static struct sd_fast_ilb *sd_ilb_alloc(const struct cpumask *cpu_map,
+					int cpu)
+{
+	struct sd_fast_ilb *sd_ilb;
+
+	sd_ilb = kzalloc_node(sizeof(struct sd_fast_ilb),
+					GFP_KERNEL, cpu_to_node(cpu));
+	if (!sd_ilb)
+		return NULL;
+
+	sd_ilb->idx_grp_busy = kzalloc_node(sizeof(int) * (cpumask_last(cpu_map) + 1),
+					GFP_KERNEL, cpu_to_node(cpu));
+	if (!sd_ilb->idx_grp_busy)
+		return NULL;
+
+	sd_ilb->idx_grp_local = kzalloc_node(sizeof(int) * (cpumask_last(cpu_map) + 1),
+					GFP_KERNEL, cpu_to_node(cpu));
+	if (!sd_ilb->idx_grp_local)
+		return NULL;
+
+	sd_ilb->sds = kzalloc_node(sizeof(struct sd_lb_stats),
+				GFP_KERNEL, cpu_to_node(cpu));
+	if (!sd_ilb->sds)
+		return NULL;
+
+	return sd_ilb;
+}
+
+static void sd_ilb_free(struct sd_fast_ilb *sd_ilb)
+{
+	kfree(sd_ilb->idx_grp_busy);
+	kfree(sd_ilb->idx_grp_local);
+	kfree(sd_ilb->sds);
+}
+
+static struct sg_snapshot *sg_snapshot_alloc(const struct cpumask *cpu_map,
+					     int cpu)
+{
+	struct sg_snapshot *sg_snp, *sg_p;
+	int i, nr_cpus;
+
+	nr_cpus = cpumask_weight(cpu_map);
+	/* FIXME: should allocate nr_grps rather than nr_cpus */
+	sg_snp = kzalloc_node((sizeof(struct sg_snapshot) * nr_cpus),
+				GFP_KERNEL, cpu_to_node(cpu));
+	if (!sg_snp)
+		return NULL;
+
+	for (i = 0; i < nr_cpus; i++) {
+		sg_p = sg_snp + i;
+		sg_p->sgs = kzalloc_node(sizeof(struct sg_lb_stats),
+					GFP_KERNEL, cpu_to_node(i));
+		if (!sg_p->sgs)
+			return NULL;
+
+		sg_p->sg = kzalloc_node(sizeof(struct sched_group) + cpumask_size(),
+				GFP_KERNEL, cpu_to_node(i));
+		if (!sg_p->sg)
+			return NULL;
+	}
+
+	return sg_snp;
+}
+
+static void sg_snapshot_free(struct sg_snapshot *sg_snp,
+			     const struct cpumask *cpu_map)
+{
+	struct sg_snapshot *sg_p;
+	int i, nr_cpus = cpumask_weight(cpu_map);
+
+	for (i = 0; i < nr_cpus; i++) {
+		sg_p = sg_snp + i;
+		kfree(sg_p->sgs);
+		kfree(sg_p->sg);
+	}
+
+	kfree(sg_snp);
+}
+
 static struct sched_domain *
 sd_init(struct sched_domain_topology_level *tl,
 	const struct cpumask *cpu_map,
@@ -1646,6 +1725,9 @@ sd_init(struct sched_domain_topology_level *tl,
 	}
 
 	sd->private = sdd;
+
+	/* sd_snapshot can be NULL */
+	sd->sg_snapshot = sg_snapshot_alloc(cpu_map, cpu);
 
 	return sd;
 }
@@ -2164,6 +2246,36 @@ EXPORT_SYMBOL_GPL(sched_numa_hop_mask);
 
 #endif /* CONFIG_NUMA */
 
+/*
+ *                   +---------+
+ *                   |sds_share|
+ *                   ++--------+
+ *                    |
+ *                    |
+ *         +----+     |             +----+
+ *         |cpu0|     |             |cpu1|
+ *          ----+     |              ----+
+ *         +---+      |             +---+
+ *         |sd |      |             |sd |
+ *         +---+      |             +---+
+ *         +----------v-+           +------------+
+ *  sorted |sg_snapshot0|           |sg_snapshot0| sorted
+ *         +------------+           +------------+
+ *         +------------+           +------------+
+ *         |sg_snapshot1|           |sg_snapshot1|
+ *         +------------+           +------------+
+ *         +------------+           +------------+
+ *         |sg_snapshot2|           |sg_snapshot2|
+ *         +------------+           +------------+
+ *         +------------+           +------------+
+ *         |sg_snapshot3|           |sg_snapshot3|
+ *         +------------+           +------------+
+ *         +------------+           +------------+
+ *         |sg_snapshotN|           |sg_snapshotN|
+ *         +------------+           +------------+
+ *
+ */
+
 static int __sdt_alloc(const struct cpumask *cpu_map)
 {
 	struct sched_domain_topology_level *tl;
@@ -2193,6 +2305,7 @@ static int __sdt_alloc(const struct cpumask *cpu_map)
 			struct sched_domain_shared *sds;
 			struct sched_group *sg;
 			struct sched_group_capacity *sgc;
+			struct sd_fast_ilb *sd_ilb;
 
 			sd = kzalloc_node(sizeof(struct sched_domain) + cpumask_size(),
 					GFP_KERNEL, cpu_to_node(j));
@@ -2205,6 +2318,12 @@ static int __sdt_alloc(const struct cpumask *cpu_map)
 					GFP_KERNEL, cpu_to_node(j));
 			if (!sds)
 				return -ENOMEM;
+
+			sd_ilb = sd_ilb_alloc(cpu_map, j);
+			if (!sd_ilb)
+				return -ENOMEM;
+
+			sds->ilb = sd_ilb;
 
 			*per_cpu_ptr(sdd->sds, j) = sds;
 
@@ -2243,16 +2362,24 @@ static void __sdt_free(const struct cpumask *cpu_map)
 
 		for_each_cpu(j, cpu_map) {
 			struct sched_domain *sd;
+			struct sched_domain_shared *sds;
 
 			if (sdd->sd) {
 				sd = *per_cpu_ptr(sdd->sd, j);
+				if (sd && sd->sg_snapshot)
+					sg_snapshot_free(sd->sg_snapshot, cpu_map);
 				if (sd && (sd->flags & SD_OVERLAP))
 					free_sched_groups(sd->groups, 0);
 				kfree(*per_cpu_ptr(sdd->sd, j));
 			}
 
-			if (sdd->sds)
-				kfree(*per_cpu_ptr(sdd->sds, j));
+			if (sdd->sds) {
+				sds = *per_cpu_ptr(sdd->sds, j);
+				if (sds && sds->ilb)
+					sd_ilb_free(sds->ilb);
+				kfree(sds);
+			}
+
 			if (sdd->sg)
 				kfree(*per_cpu_ptr(sdd->sg, j));
 			if (sdd->sgc)
