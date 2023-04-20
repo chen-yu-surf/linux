@@ -1637,7 +1637,24 @@ int proc_do_static_key(struct ctl_table *table, int write,
 	return ret;
 }
 
+extern int ilb_lb_timeout;
+extern int new_lb_timeout;
+
 static struct ctl_table kern_table[] = {
+	{
+		.procname	= "ilb_lb_timeout",
+		.data		= &ilb_lb_timeout,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "new_lb_timeout",
+		.data		= &new_lb_timeout,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
 	{
 		.procname	= "panic",
 		.data		= &panic_timeout,

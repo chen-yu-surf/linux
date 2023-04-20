@@ -10057,13 +10057,15 @@ static void update_idle_cpu_scan(struct lb_env *env,
 }
 
 #define FAST_IDLE_LB_TIMEOUT 10
+int ilb_lb_timeout = FAST_IDLE_LB_TIMEOUT;
+int new_lb_timeout = FAST_IDLE_LB_TIMEOUT;
 
 static bool can_save_snapshot(struct lb_env *env, struct sched_domain_shared *sd_share)
 {
 	if (env->idle == CPU_NEWLY_IDLE)
 		return false;
 
-	if (time_before(jiffies, sd_share->ilb->last_lb + FAST_IDLE_LB_TIMEOUT))
+	if (time_before(jiffies, sd_share->ilb->last_lb + ilb_lb_timeout))
 		return false;
 
 	return true;
@@ -10077,7 +10079,7 @@ static bool can_load_snapshot(struct lb_env *env, struct sched_domain_shared *sd
 	if (!sd_share->ilb->last_lb)
 		return false;
 
-	if (time_after(jiffies, sd_share->ilb->last_lb + FAST_IDLE_LB_TIMEOUT))
+	if (time_after(jiffies, sd_share->ilb->last_lb + new_lb_timeout))
 		return false;
 
 	return true;
