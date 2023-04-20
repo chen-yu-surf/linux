@@ -9348,6 +9348,7 @@ static void sort_sg_lb_stats(struct lb_env *env, int nr_grps,
 	memcpy(ilb->sds, sds, sizeof(struct sd_lb_stats));
 	/* reuse current cpu's sd information later */
 	ilb->sg_snapshot = grps;
+	schedstat_inc(env->sd->lb_save[env->idle]);
 }
 
 static void load_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sds,
@@ -9370,6 +9371,7 @@ static void load_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sds,
 	sds->busiest = grps[idx_grp_from].sg;
 	memcpy(&sds->busiest_stat, grps[idx_grp_from].sgs,
 		sizeof(struct sg_lb_stats));
+	schedstat_inc(env->sd->lb_load[env->idle]);
 }
 
 /**

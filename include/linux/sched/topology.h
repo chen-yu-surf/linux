@@ -124,6 +124,8 @@ struct sched_domain {
 	unsigned int lb_hot_gained[CPU_MAX_IDLE_TYPES];
 	unsigned int lb_nobusyg[CPU_MAX_IDLE_TYPES];
 	unsigned int lb_nobusyq[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_load[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_save[CPU_MAX_IDLE_TYPES];
 
 	/* Active load balancing */
 	unsigned int alb_count;
