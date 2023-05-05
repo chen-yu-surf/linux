@@ -10118,6 +10118,31 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		if (local_group)
 			goto next_group;
 
+		/*
+		 * To speed up newidle balance, load the snapshot statistic
+		 * and stops scanning for the busiest group. The candidate
+		 * busy group has half the CPUs running tasks. Let the periodic
+		 * load balance do the accurate load balancing.
+		 * TBD: add timeout mechanism?
+		 */
+		if (sched_feat(ILB_FAST) && env->idle == CPU_NEWLY_IDLE &&
+		    (2 * sgs->sum_nr_running) >= sgs->group_weight &&
+		    is_sd_llc && sd_share->total_load) {
+
+			/*
+			 * Update the data to be used in find_busiest_group().
+			 * sds->local should have been updated when reaching
+			 * here, because local group is the first group of
+			 * the current sched domain.
+			 */
+			sds->busiest = sg;
+			sds->busiest_stat = *sgs;
+			sds->total_load = sd_share->total_load;
+			sds->total_capacity = sd_share->total_capacity;
+			sg_status = sd_share->sg_status;
+
+			break;
+		}
 
 		if (update_sd_pick_busiest(env, sds, sg, sgs)) {
 			sds->busiest = sg;
