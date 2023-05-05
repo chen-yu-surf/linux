@@ -10094,6 +10094,10 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	struct sg_lb_stats tmp_sgs;
 	unsigned long sum_util = 0;
 	int sg_status = 0;
+	struct sched_domain_shared *sd_share =
+		rcu_dereference(per_cpu(sd_llc_shared, env->dst_cpu));
+	bool is_sd_llc = sd_share &&
+		(per_cpu(sd_llc_size, env->dst_cpu) == env->sd->span_weight);
 
 	do {
 		struct sg_lb_stats *sgs = &tmp_sgs;
@@ -10128,6 +10132,12 @@ next_group:
 		sum_util += sgs->group_util;
 		sg = sg->next;
 	} while (sg != env->sd->groups);
+
+	if (sched_feat(ILB_FAST) && env->idle != CPU_NEWLY_IDLE && is_sd_llc) {
+		sd_share->total_load = sds->total_load;
+		sd_share->total_capacity = sds->total_capacity;
+		sd_share->sg_status = sg_status;
+	}
 
 	/* Tag domain that child domain prefers tasks go to siblings first */
 	sds->prefer_sibling = child && child->flags & SD_PREFER_SIBLING;
