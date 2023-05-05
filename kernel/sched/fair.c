@@ -10103,6 +10103,9 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		struct sg_lb_stats *sgs = &tmp_sgs;
 		int local_group;
 
+		if (is_sd_llc)
+			schedstat_inc(env->sd->ilb_grp_scan);
+
 		local_group = cpumask_test_cpu(env->dst_cpu, sched_group_span(sg));
 		if (local_group) {
 			sds->local = sg;
@@ -10141,6 +10144,7 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 			sds->total_capacity = sd_share->total_capacity;
 			sg_status = sd_share->sg_status;
 
+			schedstat_inc(env->sd->ilb_fast_suc);
 			break;
 		}
 
