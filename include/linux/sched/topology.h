@@ -125,6 +125,11 @@ struct sched_domain {
 	unsigned int lb_nobusyg[CPU_MAX_IDLE_TYPES];
 	unsigned int lb_nobusyq[CPU_MAX_IDLE_TYPES];
 
+	/* fast ilb */
+	unsigned int ilb_update_sd_cnt;
+	unsigned int ilb_check_busy_cnt;
+	unsigned int ilb_break_cnt;
+
 	/* Active load balancing */
 	unsigned int alb_count;
 	unsigned int alb_failed;

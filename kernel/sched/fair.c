@@ -10083,6 +10083,9 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	unsigned long sum_util = 0;
 	int sg_status = 0, sum_nr_running = 0;
 
+	if (env->idle == CPU_NEWLY_IDLE && sd_share)
+		schedstat_inc(env->sd->ilb_update_sd_cnt);
+
 	do {
 		struct sg_lb_stats *sgs = &tmp_sgs;
 		int local_group;
@@ -10102,6 +10105,8 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		if (local_group)
 			goto next_group;
 
+		if (env->idle == CPU_NEWLY_IDLE && sd_share)
+			schedstat_inc(env->sd->ilb_check_busy_cnt);
 
 		if (update_sd_pick_busiest(env, sds, sg, sgs)) {
 			sds->busiest = sg;
@@ -10117,6 +10122,7 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 				sds->total_load = sd_share->total_load;
 				sds->total_capacity = sd_share->total_capacity;
 
+				schedstat_inc(env->sd->ilb_break_cnt);
 				break;
 			}
 		}
