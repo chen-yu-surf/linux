@@ -10106,6 +10106,19 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		if (update_sd_pick_busiest(env, sds, sg, sgs)) {
 			sds->busiest = sg;
 			sds->busiest_stat = *sgs;
+			if (sched_feat(ILB_FAST) && env->idle == CPU_NEWLY_IDLE &&
+			    sd_share && sd_share->total_load) {
+				/*
+				 * Reuse the statistic of periodic load balance.
+				 * Avoid scanning for the whole sched domain to
+				 * find the busiest candidate group. Just choose
+				 * a relative busier group for new idle balance.
+				 */
+				sds->total_load = sd_share->total_load;
+				sds->total_capacity = sd_share->total_capacity;
+
+				break;
+			}
 		}
 
 next_group:
