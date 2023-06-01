@@ -10057,6 +10057,17 @@ static void update_idle_cpu_scan(struct lb_env *env,
 		WRITE_ONCE(sd_share->nr_idle_scan, (int)y);
 }
 
+static struct sched_domain_shared *get_llc_shared(struct lb_env *env)
+{
+	struct sched_domain_shared *sd_share = NULL;
+
+	/* Doing balance in a LLC */
+	if (per_cpu(sd_llc_size, env->dst_cpu) == env->sd->span_weight)
+		sd_share = rcu_dereference(per_cpu(sd_llc_shared, env->dst_cpu));
+
+	return sd_share;
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -10065,6 +10076,7 @@ static void update_idle_cpu_scan(struct lb_env *env,
 
 static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sds)
 {
+	struct sched_domain_shared *sd_share = get_llc_shared(env);
 	struct sched_group *sg = env->sd->groups;
 	struct sg_lb_stats *local = &sds->local_stat;
 	struct sg_lb_stats tmp_sgs;
@@ -10104,6 +10116,14 @@ next_group:
 		sum_util += sgs->group_util;
 		sg = sg->next;
 	} while (sg != env->sd->groups);
+
+	if (sched_feat(ILB_FAST) && env->idle != CPU_NEWLY_IDLE && sd_share) {
+		/*
+		 * Save a snapshot for later use.
+		 */
+		sd_share->total_load = sds->total_load;
+		sd_share->total_capacity = sds->total_capacity;
+	}
 
 	/*
 	 * Indicate that the child domain of the busiest group prefers tasks
