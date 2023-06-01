@@ -10081,7 +10081,7 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	struct sg_lb_stats *local = &sds->local_stat;
 	struct sg_lb_stats tmp_sgs;
 	unsigned long sum_util = 0;
-	int sg_status = 0;
+	int sg_status = 0, sum_nr_running = 0;
 
 	do {
 		struct sg_lb_stats *sgs = &tmp_sgs;
@@ -10114,14 +10114,20 @@ next_group:
 		sds->total_capacity += sgs->group_capacity;
 
 		sum_util += sgs->group_util;
+		sum_nr_running += sgs->sum_nr_running;
 		sg = sg->next;
 	} while (sg != env->sd->groups);
 
 	if (sched_feat(ILB_FAST) && env->idle != CPU_NEWLY_IDLE && sd_share) {
 		/*
-		 * Save a snapshot for later use.
+		 * Save a snapshot for later use. If there are many running
+		 * tasks in the domain, do not enable fast idle balance but
+		 * to let normal idle balance to pull tasks as much as possible.
+		 * The total_load is used as a flag to indicate whether to
+		 * enable fast idle balance or not.
 		 */
-		sd_share->total_load = sds->total_load;
+		sd_share->total_load = sum_nr_running < env->sd->span_weight ?
+					sds->total_load : 0;
 		sd_share->total_capacity = sds->total_capacity;
 	}
 
