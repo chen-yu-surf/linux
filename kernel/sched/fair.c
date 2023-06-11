@@ -10088,6 +10088,55 @@ static void update_idle_cpu_scan(struct lb_env *env,
 		WRITE_ONCE(sd_share->nr_idle_scan, (int)y);
 }
 
+static void update_ilb_group_scan(struct lb_env *env,
+				  unsigned long sum_util,
+				  struct sched_domain_shared *sd_share,
+				  struct sd_lb_stats *sds)
+{
+	u64 tmp, nr_scan;
+
+	if (!sched_feat(ILB_UTIL) || env->idle == CPU_NEWLY_IDLE)
+		return;
+
+	if (!sd_share)
+		return;
+	/*
+	 * #1 When under-loaded, newidle_balance() spends less time
+	 *    searching for the busiest group, but find a relative
+	 *    busy group:
+	 *    1. There is less likely an emergency requirement to
+	 *       offload the busiest group.
+	 *    2. There could be a lot of CPUs running newidle_balance()
+	 *       at the same time. The cost of newidle_balance() is O(n^2).
+	 *
+	 * #2 When overloaded, newidle_balance() tries its best to find
+	 *    the busiest group:
+	 *    1. There is a strong requirement to eliminate the imbalance
+	 *       to offload the burden of overloaded CPUs.
+	 *    2. The periodic load balance increases the balance interval
+	 *       when the launching CPU is busy(see get_sd_balance_interval()),
+	 *       so newidle_balance() has to do more.
+	 *
+	 * Based on that, let the number of scanned groups be a linear
+	 * function of the utilization ratio:
+	 *
+	 * nr_groups_scan = nr_groups * util_ratio
+	 * and util_ratio = sum_util / (sd_weight * SCHED_CAPACITY_SCALE)
+	 */
+	nr_scan = env->sd->nr_groups * sum_util;
+	tmp = env->sd->span_weight * SCHED_CAPACITY_SCALE;
+	do_div(nr_scan, tmp);
+	if ((int)nr_scan != sd_share->ilb_nr_scan)
+		WRITE_ONCE(sd_share->ilb_nr_scan, (int)nr_scan);
+
+	/* Also save the statistic snapshot of the periodic load balance */
+	if (sds->total_load != sd_share->ilb_total_load)
+		WRITE_ONCE(sd_share->ilb_total_load, sds->total_load);
+
+	if (sds->total_capacity != sd_share->ilb_total_capacity)
+		WRITE_ONCE(sd_share->ilb_total_capacity, sds->total_capacity);
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -10162,6 +10211,7 @@ next_group:
 	}
 
 	update_idle_cpu_scan(env, sum_util, sd_share);
+	update_ilb_group_scan(env, sum_util, sd_share, sds);
 }
 
 /**
