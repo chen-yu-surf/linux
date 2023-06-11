@@ -10009,10 +10009,21 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 	return idlest;
 }
 
-static void update_idle_cpu_scan(struct lb_env *env,
-				 unsigned long sum_util)
+/* Get the LLC shared information of dst CPU if doing balance in LLC */
+static struct sched_domain_shared *get_llc_shared(struct lb_env *env)
 {
-	struct sched_domain_shared *sd_share;
+	struct sched_domain_shared *sd_share = NULL;
+
+	if (per_cpu(sd_llc_size, env->dst_cpu) == env->sd->span_weight)
+		sd_share = rcu_dereference(per_cpu(sd_llc_shared, env->dst_cpu));
+
+	return sd_share;
+}
+
+static void update_idle_cpu_scan(struct lb_env *env,
+				 unsigned long sum_util,
+				 struct sched_domain_shared *sd_share)
+{
 	int llc_weight, pct;
 	u64 x, y, tmp;
 	/*
@@ -10026,13 +10037,10 @@ static void update_idle_cpu_scan(struct lb_env *env,
 	if (!sched_feat(SIS_UTIL) || env->idle == CPU_NEWLY_IDLE)
 		return;
 
-	llc_weight = per_cpu(sd_llc_size, env->dst_cpu);
-	if (env->sd->span_weight != llc_weight)
-		return;
-
-	sd_share = rcu_dereference(per_cpu(sd_llc_shared, env->dst_cpu));
 	if (!sd_share)
 		return;
+
+	llc_weight = per_cpu(sd_llc_size, env->dst_cpu);
 
 	/*
 	 * The number of CPUs to search drops as sum_util increases, when
@@ -10088,6 +10096,7 @@ static void update_idle_cpu_scan(struct lb_env *env,
 
 static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sds)
 {
+	struct sched_domain_shared *sd_share = get_llc_shared(env);
 	struct sched_domain *child = env->sd->child;
 	struct sched_group *sg = env->sd->groups;
 	struct sg_lb_stats *local = &sds->local_stat;
@@ -10152,7 +10161,7 @@ next_group:
 		trace_sched_overutilized_tp(rd, SG_OVERUTILIZED);
 	}
 
-	update_idle_cpu_scan(env, sum_util);
+	update_idle_cpu_scan(env, sum_util, sd_share);
 }
 
 /**
