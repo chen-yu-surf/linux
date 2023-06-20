@@ -511,6 +511,30 @@ static const struct x86_cpu_id intel_cod_cpu[] = {
 	{}
 };
 
+static unsigned int sub_llc_nr;
+
+static int __init parse_sub_llc(char *str)
+{
+	get_option(&str, &sub_llc_nr);
+
+	return 0;
+}
+early_param("sub_llc_nr", parse_sub_llc);
+
+static bool
+topology_same_llc(struct cpuinfo_x86 *c, struct cpuinfo_x86 *o)
+{
+	int idx1, idx2;
+
+	if (!sub_llc_nr)
+		return true;
+
+	idx1 = c->apicid / sub_llc_nr;
+	idx2 = o->apicid / sub_llc_nr;
+
+	return idx1 == idx2;
+}
+
 static bool match_llc(struct cpuinfo_x86 *c, struct cpuinfo_x86 *o)
 {
 	const struct x86_cpu_id *id = x86_match_cpu(intel_cod_cpu);
@@ -530,7 +554,7 @@ static bool match_llc(struct cpuinfo_x86 *c, struct cpuinfo_x86 *o)
 	 * means 'c' does not share the LLC of 'o'. This will be
 	 * reflected to userspace.
 	 */
-	if (match_pkg(c, o) && !topology_same_node(c, o) && intel_snc)
+	if (match_pkg(c, o) && (!topology_same_node(c, o) || !topology_same_llc(c, o)) && intel_snc)
 		return false;
 
 	return topology_sane(c, o, "llc");
