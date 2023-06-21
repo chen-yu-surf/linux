@@ -6996,11 +6996,13 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 
 	for_each_cpu_wrap(cpu, cpus, target + 1) {
 		if (has_idle_core) {
+			schedstat_inc(sd->sic_nr_scan);
 			i = select_idle_core(p, cpu, cpus, &idle_cpu);
 			if ((unsigned int)i < nr_cpumask_bits)
 				return i;
 
 		} else {
+			schedstat_inc(sd->sic_nr_scan);
 			if (!--nr)
 				return -1;
 			idle_cpu = __select_idle_cpu(cpu, p);
@@ -7050,6 +7052,7 @@ select_idle_node(struct task_struct *p, struct sched_domain *sd, int target)
 		if (cpumask_test_cpu(target, sched_group_span(sg)))
 			continue;
 
+		schedstat_inc(sd->sin_nr_scan);
 		sd_child = per_cpu(sd_llc, cpu);
 		i = select_idle_cpu(p, sd_child, test_idle_cores(cpu), cpu);
 		if ((unsigned)i < nr_cpumask_bits)
@@ -7139,6 +7142,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	unsigned long task_util, util_min, util_max;
 	int i, recent_used_cpu;
 
+	schedstat_inc(sd->sis_nr_total);
 	/*
 	 * On asymmetric system, update task utilization because we will check
 	 * that the task fits with cpu's capacity.
@@ -7229,6 +7233,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 		}
 	}
 
+	schedstat_inc(sd->sis_nr_sic);
 	i = select_idle_cpu(p, sd, has_idle_core, target);
 	if ((unsigned)i < nr_cpumask_bits)
 		return i;
@@ -7239,6 +7244,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 			return i;
 	}
 
+	schedstat_inc(sd->sis_nr_target);
 	return target;
 }
 

@@ -141,6 +141,12 @@ struct sched_domain {
 	unsigned int ttwu_wake_remote;
 	unsigned int ttwu_move_affine;
 	unsigned int ttwu_move_balance;
+
+	unsigned int sis_nr_total;
+	unsigned int sis_nr_sic;
+	unsigned int sis_nr_target;
+	unsigned int sic_nr_scan;
+	unsigned int sin_nr_scan;
 #endif
 #ifdef CONFIG_SCHED_DEBUG
 	char *name;
