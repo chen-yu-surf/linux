@@ -10127,7 +10127,12 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	struct sg_lb_stats *local = &sds->local_stat;
 	struct sg_lb_stats tmp_sgs;
 	unsigned long sum_util = 0;
-	int sg_status = 0;
+	int sg_status = 0, nr_scan_ilb;
+	bool ilb_util_enabled = sched_feat(ILB_UTIL) && env->idle == CPU_NEWLY_IDLE &&
+	    sd_share && READ_ONCE(sd_share->ilb_total_capacity);
+
+	if (ilb_util_enabled)
+		nr_scan_ilb = sd_share->ilb_nr_scan;
 
 	do {
 		struct sg_lb_stats *sgs = &tmp_sgs;
@@ -10144,6 +10149,14 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		}
 
 		update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+
+		if (ilb_util_enabled && --nr_scan_ilb <= 0) {
+			/* borrow the statistic of previous periodic load balance */
+			sds->total_load = READ_ONCE(sd_share->ilb_total_load);
+			sds->total_capacity = READ_ONCE(sd_share->ilb_total_capacity);
+
+			break;
+		}
 
 		if (local_group)
 			goto next_group;
