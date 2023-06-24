@@ -10080,6 +10080,39 @@ static void update_idle_cpu_scan(struct lb_env *env,
 		WRITE_ONCE(sd_share->nr_idle_scan, (int)y);
 }
 
+static void update_ilb_group_scan(struct lb_env *env,
+				  unsigned long sum_util,
+				  struct sched_domain_shared *sd_share,
+				  struct sd_lb_stats *sds)
+{
+	u64 tmp, nr_scan;
+
+	if (!sched_feat(ILB_UTIL) || env->idle == CPU_NEWLY_IDLE)
+		return;
+
+	if (!sd_share)
+		return;
+	/*
+	 * Limit the newidle balance scan depth based on overall system
+	 * utilization:
+	 * nr_groups_scan = nr_groups * (1 - util_ratio)
+	 * and util_ratio = sum_util / (sd_weight * SCHED_CAPACITY_SCALE)
+	 */
+	nr_scan = env->sd->nr_groups * sum_util;
+	tmp = env->sd->span_weight * SCHED_CAPACITY_SCALE;
+	do_div(nr_scan, tmp);
+	nr_scan = env->sd->nr_groups - nr_scan;
+	if ((int)nr_scan != sd_share->ilb_nr_scan)
+		WRITE_ONCE(sd_share->ilb_nr_scan, (int)nr_scan);
+
+	/* Also save the statistic snapshot of the periodic load balance */
+	if (sds->total_load != sd_share->ilb_total_load)
+		WRITE_ONCE(sd_share->ilb_total_load, sds->total_load);
+
+	if (sds->total_capacity != sd_share->ilb_total_capacity)
+		WRITE_ONCE(sd_share->ilb_total_capacity, sds->total_capacity);
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -10088,6 +10121,7 @@ static void update_idle_cpu_scan(struct lb_env *env,
 
 static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sds)
 {
+	struct sched_domain_shared *sd_share = env->sd->shared;
 	struct sched_domain *child = env->sd->child;
 	struct sched_group *sg = env->sd->groups;
 	struct sg_lb_stats *local = &sds->local_stat;
@@ -10153,6 +10187,7 @@ next_group:
 	}
 
 	update_idle_cpu_scan(env, sum_util);
+	update_ilb_group_scan(env, sum_util, sd_share, sds);
 }
 
 /**

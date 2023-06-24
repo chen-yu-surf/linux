@@ -82,6 +82,10 @@ struct sched_domain_shared {
 	atomic_t	nr_busy_cpus;
 	int		has_idle_cores;
 	int		nr_idle_scan;
+	/* ilb scan depth and load balance statistic snapshot */
+	int		ilb_nr_scan;
+	unsigned long ilb_total_load;
+	unsigned long ilb_total_capacity;
 };
 
 struct sched_domain {
