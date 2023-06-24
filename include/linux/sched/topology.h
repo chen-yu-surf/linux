@@ -152,6 +152,7 @@ struct sched_domain {
 	struct sched_domain_shared *shared;
 
 	unsigned int span_weight;
+	unsigned int nr_groups;
 	/*
 	 * Span of all CPUs in this domain.
 	 *
