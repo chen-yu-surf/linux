@@ -2212,6 +2212,8 @@ static int __sdt_alloc(const struct cpumask *cpu_map)
 			if (!sds)
 				return -ENOMEM;
 
+			raw_spin_lock_init(&sds->sg_lock);
+
 			*per_cpu_ptr(sdd->sds, j) = sds;
 
 			sg = kzalloc_node(sizeof(struct sched_group) + cpumask_size(),

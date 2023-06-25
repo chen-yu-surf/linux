@@ -146,6 +146,13 @@ struct sched_domain_shared {
 	int		ilb_nr_scan;
 	unsigned long ilb_total_load;
 	unsigned long ilb_total_capacity;
+	/*
+	 * sg_lock can be heavily contended at newidle balance, put
+	 * it in its own cacheline separated from the fields above
+	 * will also be accessed during newidle balance.
+	 */
+	raw_spinlock_t sg_lock ____cacheline_aligned;
+	struct sg_lb_stats sgs;
 };
 
 struct sched_domain {

@@ -10088,7 +10088,25 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 				update_group_capacity(env->sd, env->dst_cpu);
 		}
 
-		update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+		if (sched_feat(LB_SNAPSHOT) && local_group && env->sd->child) {
+			struct sched_domain_shared *child_sd_share = env->sd->child->shared;
+
+			/* update the group's statistic exclusively */
+			if (raw_spin_trylock(&child_sd_share->sg_lock)) {
+				update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+				memcpy(&child_sd_share->sgs, sgs, sizeof(*sgs));
+
+				raw_spin_unlock(&child_sd_share->sg_lock);
+			}
+
+			/*
+			 * Load the statistic of this group since someone in this group
+			 * has updated it for us.
+			 */
+			sgs = &child_sd_share->sgs;
+		} else {
+			update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+		}
 
 		if (ilb_util_enabled && --nr_scan_ilb <= 0) {
 			/* borrow the statistic of previous periodic load balance */
