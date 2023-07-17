@@ -1023,7 +1023,7 @@ build_overlap_sched_groups(struct sched_domain *sd, int cpu)
 	struct cpumask *covered = sched_domains_tmpmask;
 	struct sd_data *sdd = sd->private;
 	struct sched_domain *sibling;
-	int i;
+	int i, nr_groups = 0;
 
 	cpumask_clear(covered);
 
@@ -1087,6 +1087,8 @@ build_overlap_sched_groups(struct sched_domain *sd, int cpu)
 		if (!sg)
 			goto fail;
 
+		nr_groups++;
+
 		sg_span = sched_group_span(sg);
 		cpumask_or(covered, covered, sg_span);
 
@@ -1100,6 +1102,7 @@ build_overlap_sched_groups(struct sched_domain *sd, int cpu)
 		last->next = first;
 	}
 	sd->groups = first;
+	sd->nr_groups = nr_groups;
 
 	return 0;
 
@@ -1233,7 +1236,7 @@ build_sched_groups(struct sched_domain *sd, int cpu)
 	struct sd_data *sdd = sd->private;
 	const struct cpumask *span = sched_domain_span(sd);
 	struct cpumask *covered;
-	int i;
+	int i, nr_groups = 0;
 
 	lockdep_assert_held(&sched_domains_mutex);
 	covered = sched_domains_tmpmask;
@@ -1248,6 +1251,8 @@ build_sched_groups(struct sched_domain *sd, int cpu)
 
 		sg = get_group(i, sdd);
 
+		nr_groups++;
+
 		cpumask_or(covered, covered, sched_group_span(sg));
 
 		if (!first)
@@ -1258,6 +1263,7 @@ build_sched_groups(struct sched_domain *sd, int cpu)
 	}
 	last->next = first;
 	sd->groups = first;
+	sd->nr_groups = nr_groups;
 
 	return 0;
 }
