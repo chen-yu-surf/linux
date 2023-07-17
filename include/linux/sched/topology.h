@@ -137,6 +137,9 @@ struct sg_lb_stats {
 #endif
 };
 
+#define SGS_READ	0x1
+#define SGS_WRITE	0x2
+
 struct sched_domain_shared {
 	atomic_t	ref;
 	atomic_t	nr_busy_cpus;
@@ -146,6 +149,19 @@ struct sched_domain_shared {
 	int		ilb_nr_scan;
 	unsigned long ilb_total_load;
 	unsigned long ilb_total_capacity;
+	/*
+	 * The following is the snapshot of the sched group statistics.
+	 * It is stored in sd->child->shared, where
+	 * sched_group_span(sg) == sched_domain_span(sd->child)
+	 * Placed in a separate cache line to avoid conflict with
+	 * above items.
+	 */
+	raw_spinlock_t sg_lock ____cacheline_aligned;
+	/* either SGS_READ or SGS_WRITE */
+	int sgs_flags;
+	/* the snapshot */
+	struct sg_lb_stats sgs;
+	int sg_status;
 };
 
 struct sched_domain {

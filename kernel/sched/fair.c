@@ -10121,6 +10121,8 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	int sg_status = 0, nr_scan_ilb;
 	bool ilb_util_enabled = sched_feat(ILB_UTIL) && env->idle == CPU_NEWLY_IDLE &&
 	    sd_share && READ_ONCE(sd_share->ilb_total_capacity);
+	bool lb_snapshot = sched_feat(LB_SNAPSHOT) && env->sd->child &&
+			   env->sd->child->shared;
 
 	if (ilb_util_enabled)
 		nr_scan_ilb = sd_share->ilb_nr_scan;
@@ -10137,9 +10139,47 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 			if (env->idle != CPU_NEWLY_IDLE ||
 			    time_after_eq(jiffies, sg->sgc->next_update))
 				update_group_capacity(env->sd, env->dst_cpu);
+
+			if (lb_snapshot) {
+				struct sched_domain_shared *child_sd_share = env->sd->child->shared;
+				int sgs_flags = READ_ONCE(child_sd_share->sgs_flags);
+
+				/* only 1 CPU can update the statistic snapshot */
+				if (raw_spin_trylock(&child_sd_share->sg_lock)) {
+
+					update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+					/* skip if someone is reading */
+					if (!(sgs_flags & SGS_READ) &&
+					    try_cmpxchg(&child_sd_share->sgs_flags, &sgs_flags, SGS_WRITE)) {
+						memcpy(&child_sd_share->sgs, sgs, sizeof(*sgs));
+						child_sd_share->sg_status = sg_status;
+
+						smp_wmb();
+						/* tell the reader to go */
+						WRITE_ONCE(child_sd_share->sgs_flags, sgs_flags & (~SGS_WRITE));
+					}
+
+					raw_spin_unlock(&child_sd_share->sg_lock);
+
+				} else if (!(sgs_flags & SGS_WRITE)) {
+					/* tell the writer to stop, and don't repeatly write the flags */
+					if (!sgs_flags & READ)
+						try_cmpxchg(&child_sd_share->sgs_flags, &sgs_flags, SGS_READ);
+
+					/* load the snapshot */
+					memcpy(sgs, &child_sd_share->sgs, sizeof(*sgs));
+					sg_status = child_sd_share->sg_status;
+					/* tell the writer to go */
+					WRITE_ONCE(child_sd_share->sgs_flags, sgs_flags & (~SGS_READ));
+				} else {
+					/* fail to load the snapshot because someone is writing */
+					lb_snapshot = false;
+				}
+			}
 		}
 
-		update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+		if (!lb_snapshot)
+			update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
 
 		if (ilb_util_enabled && --nr_scan_ilb <= 0) {
 			/* borrow the statistic of previous periodic load balance */
