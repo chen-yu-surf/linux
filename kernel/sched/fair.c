@@ -11855,6 +11855,7 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	u64 t0, t1, curr_cost = 0;
 	struct sched_domain *sd;
 	int pulled_task = 0;
+	ktime_t next_timer;
 
 	update_misfit_status(NULL, this_rq);
 
@@ -11885,11 +11886,16 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	 */
 	rq_unpin_lock(this_rq, rf);
 
+	next_timer = ktime_sub(tick_nohz_get_next_hrtimer(), ktime_get());
+	if (unlikely(next_timer < 0))
+		next_timer = 0;
+
 	rcu_read_lock();
 	sd = rcu_dereference_check_sched_domain(this_rq->sd);
 
 	if (!READ_ONCE(this_rq->rd->overload) ||
-	    (sd && this_rq->avg_idle < sd->max_newidle_lb_cost)) {
+	    (sd && (this_rq->avg_idle < sd->max_newidle_lb_cost ||
+	     next_timer < sd->max_newidle_lb_cost))) {
 
 		if (sd)
 			update_next_balance(sd, &next_balance);
@@ -11911,7 +11917,8 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 
 		update_next_balance(sd, &next_balance);
 
-		if (this_rq->avg_idle < curr_cost + sd->max_newidle_lb_cost)
+		if (this_rq->avg_idle < curr_cost + sd->max_newidle_lb_cost ||
+		    next_timer < curr_cost + sd->max_newidle_lb_cost)
 			break;
 
 		if (sd->flags & SD_BALANCE_NEWIDLE) {
