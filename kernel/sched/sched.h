@@ -1885,6 +1885,7 @@ struct sched_group {
 	struct sched_group_capacity *sgc;
 	int			asym_prefer_cpu;	/* CPU of highest priority in group */
 	int			flags;
+	struct sched_domain	*sd;			/* the sched_domain belongs to */
 
 	/*
 	 * The CPUs this group covers.

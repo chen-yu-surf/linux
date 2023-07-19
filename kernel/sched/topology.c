@@ -1103,6 +1103,7 @@ build_overlap_sched_groups(struct sched_domain *sd, int cpu)
 	}
 	sd->groups = first;
 	sd->nr_groups = nr_groups;
+	first->sd = sd;
 
 	return 0;
 
@@ -1264,6 +1265,7 @@ build_sched_groups(struct sched_domain *sd, int cpu)
 	last->next = first;
 	sd->groups = first;
 	sd->nr_groups = nr_groups;
+	first->sd = sd;
 
 	return 0;
 }
