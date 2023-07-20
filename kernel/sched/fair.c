@@ -10105,6 +10105,120 @@ static void update_ilb_group_scan(struct lb_env *env,
 		WRITE_ONCE(sd_share->ilb_total_capacity, sds->total_capacity);
 }
 
+/*
+ * Check if there is a snapshot of this group and load it if someone has
+ * calculated it for us. The snapshot statistic of the sched group is stored
+ * in the sched domain which has the same cpumask as this sched group:
+ *
+ *        +--------------------+
+ *        |                    |
+ * groups |      domain 0      |
+ *   +----+                    |
+ *   |    +-------------------+
+ *   |     ^              |child
+ *   |     |sd            |
+ *  +v--------+    +------v----+         +------------------+
+ *  |         |    |           | shared  |                  |
+ *  | group 0 |    | domain 00 +-------->+ group statistics |
+ *  |         |    |           |         |                  |
+ *  +---------+    +-----------+         +------------------+
+ *  cpu0,cpu1
+ *
+ *                 CPU 0
+ *
+ * When CPU 0 tries to get the statistic of group 0, it checks domain 0's
+ * child domain 00. If there is a valid statistic snapshot stored in domain 00's
+ * shared field, load it directly. This can avoid duplicated iteration on multiple
+ * CPUs.
+ */
+static bool try_to_load_snapshot_stats(struct lb_env *env, struct sched_group *sg,
+				       struct sg_lb_stats *sgs, int *sg_status,
+				       struct sd_lb_stats *sds)
+{
+	struct sched_domain_shared *sd_share;
+	struct sg_lb_stats *sgs_snapshot;
+	struct sched_domain *sd;
+
+	if (!sched_feat(LB_SNAPSHOT))
+		return false;
+
+	/*
+	 * For sched group that has many CPUs, enable this feature.
+	 * This to offset the overhead of memcpy.
+	 * Say, if group has 4 CPUs. If LB_SNAPSHOT is disabled, it
+	 * has to iterate 4 CPUs and reads the percpu data to get a
+	 * stats. If LB_SNAPSHOT is enable, it will do extra
+	 * sizeof(sg) / sizeof(unsigned long) of 'mov' to load the snapshot.
+	 * If the former has lower cost, it does not make sense to
+	 * enable LB_SNAPSHOT on this group.
+	 */
+	if (sg->group_weight * sizeof(unsigned long) <= sizeof(*sgs))
+		return false;
+
+	/* in case the group has not been assigned a domain yet */
+	if (!sg->sd)
+		return false;
+
+	sd = sg->sd->child;
+	if (!sd)
+		return false;
+
+	sd_share = sd->shared;
+	if (!sd_share)
+		return false;
+
+	sgs_snapshot = sd_share->sgs;
+
+	/* writer: only 1 CPU in this group can update the snapshot */
+	if (raw_spin_trylock(&sd_share->sg_lock)) {
+		/* find the next available slot */
+		int new_tail = (sd_share->tail + 1) % NR_SNAPSHOT_BUF;
+
+		/* step 1: get the statistic into the temporary sgs buffer */
+		update_sg_lb_stats(env, sds, sg, sgs, sg_status);
+		/*
+		 * step 2: save the latest statistic to the shared buffer.
+		 *
+		 * The reason why we don't update the shared buffer
+		 * directly is because there is a race condition:
+		 * When the reader is reading the snapshot, the writer
+		 * is also writing data to it. Since the writer leverages
+		 * update_sg_lb_stats() to firstly clear the statistics, it is
+		 * possible that the reader could read a sgs->group_capacity
+		 * of 0, which causes divide by zero exception in
+		 * update_sg_lb_stats().
+		 *
+		 * There is no strict synchronization between the reader and
+		 * the writer. The overlap is tolerated to some extent to
+		 * benefit efficiency. Afterall the data of sg_lb_stats
+		 * was retrieved without any rq lock.
+		 */
+		memcpy(&sgs_snapshot[new_tail], sgs, sizeof(*sgs));
+		sd_share->sg_status[new_tail] = *sg_status;
+		sd_share->tail = new_tail;
+
+		raw_spin_unlock(&sd_share->sg_lock);
+
+		return true;
+	}
+
+	/*
+	 * reader: load the snapshot if it is valid:
+	 * group_weight not NULL indicates that the snapshot
+	 * has been once updated.
+	 */
+	if (sgs_snapshot[sd_share->tail].group_weight) {
+
+		/* load the snapshot */
+		memcpy(sgs, &sgs_snapshot[sd_share->tail], sizeof(*sgs));
+		*sg_status = sd_share->sg_status[sd_share->tail];
+
+		return true;
+	}
+
+	return false;
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -10137,9 +10251,11 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 			if (env->idle != CPU_NEWLY_IDLE ||
 			    time_after_eq(jiffies, sg->sgc->next_update))
 				update_group_capacity(env->sd, env->dst_cpu);
+
 		}
 
-		update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
+		if (!try_to_load_snapshot_stats(env, sg, sgs, &sg_status, sds))
+			update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
 
 		if (ilb_util_enabled && --nr_scan_ilb <= 0) {
 			/* borrow the statistic of previous periodic load balance */
