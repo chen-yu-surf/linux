@@ -9447,6 +9447,8 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 		sgs->group_runnable += cpu_runnable(rq);
 		sgs->sum_h_nr_running += rq->cfs.h_nr_running;
 
+		schedstat_inc(env->sd->lb_cpu_scan[env->idle]);
+
 		nr_running = rq->nr_running;
 		sgs->sum_nr_running += nr_running;
 
@@ -10253,6 +10255,8 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 				update_group_capacity(env->sd, env->dst_cpu);
 
 		}
+
+		schedstat_inc(env->sd->lb_sg_scan[env->idle]);
 
 		if (!try_to_load_snapshot_stats(env, sg, sgs, &sg_status, sds))
 			update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
