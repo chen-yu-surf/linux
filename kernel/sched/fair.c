@@ -10153,6 +10153,35 @@ static void ilb_save_stats(struct lb_env *env,
 		WRITE_ONCE(sd_share->total_capacity, sds->total_capacity);
 }
 
+static void update_ilb_group_scan(struct lb_env *env,
+				  unsigned long sum_util,
+				  struct sched_domain_shared *sd_share)
+{
+	u64 tmp, nr_scan;
+
+	if (!sched_feat(ILB_UTIL))
+		return;
+
+	if (!sd_share)
+		return;
+
+	if (env->idle == CPU_NEWLY_IDLE)
+		return;
+
+	/*
+	 * Limit the newidle balance scan depth based on overall system
+	 * utilization:
+	 * nr_groups_scan = nr_groups * (1 - util_ratio)
+	 * and util_ratio = sum_util / (sd_weight * SCHED_CAPACITY_SCALE)
+	 */
+	nr_scan = env->sd->nr_groups * sum_util;
+	tmp = env->sd->span_weight * SCHED_CAPACITY_SCALE;
+	do_div(nr_scan, tmp);
+	nr_scan = env->sd->nr_groups - nr_scan;
+	if ((int)nr_scan != sd_share->nr_sg_scan)
+		WRITE_ONCE(sd_share->nr_sg_scan, (int)nr_scan);
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -10231,6 +10260,7 @@ next_group:
 	}
 
 	update_idle_cpu_scan(env, sum_util);
+	update_ilb_group_scan(env, sum_util, sd_share);
 
 	/* save a snapshot of stats during periodic load balance */
 	ilb_save_stats(env, sd_share, sds);

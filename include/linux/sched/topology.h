@@ -84,6 +84,7 @@ struct sched_domain_shared {
 	int		nr_idle_scan;
 	unsigned long	total_load;
 	unsigned long	total_capacity;
+	int		nr_sg_scan;
 };
 
 struct sched_domain {
