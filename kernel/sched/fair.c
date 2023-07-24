@@ -10253,6 +10253,8 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 			goto next_group;
 
 
+		schedstat_inc(env->sd->lb_sg_scan[env->idle]);
+
 		if (update_sd_pick_busiest(env, sds, sg, sgs)) {
 			sds->busiest = sg;
 			sds->busiest_stat = *sgs;
