@@ -10182,6 +10182,36 @@ static void update_ilb_group_scan(struct lb_env *env,
 		WRITE_ONCE(sd_share->nr_sg_scan, (int)nr_scan);
 }
 
+static bool can_pull_busiest(struct sg_lb_stats *local,
+			     struct sg_lb_stats *busiest)
+{
+	/*
+	 * Check if the local group can pull from the 'busiest'
+	 * group directly. When reaching here, update_sd_pick_busiest()
+	 * has already filtered a candidate.
+	 * The scan in newidle load balance on high core count system
+	 * is costly, thus provide this shortcut to find a relative busy
+	 * group rather than the busiest one.
+	 *
+	 * Only enable this shortcut when the local group is quite
+	 * idle. This is because the total cost of newidle_balance()
+	 * becomes severe when multiple CPUs fall into idle and launch
+	 * newidle_balance() concurrently. And that usually indicates
+	 * a group_has_spare status.
+	 */
+	if (local->group_type != group_has_spare)
+		return false;
+
+	if (busiest->idle_cpus > local->idle_cpus)
+		return false;
+
+	if (busiest->idle_cpus == local->idle_cpus &&
+	    busiest->sum_nr_running <= local->sum_nr_running)
+		return false;
+
+	return true;
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -10226,6 +10256,13 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		if (update_sd_pick_busiest(env, sds, sg, sgs)) {
 			sds->busiest = sg;
 			sds->busiest_stat = *sgs;
+			/*
+			 * Check if this busiest group can be pulled by the
+			 * local group directly.
+			 */
+			if (sched_feat(ILB_FAST) && ilb_can_load &&
+			    can_pull_busiest(local, sgs))
+				goto load_snapshot;
 		}
 
 		if (sched_feat(ILB_UTIL) && ilb_can_load && --nr_sg_scan <= 0)
