@@ -10195,7 +10195,13 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	struct sg_lb_stats *local = &sds->local_stat;
 	struct sg_lb_stats tmp_sgs;
 	unsigned long sum_util = 0;
-	int sg_status = 0;
+	int sg_status = 0, nr_sg_scan;
+	/* only newidle CPU can load the snapshot */
+	bool ilb_can_load = env->idle == CPU_NEWLY_IDLE &&
+			    sd_share && READ_ONCE(sd_share->total_capacity);
+
+	if (sched_feat(ILB_UTIL) && ilb_can_load)
+		nr_sg_scan = sd_share->nr_sg_scan;
 
 	do {
 		struct sg_lb_stats *sgs = &tmp_sgs;
@@ -10222,6 +10228,9 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 			sds->busiest_stat = *sgs;
 		}
 
+		if (sched_feat(ILB_UTIL) && ilb_can_load && --nr_sg_scan <= 0)
+			goto load_snapshot;
+
 next_group:
 		/* Now, start updating sd_lb_stats */
 		sds->total_load += sgs->group_load;
@@ -10230,6 +10239,15 @@ next_group:
 		sum_util += sgs->group_util;
 		sg = sg->next;
 	} while (sg != env->sd->groups);
+
+	ilb_can_load = false;
+
+load_snapshot:
+	if (ilb_can_load) {
+		/* borrow the statistic of previous periodic load balance */
+		sds->total_load = READ_ONCE(sd_share->total_load);
+		sds->total_capacity = READ_ONCE(sd_share->total_capacity);
+	}
 
 	/*
 	 * Indicate that the child domain of the busiest group prefers tasks
