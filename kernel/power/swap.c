@@ -1516,9 +1516,9 @@ static void *swsusp_holder;
  *      swsusp_check - Check for swsusp signature in the resume device
  */
 
-int swsusp_check(bool snapshot_test)
+int swsusp_check(bool exclusive)
 {
-	void *holder = snapshot_test ? &swsusp_holder : NULL;
+	void *holder = exclusive ? &swsusp_holder : NULL;
 	int error;
 
 	hib_resume_bdev = blkdev_get_by_dev(swsusp_resume_device, BLK_OPEN_READ,
@@ -1566,14 +1566,14 @@ put:
  *	swsusp_close - close swap device.
  */
 
-void swsusp_close(bool snapshot_test)
+void swsusp_close(bool exclusive)
 {
 	if (IS_ERR(hib_resume_bdev)) {
 		pr_debug("Image device not initialised\n");
 		return;
 	}
 
-	blkdev_put(hib_resume_bdev, snapshot_test ? &swsusp_holder : NULL);
+	blkdev_put(hib_resume_bdev, exclusive ? &swsusp_holder : NULL);
 }
 
 /**
