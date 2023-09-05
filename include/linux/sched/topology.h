@@ -82,6 +82,8 @@ struct sched_domain_shared {
 	atomic_t	nr_busy_cpus;
 	int		has_idle_cores;
 	int		nr_idle_scan;
+	unsigned long	total_load;
+	unsigned long	total_capacity;
 };
 
 struct sched_domain {

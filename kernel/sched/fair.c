@@ -10272,6 +10272,41 @@ static void update_idle_cpu_scan(struct lb_env *env,
 		WRITE_ONCE(sd_share->nr_idle_scan, (int)y);
 }
 
+/* save a snapshot of the periodic load balance statistic */
+static void update_lb_snapshot(struct lb_env *env,
+			       struct sched_domain_shared *sd_share,
+			       struct sd_lb_stats *sds)
+{
+	if (!sched_feat(ILB_FAST) || env->idle == CPU_NEWLY_IDLE || !sd_share)
+		return;
+
+	if (sds->total_load != sd_share->total_load)
+		WRITE_ONCE(sd_share->total_load, sds->total_load);
+
+	if (sds->total_capacity != sd_share->total_capacity)
+		WRITE_ONCE(sd_share->total_capacity, sds->total_capacity);
+}
+
+/*
+ * Check if local group can pull from this relatively busy group.
+ * Derived from update_sd_pick_busiest().
+ */
+static bool can_pull_busiest(struct sg_lb_stats *local,
+			     struct sg_lb_stats *busiest)
+{
+	if (!sched_feat(ILB_FAST))
+		return false;
+
+	if (busiest->idle_cpus > local->idle_cpus)
+		return false;
+
+	if (busiest->idle_cpus == local->idle_cpus &&
+	    busiest->sum_nr_running <= local->sum_nr_running)
+		return false;
+
+	return true;
+}
+
 /**
  * update_sd_lb_stats - Update sched_domain's statistics for load balancing.
  * @env: The load balancing environment.
@@ -10280,6 +10315,7 @@ static void update_idle_cpu_scan(struct lb_env *env,
 
 static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sds)
 {
+	struct sched_domain_shared *sd_share = env->sd->shared;
 	struct sched_group *sg = env->sd->groups;
 	struct sg_lb_stats *local = &sds->local_stat;
 	struct sg_lb_stats tmp_sgs;
@@ -10309,6 +10345,12 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		if (update_sd_pick_busiest(env, sds, sg, sgs)) {
 			sds->busiest = sg;
 			sds->busiest_stat = *sgs;
+
+			if (sd_share && can_pull_busiest(local, sgs)) {
+				sds->total_load = READ_ONCE(sd_share->total_load);
+				sds->total_capacity = READ_ONCE(sd_share->total_capacity);
+				break;
+			}
 		}
 
 next_group:
@@ -10349,6 +10391,7 @@ next_group:
 	}
 
 	update_idle_cpu_scan(env, sum_util);
+	update_lb_snapshot(env, sd_share, sds);
 }
 
 /**
