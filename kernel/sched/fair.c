@@ -10322,6 +10322,8 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	unsigned long sum_util = 0;
 	int sg_status = 0;
 
+	schedstat_inc(env->sd->lb_update_sd[env->idle]);
+
 	do {
 		struct sg_lb_stats *sgs = &tmp_sgs;
 		int local_group;
@@ -10341,12 +10343,14 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		if (local_group)
 			goto next_group;
 
+		schedstat_inc(env->sd->lb_sg_scan[env->idle]);
 
 		if (update_sd_pick_busiest(env, sds, sg, sgs)) {
 			sds->busiest = sg;
 			sds->busiest_stat = *sgs;
 
 			if (sd_share && can_pull_busiest(local, sgs)) {
+				schedstat_inc(env->sd->lb_ilb_fast[env->idle]);
 				sds->total_load = READ_ONCE(sd_share->total_load);
 				sds->total_capacity = READ_ONCE(sd_share->total_capacity);
 				break;
@@ -10616,8 +10620,10 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 	update_sd_lb_stats(env, &sds);
 
 	/* There is no busy sibling group to pull tasks from */
-	if (!sds.busiest)
+	if (!sds.busiest) {
+		schedstat_inc(env->sd->lb_no_busiest[env->idle]);
 		goto out_balanced;
+	}
 
 	busiest = &sds.busiest_stat;
 
@@ -10649,9 +10655,10 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 	 * If the local group is busier than the selected busiest group
 	 * don't try and pull any tasks.
 	 */
-	if (local->group_type > busiest->group_type)
+	if (local->group_type > busiest->group_type) {
+		schedstat_inc(env->sd->lb_local_group_type_busier[env->idle]);
 		goto out_balanced;
-
+	}
 	/*
 	 * When groups are overloaded, use the avg_load to ensure fairness
 	 * between tasks.
@@ -10661,8 +10668,10 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 		 * If the local group is more loaded than the selected
 		 * busiest group don't try to pull any tasks.
 		 */
-		if (local->avg_load >= busiest->avg_load)
+		if (local->avg_load >= busiest->avg_load) {
+			schedstat_inc(env->sd->lb_local_avg_load_higher[env->idle]);
 			goto out_balanced;
+		}
 
 		/* XXX broken for overlapping NUMA groups */
 		sds.avg_load = (sds.total_load * SCHED_CAPACITY_SCALE) /
@@ -10672,16 +10681,20 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 		 * Don't pull any tasks if this group is already above the
 		 * domain average load.
 		 */
-		if (local->avg_load >= sds.avg_load)
+		if (local->avg_load >= sds.avg_load) {
+			schedstat_inc(env->sd->lb_local_avg_above_average[env->idle]);
 			goto out_balanced;
+		}
 
 		/*
 		 * If the busiest group is more loaded, use imbalance_pct to be
 		 * conservative.
 		 */
 		if (100 * busiest->avg_load <=
-				env->sd->imbalance_pct * local->avg_load)
+				env->sd->imbalance_pct * local->avg_load) {
+			schedstat_inc(env->sd->lb_local_avg_imb_higher_than_busiest[env->idle]);
 			goto out_balanced;
+		}
 	}
 
 	/*
@@ -10699,6 +10712,7 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 			 * result the local one too) but this CPU is already
 			 * busy, let another idle CPU try to pull task.
 			 */
+			schedstat_inc(env->sd->lb_busiest_not_overload_local_idle[env->idle]);
 			goto out_balanced;
 		}
 
@@ -10719,6 +10733,7 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 			 * on another group. Of course this applies only if
 			 * there is more than 1 CPU per group.
 			 */
+			schedstat_inc(env->sd->lb_busiest_not_overload_local_less_idle[env->idle]);
 			goto out_balanced;
 		}
 
@@ -10726,6 +10741,7 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 			/*
 			 * busiest doesn't have any tasks waiting to run
 			 */
+			schedstat_inc(env->sd->lb_busiest_only_1_nr[env->idle]);
 			goto out_balanced;
 		}
 	}
@@ -10820,8 +10836,10 @@ static struct rq *find_busiest_queue(struct lb_env *env,
 			load = cpu_load(rq);
 
 			if (nr_running == 1 && load > env->imbalance &&
-			    !check_cpu_capacity(rq, env->sd))
+			    !check_cpu_capacity(rq, env->sd)) {
+				schedstat_inc(env->sd->lb_cpu_has_capacity[env->idle]);
 				break;
+			}
 
 			/*
 			 * For the load comparisons with the other CPUs,
@@ -10851,8 +10869,10 @@ static struct rq *find_busiest_queue(struct lb_env *env,
 			 * running task. Whatever its utilization, we will fail
 			 * detach the task.
 			 */
-			if (nr_running <= 1)
+			if (nr_running <= 1) {
+				schedstat_inc(env->sd->lb_cpu_only_1_nr[env->idle]);
 				continue;
+			}
 
 			if (busiest_util < util) {
 				busiest_util = util;

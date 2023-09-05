@@ -152,7 +152,7 @@ static int show_schedstat(struct seq_file *seq, void *v)
 				   cpumask_pr_args(sched_domain_span(sd)));
 			for (itype = CPU_IDLE; itype < CPU_MAX_IDLE_TYPES;
 					itype++) {
-				seq_printf(seq, " %u %u %u %u %u %u %u %u",
+				seq_printf(seq, " %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u",
 				    sd->lb_count[itype],
 				    sd->lb_balanced[itype],
 				    sd->lb_failed[itype],
@@ -160,7 +160,20 @@ static int show_schedstat(struct seq_file *seq, void *v)
 				    sd->lb_gained[itype],
 				    sd->lb_hot_gained[itype],
 				    sd->lb_nobusyq[itype],
-				    sd->lb_nobusyg[itype]);
+				    sd->lb_nobusyg[itype],
+				    sd->lb_no_busiest[itype],
+				    sd->lb_local_group_type_busier[itype],
+				    sd->lb_local_avg_load_higher[itype],
+				    sd->lb_local_avg_above_average[itype],
+				    sd->lb_local_avg_imb_higher_than_busiest[itype],
+				    sd->lb_busiest_not_overload_local_idle[itype],
+				    sd->lb_busiest_not_overload_local_less_idle[itype],
+				    sd->lb_busiest_only_1_nr[itype],
+				    sd->lb_cpu_has_capacity[itype],
+				    sd->lb_cpu_only_1_nr[itype],
+				    sd->lb_update_sd[itype],
+				    sd->lb_sg_scan[itype],
+				    sd->lb_ilb_fast[itype]);
 			}
 			seq_printf(seq,
 				   " %u %u %u %u %u %u %u %u %u %u %u %u\n",

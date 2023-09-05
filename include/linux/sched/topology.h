@@ -124,6 +124,20 @@ struct sched_domain {
 	unsigned int lb_nobusyg[CPU_MAX_IDLE_TYPES];
 	unsigned int lb_nobusyq[CPU_MAX_IDLE_TYPES];
 
+	unsigned int lb_no_busiest[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_local_group_type_busier[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_local_avg_load_higher[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_local_avg_above_average[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_local_avg_imb_higher_than_busiest[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_busiest_not_overload_local_idle[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_busiest_not_overload_local_less_idle[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_busiest_only_1_nr[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_cpu_has_capacity[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_cpu_only_1_nr[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_sg_scan[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_ilb_fast[CPU_MAX_IDLE_TYPES];
+
 	/* Active load balancing */
 	unsigned int alb_count;
 	unsigned int alb_failed;
