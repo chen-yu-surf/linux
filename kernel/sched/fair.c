@@ -12055,10 +12055,22 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 			break;
 
 		if (sd->flags & SD_BALANCE_NEWIDLE) {
-
-			pulled_task = load_balance(this_cpu, this_rq,
-						   sd, CPU_NEWLY_IDLE,
-						   &continue_balancing);
+			/*
+			 * If this domain was balanced and failed to pull
+			 * any task not long ago, skip it. Otherwise,
+			 * launch the balance.
+			 */
+			if (sched_feat(ILB_SKIP) &&
+			    (t0 - sd->last_nilb_fail) < NSEC_PER_MSEC) {
+				pulled_task = 0;
+			} else {
+				pulled_task = load_balance(this_cpu, this_rq,
+							   sd, CPU_NEWLY_IDLE,
+							   &continue_balancing);
+				if (!pulled_task)
+					/* should use t1, but t0 is simpler */
+					sd->last_nilb_fail = t0;
+			}
 
 			t1 = sched_clock_cpu(this_cpu);
 			domain_cost = t1 - t0;
