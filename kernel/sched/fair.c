@@ -4553,7 +4553,7 @@ static inline unsigned long cfs_rq_load_avg(struct cfs_rq *cfs_rq)
 	return cfs_rq->avg.load_avg;
 }
 
-static int newidle_balance(struct rq *this_rq, struct rq_flags *rf);
+static int newidle_balance(struct rq *this_rq, struct rq_flags *rf, struct task_struct *prev);
 
 static inline unsigned long task_util(struct task_struct *p)
 {
@@ -4898,7 +4898,7 @@ attach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) {}
 static inline void
 detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) {}
 
-static inline int newidle_balance(struct rq *rq, struct rq_flags *rf)
+static inline int newidle_balance(struct rq *rq, struct rq_flags *rf, struct task_struct *prev)
 {
 	return 0;
 }
@@ -6457,6 +6457,12 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	int task_new = !(flags & ENQUEUE_WAKEUP);
+	u64 last_sleep = p->se.prev_sleep_time;
+
+	/* calculate the average sleep time of the wakee */
+	if ((flags & ENQUEUE_WAKEUP) && last_sleep)
+		update_avg(&p->se.sleep_avg,
+			   sched_clock_cpu(task_cpu(p)) - last_sleep);
 
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
@@ -6611,6 +6617,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 dequeue_throttle:
 	util_est_update(&rq->cfs, p, task_sleep);
+	p->se.prev_sleep_time = task_sleep ? sched_clock_cpu(cpu_of(rq)) : 0;
 	hrtick_update(rq);
 }
 
@@ -7977,7 +7984,7 @@ balance_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	if (rq->nr_running)
 		return 1;
 
-	return newidle_balance(rq, rf) != 0;
+	return newidle_balance(rq, rf, NULL) != 0;
 }
 #endif /* CONFIG_SMP */
 
@@ -8231,7 +8238,7 @@ idle:
 	if (!rf)
 		return NULL;
 
-	new_tasks = newidle_balance(rq, rf);
+	new_tasks = newidle_balance(rq, rf, prev);
 
 	/*
 	 * Because newidle_balance() releases (and re-acquires) rq->lock, it is
@@ -11988,7 +11995,7 @@ static inline void nohz_newidle_balance(struct rq *this_rq) { }
  *     0 - failed, no new tasks
  *   > 0 - success, new (fair) tasks present
  */
-static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
+static int newidle_balance(struct rq *this_rq, struct rq_flags *rf, struct task_struct *prev)
 {
 	unsigned long next_balance = jiffies + HZ;
 	int this_cpu = this_rq->cpu;
@@ -12029,7 +12036,10 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	sd = rcu_dereference_check_sched_domain(this_rq->sd);
 
 	if (!READ_ONCE(this_rq->rd->overload) ||
-	    (sd && this_rq->avg_idle < sd->max_newidle_lb_cost)) {
+	    (sd &&
+	     (this_rq->avg_idle < sd->max_newidle_lb_cost ||
+	     (sched_feat(ILB_SHORT_SLEEP) && prev &&
+	      prev->se.sleep_avg < this_rq->max_idle_balance_cost)))) {
 
 		if (sd)
 			update_next_balance(sd, &next_balance);
