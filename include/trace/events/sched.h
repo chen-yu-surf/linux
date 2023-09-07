@@ -10,6 +10,28 @@
 #include <linux/tracepoint.h>
 #include <linux/binfmts.h>
 
+TRACE_EVENT(sched_ilb,
+
+	TP_PROTO(int cpu, u64 prev, u64 cost),
+
+	TP_ARGS(cpu, prev, cost),
+
+	TP_STRUCT__entry(
+		__field(	int,	cpu			)
+		__field(	u64,	prev			)
+		__field(	u64,	cost			)
+	),
+
+	TP_fast_assign(
+		__entry->cpu	= cpu;
+		__entry->prev	= prev;
+		__entry->cost	= cost;
+	),
+
+	TP_printk("cpu=%d prev_sleep=%lld rq_cost=%lld",
+		__entry->cpu, __entry->prev, __entry->cost)
+);
+
 /*
  * Tracepoint for calling kthread_stop, performed to end a kthread:
  */

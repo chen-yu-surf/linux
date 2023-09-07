@@ -9717,9 +9717,12 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 {
 	struct sg_lb_stats *busiest = &sds->busiest_stat;
 
+	schedstat_inc(env->sd->lb_update_sd_count[env->idle]);
 	/* Make sure that there is at least one task to pull */
-	if (!sgs->sum_h_nr_running)
+	if (!sgs->sum_h_nr_running) {
+		schedstat_inc(env->sd->lb_update_sd_no_nr[env->idle]);
 		return false;
+	}
 
 	/*
 	 * Don't try to pull misfit tasks we can't help.
@@ -9736,19 +9739,24 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 	if (sgs->group_type > busiest->group_type)
 		return true;
 
-	if (sgs->group_type < busiest->group_type)
+	if (sgs->group_type < busiest->group_type) {
+		schedstat_inc(env->sd->lb_update_sd_sg_low_type[env->idle]);
 		return false;
+	}
 
 	/*
 	 * The candidate and the current busiest group are the same type of
 	 * group. Let check which one is the busiest according to the type.
 	 */
 
+	schedstat_inc(env->sd->lb_update_sd_eq_type[env->idle]);
 	switch (sgs->group_type) {
 	case group_overloaded:
 		/* Select the overloaded group with highest avg_load. */
-		if (sgs->avg_load <= busiest->avg_load)
+		if (sgs->avg_load <= busiest->avg_load) {
+			schedstat_inc(env->sd->lb_update_sd_sg_ov_low_load[env->idle]);
 			return false;
+		}
 		break;
 
 	case group_imbalanced:
@@ -9756,6 +9764,7 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 		 * Select the 1st imbalanced group as we don't have any way to
 		 * choose one more than another.
 		 */
+		schedstat_inc(env->sd->lb_update_sd_sg_imbalance[env->idle]);
 		return false;
 
 	case group_asym_packing:
@@ -9769,8 +9778,10 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 		 * If we have more than one misfit sg go with the biggest
 		 * misfit.
 		 */
-		if (sgs->group_misfit_task_load < busiest->group_misfit_task_load)
+		if (sgs->group_misfit_task_load < busiest->group_misfit_task_load) {
+			schedstat_inc(env->sd->lb_update_sd_sg_less_misfit[env->idle]);
 			return false;
+		}
 		break;
 
 	case group_smt_balance:
@@ -9787,16 +9798,20 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 		 * siblings.
 		 */
 
-		if (sgs->avg_load < busiest->avg_load)
+		if (sgs->avg_load < busiest->avg_load) {
+			schedstat_inc(env->sd->lb_update_sd_sg_fb_low_load[env->idle]);
 			return false;
+		}
 
 		if (sgs->avg_load == busiest->avg_load) {
 			/*
 			 * SMT sched groups need more help than non-SMT groups.
 			 * If @sg happens to also be SMT, either choice is good.
 			 */
-			if (sds->busiest->flags & SD_SHARE_CPUCAPACITY)
+			if (sds->busiest->flags & SD_SHARE_CPUCAPACITY) {
+				schedstat_inc(env->sd->lb_update_sd_sg_fb_smt[env->idle]);
 				return false;
+			}
 		}
 
 		break;
@@ -9808,9 +9823,10 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 		 * and make the core idle.
 		 */
 		if (smt_vs_nonsmt_groups(sds->busiest, sg)) {
-			if (sg->flags & SD_SHARE_CPUCAPACITY && sgs->sum_h_nr_running <= 1)
+			if (sg->flags & SD_SHARE_CPUCAPACITY && sgs->sum_h_nr_running <= 1) {
+				schedstat_inc(env->sd->lb_update_sd_sg_spare_1_nr[env->idle]);
 				return false;
-			else
+			} else
 				return true;
 		}
 
@@ -9821,11 +9837,14 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 		 * that the group has less spare capacity but finally more idle
 		 * CPUs which means less opportunity to pull tasks.
 		 */
-		if (sgs->idle_cpus > busiest->idle_cpus)
+		if (sgs->idle_cpus > busiest->idle_cpus) {
+			schedstat_inc(env->sd->lb_update_sd_sg_spare_more_idle[env->idle]);
 			return false;
-		else if ((sgs->idle_cpus == busiest->idle_cpus) &&
-			 (sgs->sum_nr_running <= busiest->sum_nr_running))
+		} else if ((sgs->idle_cpus == busiest->idle_cpus) &&
+			 (sgs->sum_nr_running <= busiest->sum_nr_running)) {
+			schedstat_inc(env->sd->lb_update_sd_sg_spare_less_nr[env->idle]);
 			return false;
+		}
 
 		break;
 	}
@@ -9840,6 +9859,8 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 	    (sgs->group_type <= group_fully_busy) &&
 	    (capacity_greater(sg->sgc->min_capacity, capacity_of(env->dst_cpu))))
 		return false;
+
+	schedstat_inc(env->sd->lb_update_sd_sg_is_busier[env->idle]);
 
 	return true;
 }
@@ -10573,6 +10594,7 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 
 	init_sd_lb_stats(&sds);
 
+	schedstat_inc(env->sd->lb_find_bg_count[env->idle]);
 	/*
 	 * Compute the various statistics relevant for load balancing at
 	 * this level.
@@ -10580,8 +10602,10 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 	update_sd_lb_stats(env, &sds);
 
 	/* There is no busy sibling group to pull tasks from */
-	if (!sds.busiest)
+	if (!sds.busiest) {
+		schedstat_inc(env->sd->lb_find_bg_no[env->idle]);
 		goto out_balanced;
+	}
 
 	busiest = &sds.busiest_stat;
 
@@ -11005,6 +11029,8 @@ static int load_balance(int this_cpu, struct rq *this_rq,
 	schedstat_inc(sd->lb_count[idle]);
 
 redo:
+	schedstat_inc(sd->lb_redo[idle]);
+
 	if (!should_we_balance(&env)) {
 		*continue_balancing = 0;
 		goto out_balanced;
@@ -12035,11 +12061,22 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf, struct task_
 	rcu_read_lock();
 	sd = rcu_dereference_check_sched_domain(this_rq->sd);
 
+	if (sd)
+		schedstat_inc(sd->ilb_root_sd_count[CPU_NEWLY_IDLE]);
+
 	if (!READ_ONCE(this_rq->rd->overload) ||
 	    (sd &&
 	     (this_rq->avg_idle < sd->max_newidle_lb_cost ||
 	     (sched_feat(ILB_SHORT_SLEEP) && prev &&
 	      prev->se.sleep_avg < this_rq->max_idle_balance_cost)))) {
+
+		if ((sched_feat(ILB_SHORT_SLEEP) && prev && sd)) {
+			trace_sched_ilb(this_cpu, prev->se.sleep_avg, this_rq->max_idle_balance_cost);
+			if (prev->se.sleep_avg < this_rq->max_idle_balance_cost)
+				schedstat_inc(sd->ilb_root_sd_short_sleep[CPU_NEWLY_IDLE]);
+			else
+				schedstat_inc(sd->ilb_root_sd_no_short_sleep[CPU_NEWLY_IDLE]);
+		}
 
 		if (sd)
 			update_next_balance(sd, &next_balance);
@@ -12051,6 +12088,9 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf, struct task_
 
 	raw_spin_rq_unlock(this_rq);
 
+	if (sd)
+		schedstat_inc(sd->ilb_root_sd_need_lb[CPU_NEWLY_IDLE]);
+
 	t0 = sched_clock_cpu(this_cpu);
 	update_blocked_averages(this_cpu);
 
@@ -12061,8 +12101,10 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf, struct task_
 
 		update_next_balance(sd, &next_balance);
 
-		if (this_rq->avg_idle < curr_cost + sd->max_newidle_lb_cost)
+		if (this_rq->avg_idle < curr_cost + sd->max_newidle_lb_cost) {
+			schedstat_inc(sd->ilb_rq_idle_lt_cost[CPU_NEWLY_IDLE]);
 			break;
+		}
 
 		if (sd->flags & SD_BALANCE_NEWIDLE) {
 			/*
@@ -12095,8 +12137,15 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf, struct task_
 		 * now runnable tasks on this rq.
 		 */
 		if (pulled_task || this_rq->nr_running > 0 ||
-		    this_rq->ttwu_pending)
+		    this_rq->ttwu_pending) {
+			if (pulled_task)
+				schedstat_inc(sd->ilb_pulled[CPU_NEWLY_IDLE]);
+			else if (this_rq->nr_running > 0)
+				schedstat_inc(sd->ilb_nr_big[CPU_NEWLY_IDLE]);
+			else if (this_rq->ttwu_pending)
+				schedstat_inc(sd->ilb_ttwu_pending[CPU_NEWLY_IDLE]);
 			break;
+		}
 	}
 	rcu_read_unlock();
 

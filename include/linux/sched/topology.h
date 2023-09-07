@@ -122,6 +122,32 @@ struct sched_domain {
 	unsigned int lb_hot_gained[CPU_MAX_IDLE_TYPES];
 	unsigned int lb_nobusyg[CPU_MAX_IDLE_TYPES];
 	unsigned int lb_nobusyq[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_root_sd_count[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_root_sd_short_sleep[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_root_sd_no_short_sleep[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_root_sd_need_lb[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_rq_idle_lt_cost[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_pulled[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_nr_big[CPU_MAX_IDLE_TYPES];
+	unsigned int ilb_ttwu_pending[CPU_MAX_IDLE_TYPES];
+
+	unsigned int lb_update_sd_count[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_no_nr[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_low_type[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_eq_type[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_ov_low_load[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_imbalance[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_less_misfit[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_fb_low_load[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_fb_smt[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_spare_1_nr[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_spare_more_idle[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_spare_less_nr[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_update_sd_sg_is_busier[CPU_MAX_IDLE_TYPES];
+
+	unsigned int lb_find_bg_count[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_find_bg_no[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_redo[CPU_MAX_IDLE_TYPES];
 
 	/* Active load balancing */
 	unsigned int alb_count;

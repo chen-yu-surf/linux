@@ -152,7 +152,7 @@ static int show_schedstat(struct seq_file *seq, void *v)
 				   cpumask_pr_args(sched_domain_span(sd)));
 			for (itype = CPU_IDLE; itype < CPU_MAX_IDLE_TYPES;
 					itype++) {
-				seq_printf(seq, " %u %u %u %u %u %u %u %u",
+				seq_printf(seq, " %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u",
 				    sd->lb_count[itype],
 				    sd->lb_balanced[itype],
 				    sd->lb_failed[itype],
@@ -160,7 +160,31 @@ static int show_schedstat(struct seq_file *seq, void *v)
 				    sd->lb_gained[itype],
 				    sd->lb_hot_gained[itype],
 				    sd->lb_nobusyq[itype],
-				    sd->lb_nobusyg[itype]);
+				    sd->lb_nobusyg[itype],
+				    sd->ilb_root_sd_count[itype],
+				    sd->ilb_root_sd_short_sleep[itype],
+				    sd->ilb_root_sd_no_short_sleep[itype],
+				    sd->ilb_root_sd_need_lb[itype],
+				    sd->ilb_rq_idle_lt_cost[itype],
+				    sd->ilb_pulled[itype],
+				    sd->ilb_nr_big[itype],
+				    sd->ilb_ttwu_pending[itype],
+				    sd->lb_update_sd_count[itype],
+				    sd->lb_update_sd_no_nr[itype],
+				    sd->lb_update_sd_sg_low_type[itype],
+				    sd->lb_update_sd_eq_type[itype],
+				    sd->lb_update_sd_sg_ov_low_load[itype],
+				    sd->lb_update_sd_sg_imbalance[itype],
+				    sd->lb_update_sd_sg_less_misfit[itype],
+				    sd->lb_update_sd_sg_fb_low_load[itype],
+				    sd->lb_update_sd_sg_fb_smt[itype],
+				    sd->lb_update_sd_sg_spare_1_nr[itype],
+				    sd->lb_update_sd_sg_spare_more_idle[itype],
+				    sd->lb_update_sd_sg_spare_less_nr[itype],
+				    sd->lb_update_sd_sg_is_busier[itype],
+				    sd->lb_find_bg_count[itype],
+				    sd->lb_find_bg_no[itype],
+				    sd->lb_redo[itype]);
 			}
 			seq_printf(seq,
 				   " %u %u %u %u %u %u %u %u %u %u %u %u\n",
