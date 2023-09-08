@@ -12022,6 +12022,7 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	u64 t0, t1, curr_cost = 0;
 	struct sched_domain *sd;
 	int pulled_task = 0;
+	bool cache_hot = false;
 
 	update_misfit_status(NULL, this_rq);
 
@@ -12055,8 +12056,19 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	rcu_read_lock();
 	sd = rcu_dereference_check_sched_domain(this_rq->sd);
 
+	if (sched_feat(SIS_CACHE)) {
+		s64 delta = this_rq->cache_hot_timeout - sched_clock_cpu(this_cpu);
+
+		/*
+		 * If a short time later, a short sleeping task will be woken up
+		 * on this idle CPU, do not launch the newidle balance.
+		 */
+		if (delta > 0 && delta < this_rq->max_idle_balance_cost)
+			cache_hot = true;
+	}
+
 	if (!READ_ONCE(this_rq->rd->overload) ||
-	    (sd && this_rq->avg_idle < sd->max_newidle_lb_cost)) {
+	    (sd && this_rq->avg_idle < sd->max_newidle_lb_cost) || cache_hot) {
 
 		if (sd)
 			update_next_balance(sd, &next_balance);
