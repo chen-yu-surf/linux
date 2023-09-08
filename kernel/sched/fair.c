@@ -6621,6 +6621,16 @@ dequeue_throttle:
 	hrtick_update(rq);
 	now = sched_clock_cpu(cpu_of(rq));
 	p->se.prev_sleep_time = task_sleep ? now : 0;
+	/*
+	 * This rq will become idle. If there was once a short sleeping
+	 * task on it, reserve this CPU for that task for better
+	 * cache locality. Other wakees will skip this 'idle' CPU in
+	 * select_idle_cpu(), and this short sleeping task can pick this
+	 * previous idle CPU in select_idle_sibling() when woken up.
+	 */
+	if (sched_feat(SIS_CACHE) && !rq->nr_running && p->se.sleep_avg &&
+	    p->se.sleep_avg < sysctl_sched_migration_cost)
+		rq->cache_hot_timeout = now + p->se.sleep_avg;
 }
 
 #ifdef CONFIG_SMP
@@ -6974,8 +6984,13 @@ static inline int find_idlest_cpu(struct sched_domain *sd, struct task_struct *p
 static inline int __select_idle_cpu(int cpu, struct task_struct *p)
 {
 	if ((available_idle_cpu(cpu) || sched_idle_cpu(cpu)) &&
-	    sched_cpu_cookie_match(cpu_rq(cpu), p))
+	    sched_cpu_cookie_match(cpu_rq(cpu), p)) {
+		if (sched_feat(SIS_CACHE) &&
+		    sched_clock_cpu(cpu) < cpu_rq(cpu)->cache_hot_timeout)
+			return -1;
+
 		return cpu;
+	}
 
 	return -1;
 }
@@ -7044,10 +7059,13 @@ static int select_idle_core(struct task_struct *p, int core, struct cpumask *cpu
 	int cpu;
 
 	for_each_cpu(cpu, cpu_smt_mask(core)) {
-		if (!available_idle_cpu(cpu)) {
+		bool cache_hot = sched_clock_cpu(cpu) < cpu_rq(cpu)->cache_hot_timeout;
+
+		if (!available_idle_cpu(cpu) || cache_hot) {
 			idle = false;
 			if (*idle_cpu == -1) {
-				if (sched_idle_cpu(cpu) && cpumask_test_cpu(cpu, p->cpus_ptr)) {
+				if (sched_idle_cpu(cpu) && cpumask_test_cpu(cpu, p->cpus_ptr) &&
+				    !cache_hot) {
 					*idle_cpu = cpu;
 					break;
 				}
