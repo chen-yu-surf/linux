@@ -6457,6 +6457,20 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	int task_new = !(flags & ENQUEUE_WAKEUP);
+	u64 last_sleep = p->se.prev_sleep_time;
+
+	/*
+	 * Calculate the average sleep time of the wakee.
+	 * Use wakee's previous CPU's clock to get the
+	 * delta. The previous CPU should be online, otherwise
+	 * the sleep time could be larger than expected(the clock
+	 * of the offline previous CPU is paused). Check if there
+	 * is a sched_clock() reset on previous CPU due to suspend/resume.
+	 */
+	if ((flags & ENQUEUE_WAKEUP) && last_sleep && cpu_online(task_cpu(p)) &&
+	    sched_clock_cpu(task_cpu(p)) > last_sleep)
+		update_avg(&p->se.sleep_avg,
+			   sched_clock_cpu(task_cpu(p)) - last_sleep);
 
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
@@ -6551,6 +6565,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int task_sleep = flags & DEQUEUE_SLEEP;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	bool was_sched_idle = sched_idle_rq(rq);
+	u64 now;
 
 	util_est_dequeue(&rq->cfs, p);
 
@@ -6612,6 +6627,8 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 dequeue_throttle:
 	util_est_update(&rq->cfs, p, task_sleep);
 	hrtick_update(rq);
+	now = sched_clock_cpu(cpu_of(rq));
+	p->se.prev_sleep_time = task_sleep ? now : 0;
 }
 
 #ifdef CONFIG_SMP

@@ -561,6 +561,9 @@ struct sched_entity {
 	u64				vruntime;
 	s64				vlag;
 	u64				slice;
+	u64				prev_sleep_time;
+	/* average sleep duration of a task */
+	u64				sleep_avg;
 
 	u64				nr_migrations;
 
