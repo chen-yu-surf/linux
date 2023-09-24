@@ -7007,11 +7007,18 @@ static int cache_cold_cpu(int cpu)
 	return 1;
 }
 
-static inline int __select_idle_cpu(int cpu, struct task_struct *p)
+static inline int __select_idle_cpu(int cpu, struct task_struct *p, int *idle_cpu)
 {
-	if (((available_idle_cpu(cpu) && cache_cold_cpu(cpu)) || sched_idle_cpu(cpu)) &&
-	    sched_cpu_cookie_match(cpu_rq(cpu), p))
+	bool is_idle = available_idle_cpu(cpu);
+	bool match_cookie = sched_cpu_cookie_match(cpu_rq(cpu), p);
+
+	if (((is_idle && cache_cold_cpu(cpu)) || sched_idle_cpu(cpu)) &&
+	    match_cookie)
 		return cpu;
+
+	/* if it is idle but cache hot, use it as the last resort */
+	if (*idle_cpu == -1 && is_idle && match_cookie)
+		*idle_cpu = cpu;
 
 	return -1;
 }
@@ -7080,10 +7087,12 @@ static int select_idle_core(struct task_struct *p, int core, struct cpumask *cpu
 	int cpu;
 
 	for_each_cpu(cpu, cpu_smt_mask(core)) {
-		if (!available_idle_cpu(cpu) || !cache_cold_cpu(cpu)) {
+		bool is_idle = available_idle_cpu(cpu);
+
+		if (!is_idle || !cache_cold_cpu(cpu)) {
 			idle = false;
 			if (*idle_cpu == -1) {
-				if (sched_idle_cpu(cpu) && cpumask_test_cpu(cpu, p->cpus_ptr)) {
+				if ((is_idle || sched_idle_cpu(cpu)) && cpumask_test_cpu(cpu, p->cpus_ptr)) {
 					*idle_cpu = cpu;
 					break;
 				}
@@ -7132,7 +7141,7 @@ static inline bool test_idle_cores(int cpu)
 
 static inline int select_idle_core(struct task_struct *p, int core, struct cpumask *cpus, int *idle_cpu)
 {
-	return __select_idle_cpu(core, p);
+	return __select_idle_cpu(core, p, idle_cpu);
 }
 
 static inline int select_idle_smt(struct task_struct *p, int target)
@@ -7211,8 +7220,8 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 		} else {
 			if (!--nr)
 				return -1;
-			idle_cpu = __select_idle_cpu(cpu, p);
-			if ((unsigned int)idle_cpu < nr_cpumask_bits)
+			i = __select_idle_cpu(cpu, p, &idle_cpu);
+			if ((unsigned int)i < nr_cpumask_bits)
 				break;
 		}
 	}
