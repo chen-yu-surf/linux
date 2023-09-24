@@ -561,6 +561,9 @@ struct sched_entity {
 	u64				vruntime;
 	s64				vlag;
 	u64				slice;
+	u64				prev_dequeue_time;
+	/* reserve the dequeued task's previous CPU for this long */
+	u64				sis_rsv_avg;
 
 	u64				nr_migrations;
 
