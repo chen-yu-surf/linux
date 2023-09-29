@@ -6445,6 +6445,43 @@ static int sched_idle_cpu(int cpu)
 #endif
 
 /*
+ * Estimate the average short sleeping time of the wakee.
+ * This sleep time is used by select_idle_cpu() to choose
+ * cache-cold idle CPUs.
+ */
+static void sis_cache_enqueue(struct task_struct *p,
+			      int flags)
+{
+	u64 last_time, now, delta = 0;
+	int last_cpu;
+
+	if (!sched_feat(SIS_CACHE))
+		return;
+
+	if (!(flags & ENQUEUE_WAKEUP))
+		return;
+
+	/* the wakee was preempted, do not track it */
+	last_time = p->last_dequeue_time;
+	if (!last_time)
+		return;
+
+	last_cpu = p->last_dequeue_cpu;
+	now = sched_clock_cpu(last_cpu);
+	/*
+	 * sched_clock_cpu() on single CPU is supposed to
+	 * be monotonic, but can not guarantee.
+	 */
+	if (now > last_time)
+		delta = now - last_time;
+
+	if (delta < sysctl_sched_migration_cost)
+		update_avg(&p->cache_hot_avg, delta);
+	else
+		p->cache_hot_avg >>= 1;
+}
+
+/*
  * The enqueue_task method is called before nr_running is
  * increased. Here we update the fair scheduling stats and
  * then put the task into the rbtree:
@@ -6457,6 +6494,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int idle_h_nr_running = task_has_idle_policy(p);
 	int task_new = !(flags & ENQUEUE_WAKEUP);
 
+	sis_cache_enqueue(p, flags);
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
 	 * the cfs_rq utilization to select a frequency.
@@ -6538,6 +6576,35 @@ enqueue_throttle:
 
 static void set_next_buddy(struct sched_entity *se);
 
+/* record the CPU and timestamp the task is dequeued */
+static void sis_cache_dequeue(struct rq *rq, struct task_struct *p,
+			      bool task_sleep)
+{
+	u64 now;
+	int cpu;
+
+	if (!sched_feat(SIS_CACHE))
+		return;
+
+	if (!task_sleep) {
+		/* positive value indicates a dequeue */
+		p->last_dequeue_time = 0;
+		return;
+	}
+
+	cpu = cpu_of(rq);
+	now = sched_clock_cpu(cpu);
+	p->last_dequeue_time = now;
+	/*
+	 * Need to record the CPU the task was dequeued
+	 * so the delta is calculated on 1 CPU. This is
+	 * because sched_clock_cpu() on single CPU is
+	 * monotonic, while sched_clock_cpu(i) and
+	 * sched_clock_cpu(j) could go backwards.
+	 */
+	p->last_dequeue_cpu = cpu;
+}
+
 /*
  * The dequeue_task method is called before nr_running is
  * decreased. We remove the task from the rbtree and
@@ -6610,6 +6677,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 dequeue_throttle:
 	util_est_update(&rq->cfs, p, task_sleep);
+	sis_cache_dequeue(rq, p, task_sleep);
 	hrtick_update(rq);
 }
 

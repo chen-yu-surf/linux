@@ -781,6 +781,9 @@ struct task_struct {
 	 */
 	int				recent_used_cpu;
 	int				wake_cpu;
+	int				last_dequeue_cpu;
+	u64                             last_dequeue_time;
+	u64                             cache_hot_avg;
 #endif
 	int				on_rq;
 
