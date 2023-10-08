@@ -6786,12 +6786,18 @@ wake_affine_weight(struct sched_domain *sd, struct task_struct *p,
 	this_eff_load += task_load;
 	if (sched_feat(WA_BIAS))
 		this_eff_load *= 100;
+	else if (sched_feat(WA_PREV))
+		this_eff_load *= 100 + (sd->imbalance_pct - 100) / 2;
+
 	this_eff_load *= capacity_of(prev_cpu);
 
 	prev_eff_load = cpu_load(cpu_rq(prev_cpu));
 	prev_eff_load -= task_load;
+
 	if (sched_feat(WA_BIAS))
 		prev_eff_load *= 100 + (sd->imbalance_pct - 100) / 2;
+	else if (sched_feat(WA_PREV))
+		prev_eff_load *= 100;
 	prev_eff_load *= capacity_of(this_cpu);
 
 	/*
