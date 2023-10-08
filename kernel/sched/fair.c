@@ -7264,17 +7264,19 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	 */
 	lockdep_assert_irqs_disabled();
 
-	if ((available_idle_cpu(target) || sched_idle_cpu(target)) &&
-	    asym_fits_cpu(task_util, util_min, util_max, target))
-		return target;
-
 	/*
 	 * If the previous CPU is cache affine and idle, don't be stupid:
+	 * The previous CPU is checked prio to the target CPU to inhibit
+	 * costly task migration.
 	 */
 	if (prev != target && cpus_share_cache(prev, target) &&
 	    (available_idle_cpu(prev) || sched_idle_cpu(prev)) &&
 	    asym_fits_cpu(task_util, util_min, util_max, prev))
 		return prev;
+
+	if ((available_idle_cpu(target) || sched_idle_cpu(target)) &&
+	    asym_fits_cpu(task_util, util_min, util_max, target))
+		return target;
 
 	/*
 	 * Allow a per-cpu kthread to stack with the wakee if the
@@ -7341,6 +7343,10 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	i = select_idle_cpu(p, sd, has_idle_core, target);
 	if ((unsigned)i < nr_cpumask_bits)
 		return i;
+
+	 /* if all CPUs are busy, prefer previous CPU to inhibit migration */
+	if (prev != target && cpus_share_cache(prev, target))
+		return prev;
 
 	return target;
 }
