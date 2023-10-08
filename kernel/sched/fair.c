@@ -6725,6 +6725,22 @@ static int wake_wide(struct task_struct *p)
 }
 
 /*
+ * task with nice = 0, runs 50 us every 1000 us, its load_sum is
+ * 50 * (1 + y + y^2 + ... + y^n), then its avg_load is approximately
+ * NICE_0_WEIGHT * load_sum / LOAD_AVG_MAX = 50. CPU with load lower
+ * than this threshold is regarded as almost idle.
+ */
+#define ALMOST_IDLE_CPU_LOAD	50
+
+static bool
+almost_idle_cpu(int cpu, struct task_struct *p)
+{
+	if (!sched_feat(WAKEUP_BIAS_PREV_IDLE))
+		return false;
+	return cpu_load_without(cpu_rq(cpu), p) <= ALMOST_IDLE_CPU_LOAD;
+}
+
+/*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
  * soonest. For the purpose of speed we only consider the waking and previous
  * CPU.
@@ -6737,7 +6753,7 @@ static int wake_wide(struct task_struct *p)
  *			  for the overloaded case.
  */
 static int
-wake_affine_idle(int this_cpu, int prev_cpu, int sync)
+wake_affine_idle(int this_cpu, int prev_cpu, int sync, struct task_struct *p)
 {
 	/*
 	 * If this_cpu is idle, it implies the wakeup is from interrupt
@@ -6757,7 +6773,7 @@ wake_affine_idle(int this_cpu, int prev_cpu, int sync)
 	if (sync && cpu_rq(this_cpu)->nr_running == 1)
 		return this_cpu;
 
-	if (available_idle_cpu(prev_cpu))
+	if (available_idle_cpu(prev_cpu) || almost_idle_cpu(prev_cpu, p))
 		return prev_cpu;
 
 	return nr_cpumask_bits;
@@ -6812,7 +6828,7 @@ static int wake_affine(struct sched_domain *sd, struct task_struct *p,
 	int target = nr_cpumask_bits;
 
 	if (sched_feat(WA_IDLE))
-		target = wake_affine_idle(this_cpu, prev_cpu, sync);
+		target = wake_affine_idle(this_cpu, prev_cpu, sync, p);
 
 	if (sched_feat(WA_WEIGHT) && target == nr_cpumask_bits)
 		target = wake_affine_weight(sd, p, this_cpu, prev_cpu, sync);
@@ -7264,7 +7280,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	 */
 	lockdep_assert_irqs_disabled();
 
-	if ((available_idle_cpu(target) || sched_idle_cpu(target)) &&
+	if ((available_idle_cpu(target) || sched_idle_cpu(target) || (prev == target && almost_idle_cpu(target, p))) &&
 	    asym_fits_cpu(task_util, util_min, util_max, target))
 		return target;
 
@@ -7272,7 +7288,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	 * If the previous CPU is cache affine and idle, don't be stupid:
 	 */
 	if (prev != target && cpus_share_cache(prev, target) &&
-	    (available_idle_cpu(prev) || sched_idle_cpu(prev)) &&
+	    (available_idle_cpu(prev) || sched_idle_cpu(prev) || almost_idle_cpu(prev, p)) &&
 	    asym_fits_cpu(task_util, util_min, util_max, prev))
 		return prev;
 
