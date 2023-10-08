@@ -7243,7 +7243,7 @@ static inline bool asym_fits_cpu(unsigned long util,
  */
 static int select_idle_sibling(struct task_struct *p, int prev, int target, int sync)
 {
-	bool has_idle_core = false;
+	bool has_idle_core = false, target_idle = false, prev_idle = false;
 	struct sched_domain *sd;
 	unsigned long task_util, util_min, util_max;
 	int i, recent_used_cpu;
@@ -7266,7 +7266,7 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target, int 
 
 	if ((available_idle_cpu(target) || sched_idle_cpu(target)) &&
 	    asym_fits_cpu(task_util, util_min, util_max, target))
-		return target;
+		target_idle = true;
 
 	/*
 	 * If the previous CPU is cache affine and idle, don't be stupid:
@@ -7274,6 +7274,15 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target, int 
 	if (prev != target && cpus_share_cache(prev, target) &&
 	    (available_idle_cpu(prev) || sched_idle_cpu(prev)) &&
 	    asym_fits_cpu(task_util, util_min, util_max, prev))
+		prev_idle = true;
+
+	if (sched_feat(SIS_PREV_IDLE) && prev_idle)
+		return prev;
+
+	if (target_idle)
+		return target;
+
+	if (prev_idle)
 		return prev;
 
 	/*
