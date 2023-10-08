@@ -7348,6 +7348,10 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	if ((unsigned)i < nr_cpumask_bits)
 		return i;
 
+	/* no idle CPU is found, prefer previous CPU to inhibit migration */
+	if (sched_feat(SIS_PREV) && prev != target && cpus_share_cache(prev, target))
+		return prev;
+
 	return target;
 }
 
