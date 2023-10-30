@@ -6683,6 +6683,11 @@ dequeue_throttle:
 	now = sched_clock_cpu(cpu);
 	p->last_dequeue_time = task_sleep ? now : 0;
 	p->last_dequeue_cpu = cpu;
+#ifdef CONFIG_SMP
+	if (sched_feat(SIS_CACHE) && task_sleep && !rq->nr_running &&
+	    p->avg_sleep_time)
+		rq->cache_hot_timeout = max(rq->cache_hot_timeout, now + p->avg_sleep_time);
+#endif
 	hrtick_update(rq);
 }
 
@@ -7033,6 +7038,17 @@ static inline int find_idlest_cpu(struct sched_domain *sd, struct task_struct *p
 	}
 
 	return new_cpu;
+}
+
+static int __maybe_unused cache_hot_cpu(int cpu)
+{
+	if (!sched_feat(SIS_CACHE))
+		return 0;
+
+	if (sched_clock_cpu(cpu) >= cpu_rq(cpu)->cache_hot_timeout)
+		return 0;
+
+	return 1;
 }
 
 static inline int __select_idle_cpu(int cpu, struct task_struct *p)
