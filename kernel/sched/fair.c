@@ -7194,7 +7194,7 @@ static inline int select_idle_smt(struct task_struct *p, int target)
 static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool has_idle_core, int target)
 {
 	struct cpumask *cpus = this_cpu_cpumask_var_ptr(select_rq_mask);
-	int i, cpu, idle_cpu = -1, nr = INT_MAX;
+	int i, cpu, idle_cpu = -1, nr = INT_MAX, nr_hot = 0, hot_cpu = -1;
 	struct sched_domain_shared *sd_share;
 
 	cpumask_and(cpus, sched_domain_span(sd), p->cpus_ptr);
@@ -7207,6 +7207,7 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 			/* overloaded LLC is unlikely to have idle cpu/core */
 			if (nr == 1)
 				return -1;
+			nr_hot = nr >> 1;
 		}
 	}
 
@@ -7237,17 +7238,32 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 	for_each_cpu_wrap(cpu, cpus, target + 1) {
 		if (has_idle_core) {
 			i = select_idle_core(p, cpu, cpus, &idle_cpu);
-			if ((unsigned int)i < nr_cpumask_bits)
+			if ((unsigned int)i < nr_cpumask_bits) {
+				if (--nr_hot >= 0 && cache_hot_cpu(i)) {
+					if (hot_cpu == -1)
+						hot_cpu = i;
+					continue;
+				}
 				return i;
+			}
 
 		} else {
 			if (--nr <= 0)
 				return -1;
 			idle_cpu = __select_idle_cpu(cpu, p);
-			if ((unsigned int)idle_cpu < nr_cpumask_bits)
+			if ((unsigned int)idle_cpu < nr_cpumask_bits) {
+				if (--nr_hot >= 0 && cache_hot_cpu(idle_cpu)) {
+					if (hot_cpu == -1)
+						hot_cpu = idle_cpu;
+					continue;
+				}
 				break;
+			}
 		}
 	}
+
+	if (idle_cpu == -1 && hot_cpu != -1)
+		idle_cpu = hot_cpu;
 
 	if (has_idle_core)
 		set_idle_cores(target, false);
