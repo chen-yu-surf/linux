@@ -6512,6 +6512,17 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	int task_new = !(flags & ENQUEUE_WAKEUP);
+	u64 last_dequeue = p->last_dequeue_time;
+	int last_cpu = p->last_dequeue_cpu;
+	u64 now = sched_clock_cpu(last_cpu);
+
+	if ((flags & ENQUEUE_WAKEUP) && last_dequeue && cpu_online(last_cpu) &&
+	    now > last_dequeue) {
+		if (now - last_dequeue < sysctl_sched_migration_cost)
+			update_avg(&p->avg_sleep_time, now - last_dequeue);
+		else
+			p->avg_sleep_time >>= 1;
+	}
 
 	/*
 	 * The code below (indirectly) updates schedutil which looks at
@@ -6606,6 +6617,8 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int task_sleep = flags & DEQUEUE_SLEEP;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	bool was_sched_idle = sched_idle_rq(rq);
+	u64 now;
+	int cpu;
 
 	util_est_dequeue(&rq->cfs, p);
 
@@ -6666,6 +6679,10 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 dequeue_throttle:
 	util_est_update(&rq->cfs, p, task_sleep);
+	cpu = cpu_of(rq);
+	now = sched_clock_cpu(cpu);
+	p->last_dequeue_time = task_sleep ? now : 0;
+	p->last_dequeue_cpu = cpu;
 	hrtick_update(rq);
 }
 

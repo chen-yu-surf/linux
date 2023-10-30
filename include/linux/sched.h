@@ -1324,6 +1324,10 @@ struct task_struct {
 	struct callback_head		cid_work;
 #endif
 
+	u64				last_dequeue_time;
+	u64				avg_sleep_time;
+	int				last_dequeue_cpu;
+
 	struct tlbflush_unmap_batch	tlb_ubc;
 
 	/* Cache last used pipe for splice(): */
