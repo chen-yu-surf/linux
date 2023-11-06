@@ -6729,6 +6729,11 @@ dequeue_throttle:
 	now = sched_clock_cpu(cpu);
 	p->last_dequeue_time = task_sleep ? now : 0;
 	p->last_dequeue_cpu = cpu;
+#ifdef CONFIG_SMP
+	if (sched_feat(SIS_CACHE) && task_sleep && !rq->nr_running &&
+	    p->avg_hot_dur)
+		rq->cache_hot_timeout = max(rq->cache_hot_timeout, now + p->avg_hot_dur);
+#endif
 	hrtick_update(rq);
 }
 
@@ -7215,6 +7220,17 @@ static inline int select_idle_smt(struct task_struct *p, int target)
 }
 
 #endif /* CONFIG_SCHED_SMT */
+
+static bool __maybe_unused cache_hot_cpu(int cpu)
+{
+	if (!sched_feat(SIS_CACHE))
+		return false;
+
+	if (sched_clock_cpu(cpu) >= cpu_rq(cpu)->cache_hot_timeout)
+		return false;
+
+	return true;
+}
 
 /*
  * Scan the LLC domain for idle CPUs; this is dynamically regulated by
