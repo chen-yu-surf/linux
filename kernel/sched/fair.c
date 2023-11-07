@@ -7221,7 +7221,7 @@ static inline int select_idle_smt(struct task_struct *p, int target)
 
 #endif /* CONFIG_SCHED_SMT */
 
-static bool __maybe_unused cache_hot_cpu(int cpu)
+static bool cache_hot_cpu(int cpu)
 {
 	if (!sched_feat(SIS_CACHE))
 		return false;
@@ -7233,6 +7233,23 @@ static bool __maybe_unused cache_hot_cpu(int cpu)
 }
 
 /*
+ * Return true if the idle cpu is cache-hot and the scan limit is
+ * not reached, return false otherwise.
+ */
+static inline bool continue_find_cold(int cpu, int nr_scan, int *hot_cpu)
+{
+	if (nr_scan > 0 && cache_hot_cpu(cpu)) {
+		/* record the first cache hot idle cpu as the backup */
+		if (*hot_cpu == -1)
+			*hot_cpu = cpu;
+
+		return true;
+	}
+
+	return false;
+}
+
+/*
  * Scan the LLC domain for idle CPUs; this is dynamically regulated by
  * comparing the average scan cost (tracked in sd->avg_scan_cost) against the
  * average idle time for this rq (as found in rq->avg_idle).
@@ -7240,7 +7257,7 @@ static bool __maybe_unused cache_hot_cpu(int cpu)
 static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool has_idle_core, int target)
 {
 	struct cpumask *cpus = this_cpu_cpumask_var_ptr(select_rq_mask);
-	int i, cpu, idle_cpu = -1, nr = INT_MAX;
+	int i, cpu, idle_cpu = -1, nr = INT_MAX, nr_hot = 0, hot_cpu = -1;
 	struct sched_domain_shared *sd_share;
 
 	cpumask_and(cpus, sched_domain_span(sd), p->cpus_ptr);
@@ -7253,6 +7270,8 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 			/* overloaded LLC is unlikely to have idle cpu/core */
 			if (nr == 1)
 				return -1;
+			/* scan/skip at most 25% of the cache-hot idle CPUs */
+			nr_hot = nr >> 2;
 		}
 	}
 
@@ -7283,17 +7302,28 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 	for_each_cpu_wrap(cpu, cpus, target + 1) {
 		if (has_idle_core) {
 			i = select_idle_core(p, cpu, cpus, &idle_cpu);
-			if ((unsigned int)i < nr_cpumask_bits)
+			if ((unsigned int)i < nr_cpumask_bits) {
+				if (continue_find_cold(i, nr_hot--, &hot_cpu))
+					continue;
+
 				return i;
+			}
 
 		} else {
 			if (--nr <= 0)
 				return -1;
 			idle_cpu = __select_idle_cpu(cpu, p);
-			if ((unsigned int)idle_cpu < nr_cpumask_bits)
+			if ((unsigned int)idle_cpu < nr_cpumask_bits) {
+				if (continue_find_cold(idle_cpu, nr_hot--, &hot_cpu))
+					continue;
+
 				break;
+			}
 		}
 	}
+
+	if (idle_cpu == -1 && hot_cpu != -1)
+		idle_cpu = hot_cpu;
 
 	if (has_idle_core)
 		set_idle_cores(target, false);
