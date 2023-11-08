@@ -7259,6 +7259,8 @@ static inline bool continue_find_cold(int cpu, int nr_scan, int *hot_cpu, u64 *m
 	return false;
 }
 
+extern int sysctl_nr_hot;
+
 /*
  * Scan the LLC domain for idle CPUs; this is dynamically regulated by
  * comparing the average scan cost (tracked in sd->avg_scan_cost) against the
@@ -7282,7 +7284,9 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 			if (nr == 1)
 				return -1;
 			/* scan/skip at most 25% of the cache-hot idle CPUs */
-			nr_hot = nr >> 2;
+			nr_hot = nr >> 1;
+			if (sysctl_nr_hot)
+				nr_hot = sysctl_nr_hot;
 		}
 	}
 
