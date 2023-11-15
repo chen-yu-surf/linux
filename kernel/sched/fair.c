@@ -7398,6 +7398,8 @@ static bool cache_hot_cpu(int cpu, int *hot_cpu)
 	return true;
 }
 
+extern int sysctl_nr_div;
+
 /*
  * Scan the LLC domain for idle CPUs; this is dynamically regulated by
  * comparing the average scan cost (tracked in sd->avg_scan_cost) against the
@@ -7422,6 +7424,9 @@ static int select_idle_cpu(struct task_struct *p, struct sched_domain *sd, bool 
 
 			/* scan/skip at most 50% of the cache-hot idle CPUs */
 			nr_hot = nr >> 1;
+
+			if (sysctl_nr_div)
+				nr_hot = nr / sysctl_nr_div;
 		}
 	}
 
