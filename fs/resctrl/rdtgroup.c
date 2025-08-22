@@ -2619,7 +2619,8 @@ out_done:
 	return ret;
 }
 
-static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type)
+static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type,
+			     int region)
 {
 	struct resctrl_schema *s;
 	const char *suffix = "";
@@ -2647,7 +2648,17 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 		break;
 	}
 
-	ret = snprintf(s->name, sizeof(s->name), "%s%s", r->name, suffix);
+	if (region != -1) {
+		char *display_name = get_mrrm_region_name(region, true);
+
+		if (!display_name)
+			return -EINVAL;
+
+		ret = snprintf(s->name, sizeof(s->name), "%s_%s",
+			       r->name, display_name);
+	} else {
+		ret = snprintf(s->name, sizeof(s->name), "%s%s", r->name, suffix);
+	}
 	if (ret >= sizeof(s->name)) {
 		kfree(s);
 		return -EINVAL;
@@ -2686,6 +2697,18 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 	return 0;
 }
 
+static int schemata_list_add_regions(struct rdt_resource *r)
+{
+	int nr = min(QOS_NUM_L3_RMBM_EVENTS,
+		     acpi_mrrm_max_mem_region()), i;
+
+	for (i = (nr - 1); i >= 0; i--) {
+		schemata_list_add(r, CDP_NONE, i);
+	}
+
+	return 0;
+}
+
 static int schemata_list_create(void)
 {
 	struct rdt_resource *r;
@@ -2693,13 +2716,15 @@ static int schemata_list_create(void)
 
 	for_each_alloc_capable_rdt_resource(r) {
 		if (resctrl_arch_get_cdp_enabled(r->rid)) {
-			ret = schemata_list_add(r, CDP_CODE);
+			ret = schemata_list_add(r, CDP_CODE, -1);
 			if (ret)
 				break;
 
-			ret = schemata_list_add(r, CDP_DATA);
+			ret = schemata_list_add(r, CDP_DATA, -1);
+		} else if (r->rid == RDT_RESOURCE_RMBA) {
+			ret = schemata_list_add_regions(r);
 		} else {
-			ret = schemata_list_add(r, CDP_NONE);
+			ret = schemata_list_add(r, CDP_NONE, -1);
 		}
 
 		if (ret)
