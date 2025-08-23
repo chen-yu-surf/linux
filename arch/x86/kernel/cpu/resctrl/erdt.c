@@ -22,6 +22,7 @@
 static struct erdt_table_info erdt_info;
 static DEFINE_XARRAY(erdt_domain_xa); /* Indexed by L3 cache ID */
 
+#define RDT_CTRL_LEGACY_MODE	BIT_ULL(2)
 #define VALID_VERSION 1
 /*
  * erdt_enabled - Check if the ERDT table is present and enabled
@@ -175,6 +176,18 @@ static __init int parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 
 	domain_info = NULL; /* ownership transferred to xarray */
 	return 0;
+}
+
+static __maybe_unused void region_aware_enable(void __iomem *addr, bool enable)
+{
+	u64 rdt_ctrl = readq(addr);
+
+	if (enable)
+		rdt_ctrl &= ~RDT_CTRL_LEGACY_MODE;
+	else
+		rdt_ctrl |= RDT_CTRL_LEGACY_MODE;
+
+	writeq(rdt_ctrl, addr);
 }
 
 /**
