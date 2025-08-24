@@ -622,8 +622,8 @@ __init int erdt_init(void)
 	int ret;
 
 	ret = acpi_table_parse(ACPI_SIG_ERDT, enumerate_erdt_table);
-	if (!ret)
-		erdt_enable_mmio();
+	if (!ret && !erdt_enable_mmio())
+		erdt_info.available = true;
 
 	return 0;
 }
