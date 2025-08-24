@@ -95,6 +95,30 @@ static u64 erdt_read_l3_occupancy(struct erdt_domain_info *d, int rmid)
 	return l3_cmt_count * cmrc->up_scale;
 }
 
+void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
+{
+	struct acpi_erdt_marc *marc = NULL;
+	struct erdt_domain_info *d;
+	void __iomem *vaddr;
+
+	d = xa_load(&erdt_domain_xa, domid);
+	if (!d)
+		return;
+
+	marc = d->marc;
+	if (!marc)
+		return;
+
+	/*
+	 * Write to optimal memory bandwidth for now.
+	 * TBD: minimum/maximum memory bandwidth.
+	 * MMIO_ADDRESS_for_CLOS# = MBA Optimal BW Register Block Base
+	 * Address + Floor(Region# / 4) x 512B + CLOS# x 8B
+	 */
+	vaddr = d->base[ERDT_MMIO_MARC_OPT] + (region / 4) * 512 + closid * 8;
+	writeq(ctrl_val, vaddr);
+}
+
 static u64 erdt_read_region_mbm(struct erdt_domain_info *d, int rmid,
 				int region_idx)
 {
@@ -141,6 +165,10 @@ static u64 erdt_read_region_mbm(struct erdt_domain_info *d, int rmid,
 static u64 erdt_read_l3_occupancy(struct erdt_domain_info *d, int rmid)
 {
 	return 0;
+}
+
+void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
+{
 }
 
 static u64 erdt_read_region_mbm(struct erdt_domain_info *d, int rmid,
