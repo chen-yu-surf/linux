@@ -775,9 +775,6 @@ int acpi_get_local_u64_address(acpi_handle handle, u64 *addr);
 int acpi_get_local_address(acpi_handle handle, u32 *addr);
 const char *acpi_get_subsystem_id(acpi_handle handle);
 
-#ifdef CONFIG_ACPI_MRRM
-int acpi_mrrm_max_mem_region(void);
-#endif
 
 #else	/* !CONFIG_ACPI */
 
@@ -1099,12 +1096,23 @@ static inline acpi_handle acpi_get_processor_handle(int cpu)
 	return NULL;
 }
 
+#endif	/* !CONFIG_ACPI */
+
+#ifdef CONFIG_ACPI_MRRM
+int acpi_mrrm_max_mem_region(void);
+char *get_mrrm_region_name(int region, bool cap);
+#else
 static inline int acpi_mrrm_max_mem_region(void)
 {
 	return 1;
 }
 
-#endif	/* !CONFIG_ACPI */
+static inline char *get_mrrm_region_name(int region, bool cap)
+{
+	return NULL;
+}
+
+#endif
 
 #ifdef CONFIG_ACPI_HMAT
 int hmat_get_extended_linear_cache_size(struct resource *backing_res, int nid,
