@@ -712,6 +712,11 @@ int rdtgroup_mondata_show(struct seq_file *m, void *arg)
 	if (md->sum) {
 		struct rdt_l3_mon_domain *d;
 
+		if (WARN_ON_ONCE(resid != RDT_RESOURCE_L3)) {
+			ret = -EINVAL;
+			goto out;
+		}
+
 		/*
 		 * This file requires summing across all domains that share
 		 * the L3 cache id that was provided in the "domid" field of the
