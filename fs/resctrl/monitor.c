@@ -453,27 +453,29 @@ static int __mon_event_count(struct rdtgroup *rdtgrp, struct rmid_read *rr)
 	if (!cpu_on_correct_domain(rr))
 		return -EINVAL;
 
-	if (!domain_header_is_valid(rr->hdr, RESCTRL_MON_DOMAIN, RDT_RESOURCE_L3))
-		return -EINVAL;
-	d = container_of(rr->hdr, struct rdt_l3_mon_domain, hdr);
-
-	if (rr->is_mbm_cntr) {
-		cntr_id = mbm_cntr_get(rr->r, d, rdtgrp, rr->evt->evtid);
-		if (cntr_id < 0) {
-			rr->err = -ENOENT;
+	if (rr->r->rid == RDT_RESOURCE_L3) {
+		if (!domain_header_is_valid(rr->hdr, RESCTRL_MON_DOMAIN, RDT_RESOURCE_L3))
 			return -EINVAL;
-		}
-	}
+		d = container_of(rr->hdr, struct rdt_l3_mon_domain, hdr);
 
-	if (rr->first) {
-		if (rr->is_mbm_cntr)
-			resctrl_arch_reset_cntr(rr->r, d, closid, rmid, cntr_id, rr->evt->evtid);
-		else
-			resctrl_arch_reset_rmid(rr->r, d, closid, rmid, rr->evt->evtid);
-		m = get_mbm_state(d, closid, rmid, rr->evt->evtid);
-		if (m)
-			memset(m, 0, sizeof(struct mbm_state));
-		return 0;
+		if (rr->is_mbm_cntr) {
+			cntr_id = mbm_cntr_get(rr->r, d, rdtgrp, rr->evt->evtid);
+			if (cntr_id < 0) {
+				rr->err = -ENOENT;
+				return -EINVAL;
+			}
+		}
+
+		if (rr->first) {
+			if (rr->is_mbm_cntr)
+				resctrl_arch_reset_cntr(rr->r, d, closid, rmid, cntr_id, rr->evt->evtid);
+			else
+				resctrl_arch_reset_rmid(rr->r, d, closid, rmid, rr->evt->evtid);
+			m = get_mbm_state(d, closid, rmid, rr->evt->evtid);
+			if (m)
+				memset(m, 0, sizeof(struct mbm_state));
+			return 0;
+		}
 	}
 
 	if (rr->hdr) {
