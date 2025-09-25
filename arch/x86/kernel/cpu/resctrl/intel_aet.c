@@ -214,6 +214,9 @@ static bool enable_events(struct event_group *e, struct pmt_feature_group *p)
 	if (!usable_events)
 		return false;
 
+	r->mon_capable = true;
+	rdt_mon_capable = true;
+
 	if (r->mon.num_rmid)
 		r->mon.num_rmid = min(r->mon.num_rmid, e->num_rmids);
 	else
@@ -222,6 +225,8 @@ static bool enable_events(struct event_group *e, struct pmt_feature_group *p)
 	for (int j = 0; j < e->num_events; j++)
 		resctrl_enable_mon_event(e->evts[j].id, true,
 					 e->evts[j].bin_bits, &e->evts[j]);
+
+	pr_info("%s %s monitoring detected\n", r->name, e->name);
 
 	return true;
 }
