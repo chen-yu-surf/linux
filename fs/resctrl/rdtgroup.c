@@ -3037,7 +3037,8 @@ static void rmdir_all_sub(void)
  * @rid:    The resource id for the event file being created.
  * @domid:  The domain id for the event file being created.
  * @mevt:   The type of event file being created.
- * @do_sum: Whether SNC summing monitors are being created.
+ * @do_sum: Whether SNC summing monitors are being created. Only set
+ *          when @rid == RDT_RESOURCE_L3.
  */
 static struct mon_data *mon_get_kn_priv(enum resctrl_res_level rid, int domid,
 					struct mon_evt *mevt,
@@ -4281,7 +4282,7 @@ out_unlock:
  * at mount time. This means the rdt_l3_mon_domain::mbm_states[] and
  * rdt_l3_mon_domain::rmid_busy_llc allocations may be larger than needed.
  *
- * Returns 0 for success, or -ENOMEM.
+ * Return: %0 for success; Error code otherwise.
  */
 static int domain_setup_l3_mon_state(struct rdt_resource *r, struct rdt_l3_mon_domain *d)
 {

@@ -1811,7 +1811,7 @@ static void closid_num_dirty_rmid_free(void)
  * Resctrl's cpuhp callbacks may be called before this point to bring a domain
  * online.
  *
- * Returns 0 for success, or -ENOMEM.
+ * Return: %0 for success; Error code otherwise.
  */
 int resctrl_l3_mon_resource_init(void)
 {
