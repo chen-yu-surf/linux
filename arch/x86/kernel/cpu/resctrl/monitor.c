@@ -186,7 +186,7 @@ void resctrl_arch_reset_rmid(struct rdt_resource *r, struct rdt_l3_mon_domain *d
 
 		prmid = logical_rmid_to_physical_rmid(cpu, rmid);
 		/* Record any initial, non-zero count value. */
-		__rmid_read_phys(prmid, eventid, &am->prev_msr);
+		__rmid_read_phys(prmid, eventid, &am->prev_mon_val);
 	}
 }
 
@@ -209,16 +209,16 @@ void resctrl_arch_reset_rmid_all(struct rdt_resource *r, struct rdt_l3_mon_domai
 	}
 }
 
-static u64 mbm_overflow_count(u64 prev_msr, u64 cur_msr, unsigned int width)
+static u64 mbm_overflow_count(u64 prev_val, u64 cur_val, unsigned int width)
 {
 	u64 shift = 64 - width, chunks;
 
-	chunks = (cur_msr << shift) - (prev_msr << shift);
+	chunks = (cur_val << shift) - (prev_val << shift);
 	return chunks >> shift;
 }
 
 static u64 get_corrected_val(struct rdt_resource *r, struct rdt_l3_mon_domain *d,
-			     u32 rmid, enum resctrl_event_id eventid, u64 msr_val)
+			     u32 rmid, enum resctrl_event_id eventid, u64 mon_val)
 {
 	struct rdt_hw_l3_mon_domain *hw_dom = resctrl_to_arch_mon_dom(d);
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
@@ -227,12 +227,12 @@ static u64 get_corrected_val(struct rdt_resource *r, struct rdt_l3_mon_domain *d
 
 	am = get_arch_mbm_state(hw_dom, rmid, eventid);
 	if (am) {
-		am->chunks += mbm_overflow_count(am->prev_msr, msr_val,
+		am->chunks += mbm_overflow_count(am->prev_mon_val, mon_val,
 						 hw_res->mbm_width);
 		chunks = get_corrected_mbm_count(rmid, am->chunks);
-		am->prev_msr = msr_val;
+		am->prev_mon_val = mon_val;
 	} else {
-		chunks = msr_val;
+		chunks = mon_val;
 	}
 
 	return chunks * hw_res->mon_scale;
@@ -243,7 +243,7 @@ int resctrl_arch_rmid_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 			   void *arch_priv, u64 *val, void *ignored)
 {
 	struct rdt_l3_mon_domain *d;
-	u64 msr_val;
+	u64 mon_val;
 	u32 prmid;
 	int cpu;
 	int ret;
@@ -259,11 +259,11 @@ int resctrl_arch_rmid_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 	d = container_of(hdr, struct rdt_l3_mon_domain, hdr);
 	cpu = cpumask_any(&hdr->cpu_mask);
 	prmid = logical_rmid_to_physical_rmid(cpu, rmid);
-	ret = __rmid_read_phys(prmid, eventid, &msr_val);
+	ret = __rmid_read_phys(prmid, eventid, &mon_val);
 	if (ret)
 		return ret;
 
-	*val = get_corrected_val(r, d, rmid, eventid, msr_val);
+	*val = get_corrected_val(r, d, rmid, eventid, mon_val);
 
 	return 0;
 }
@@ -317,7 +317,7 @@ void resctrl_arch_reset_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *d
 		memset(am, 0, sizeof(*am));
 
 		/* Record any initial, non-zero count value. */
-		__cntr_id_read(cntr_id, &am->prev_msr);
+		__cntr_id_read(cntr_id, &am->prev_mon_val);
 	}
 }
 
@@ -326,18 +326,18 @@ int resctrl_arch_cntr_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 			   enum resctrl_event_id eventid, u64 *val)
 {
 	struct rdt_l3_mon_domain *d;
-	u64 msr_val;
+	u64 mon_val;
 	int ret;
 
 	if (!domain_header_is_valid(hdr, RESCTRL_MON_DOMAIN, RDT_RESOURCE_L3))
 		return -EINVAL;
 
 	d = container_of(hdr, struct rdt_l3_mon_domain, hdr);
-	ret = __cntr_id_read(cntr_id, &msr_val);
+	ret = __cntr_id_read(cntr_id, &mon_val);
 	if (ret)
 		return ret;
 
-	*val = get_corrected_val(r, d, rmid, eventid, msr_val);
+	*val = get_corrected_val(r, d, rmid, eventid, mon_val);
 
 	return 0;
 }
