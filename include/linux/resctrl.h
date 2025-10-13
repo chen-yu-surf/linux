@@ -420,8 +420,9 @@ bool resctrl_arch_is_evt_configurable(enum resctrl_event_id evt);
 
 static inline bool resctrl_is_mbm_event(enum resctrl_event_id eventid)
 {
-	return (eventid >= QOS_L3_MBM_TOTAL_EVENT_ID &&
-		eventid <= QOS_L3_MBM_LOCAL_EVENT_ID);
+	return ((eventid >= QOS_L3_MBM_TOTAL_EVENT_ID &&
+	       eventid <= QOS_L3_MBM_LOCAL_EVENT_ID) ||
+	       rmbm_event(eventid));
 }
 
 u32 resctrl_get_mon_evt_cfg(enum resctrl_event_id eventid);
