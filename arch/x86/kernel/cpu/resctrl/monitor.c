@@ -278,7 +278,10 @@ int resctrl_arch_rmid_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 
 	switch (r->rid) {
 	case RDT_RESOURCE_L3:
-		return arch_l3_read_event(hdr, rmid, eventid, val, r);
+		if (rmbm_event(eventid))
+			return erdt_mon_read(hdr->id, eventid, rmid);
+		else
+			return arch_l3_read_event(hdr, rmid, eventid, val, r);
 	case RDT_RESOURCE_PERF_PKG:
 		return intel_aet_read_event(hdr->id, rmid, eventid, arch_priv, val);
 	default:
