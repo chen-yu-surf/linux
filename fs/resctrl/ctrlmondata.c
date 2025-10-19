@@ -80,9 +80,14 @@ static int parse_bw(struct rdt_parse_data *data, struct resctrl_schema *s,
 	struct resctrl_staged_config *cfg;
 	u32 closid = data->rdtgrp->closid;
 	struct rdt_resource *r = s->res;
+	bool rmba = RESOURCE_IS_MBA_REGION(r->rid);
 	u32 bw_val;
 
-	cfg = &d->staged_config[s->conf_type];
+	if (rmba) {
+		cfg = &d->staged_config[MBA_REGION_IDX(r->rid)];
+	} else {
+		cfg = &d->staged_config[s->conf_type];
+	}
 	if (cfg->have_new_ctrl) {
 		rdt_last_cmd_printf("Duplicate domain %d\n", d->hdr.id);
 		return -EINVAL;
@@ -245,7 +250,8 @@ static int parse_line(char *line, struct resctrl_schema *s,
 		return -EINVAL;
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP &&
-	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)) {
+	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA ||
+	     RESOURCE_IS_MBA_REGION(r->rid))) {
 		rdt_last_cmd_puts("Cannot pseudo-lock MBA resource\n");
 		return -EINVAL;
 	}
