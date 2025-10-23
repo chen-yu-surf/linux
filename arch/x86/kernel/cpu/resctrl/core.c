@@ -366,6 +366,28 @@ static void cat_wrmsr(struct hw_param *m)
 		wrmsrq(hw_res->msr_base + i, hw_dom->ctrl_val[i]);
 }
 
+/* map [1,100] to [1,255] */
+static u32 region_bw_map(unsigned long bw, struct rdt_resource *r)
+{
+	if (r->membw.delay_linear)
+		return (u32)((bw - 1) * MAX_MBA_REGION_BW / (MAX_MBA_BW - 1) + 1);
+
+	return MAX_MBA_REGION_BW;
+}
+
+static void mba_region_intel(struct hw_param *m)
+{
+	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
+	unsigned int i;
+
+	for (i = m->low; i < m->high; i++) {
+		u32 ctrl = hw_dom->ctrl_val[i];
+
+		erdt_ctrl_update(m->dom->hdr.id, region_bw_map(ctrl, m->res),
+				 i, m->region);
+	}
+}
+
 u32 resctrl_arch_get_num_closid(struct rdt_resource *r)
 {
 	return resctrl_to_arch_res(r)->num_closid;
@@ -1123,6 +1145,8 @@ static __init void rdt_init_res_defs_intel(void)
 		} else if (r->rid == RDT_RESOURCE_MBA) {
 			hw_res->msr_base = MSR_IA32_MBA_THRTL_BASE;
 			hw_res->hw_update = mba_wrmsr_intel;
+		} else if (RESOURCE_IS_MBA_REGION(r->rid)) {
+			hw_res->hw_update = mba_region_intel;
 		}
 	}
 }
