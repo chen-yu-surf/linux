@@ -27,6 +27,7 @@ MBA (Memory Bandwidth Allocation)		"mba"
 SMBA (Slow Memory Bandwidth Allocation)         ""
 BMEC (Bandwidth Monitoring Event Configuration) ""
 ABMC (Assignable Bandwidth Monitoring Counters) ""
+RMBA (Region Aware Memory Bandwidth Allocation) ""
 ===============================================	================================
 
 Historically, new features were made visible by default in /proc/cpuinfo. This
@@ -549,6 +550,12 @@ When monitoring is enabled all MON groups will also contain:
 	"core" of the CPU (arithmetic units, TLB, L1 and L2 caches, etc.). They
 	do not include L3 cache, memory, I/O devices etc.
 
+	If region aware RDT is enabled, several region related files are created.
+	For example, if there are 4 regions, the corresponding files are
+	mbm_local_bytes, mbm_remote_bytes, mbm_local_tier2_bytes, mbm_remote_tier2_bytes,
+	mbm_local_tier3_bytes, mbm_remote_tier3_bytes, mbm_local_tier4_bytes
+	and mbm_remote_tier4_bytes.
+
 	All other events report decimal integer values.
 
 	In a MON group these files provide a read out of the current value of
@@ -891,6 +898,47 @@ is formatted as:
 
 	SMBA:<cache_id0>=bandwidth0;<cache_id1>=bandwidth1;...
 
+Region Aware Memory Bandwidth Allocation (RMBA)
+-----------------------------------------------
+Intel hardware supports Region-Aware Memory Bandwidth Allocation (MBA)
+and Region-Aware Memory Bandwidth Monitoring (MBM). With Region-Aware
+MBA, independent bandwidth control (throttling) of L3 domain bandwidth
+to multiple regions is supported, enabling users to dynamically rebalance
+bandwidth control limits across different memory regions—each of which
+may have distinct bandwidth, latency, and capacity characteristics.
+Region-Aware MBM includes the capability to independently track multiple
+domains that are simultaneously accessing several memory regions. These
+memory regions correspond to different levels of memory tiers, such as
+directly attached memory (Tier 1), CXL-attached memory (Tier 2), and
+CXL accelerator devices with attached memory.
+
+Take the Region Aware MBM for example:
+
+┌────────────────────────┬────────────────────────┐
+│ ┌────────┐ ┌────────┐  │ ┌────────┐ ┌────────┐  │
+│ │ L3_00  │ │ L3_01  │  │ │ L3_02  │ │ L3_03  │  │
+│ └────────┘ └────────┘  │ └────────┘ └────────┘  │
+│ ┌───────────────────┐  │ ┌───────────────────┐  │
+│ │      IMC1         │  │ │      IMC2         │  │
+│ └───────────────────┘  │ └───────────────────┘  │
+│ ┌───────┐   ┌───────┐  │ ┌───────┐   ┌───────┐  │
+│ │ DDR1  │   │  CXL1 │  │ │ DDR2  │   │  CXL2 │  │
+│ └───────┘   └───────┘  │ └───────┘   └───────┘  │
+│  socket0               │  socket1               │
+└────────────────────────┴────────────────────────┘
+
+From the perspective of a CPU associated with the L3_00 domain,
+Region 0 typically represents the local memory region (DDR1),
+while Region 2 typically represents the remote memory region (DDR2).
+Similarly, for L3_00, Region 1 represents the local memory region
+(CXL1), and Region 3 represents the remote memory region (CXL2).
+The terms "local" and "remote" here are defined at the socket level.
+For the L3_00 domain, the memory bandwidth of Region 0 refers to the
+data transferred when the L3 miss occurs in L3_00 and the data is
+refilled from DDR1. The bandwidth of Region 2, by contrast, refers
+to the data refilled from DDR2. Similarly, the same calculation logic
+applies to Region 1 (CXL1) and Region 3 (CXL2).
+
 Reading/writing the schemata file
 ---------------------------------
 Reading the schemata file will show the state of all resources
@@ -945,6 +993,40 @@ For example, to allocate 8GB/s limit on the first cache id:
     SMBA:0=2048;1=  64;2=2048;3=2048
       MB:0=2048;1=2048;2=2048;3=2048
       L3:0=ffff;1=ffff;2=ffff;3=ffff
+
+Reading/writing the schemata file (on Intel systems) with RMBA feature
+----------------------------------------------------------------------
+Reading and writing the schemata file is the same as without RMBA in
+above section, except that each schemata file has fine grain control
+over each memory regions.
+
+For example, to adjust the tier1 local memory bandwidth(usually
+the DDR):
+
+::
+
+  # cat schemata
+      MB_LOCAL:0=100;16=100;32=100;48=100
+MB_TIER2_LOCAL:0=100;16=100;32=100;48=100
+            L3:0=3ff;16=3ff;32=3ff;48=3ff
+
+
+  # echo "MB_LOCAL:16=80" > schemata
+  # cat schemata
+      MB_LOCAL:0=100;16=80;32=100;48=100
+MB_TIER2_LOCAL:0=100;16=100;32=100;48=100
+            L3:0=3ff;16=3ff;32=3ff;48=3ff
+
+Users can obtain tiering information via sysfs, specifically
+through the path /sys/bus/memory_tier/devices/memory_tier.<id>/nodelist.
+Here, the <id> matches the tier level of region-aware RDT as previously
+described.
+
+Once users have the corresponding node numbers, they can use the command
+numactl -H to retrieve additional node-related information if they need
+to further understand what each node represents. This information includes
+details such as the CPUs associated with the node (if any), the memory size
+of each node, and the distance between nodes.
 
 Cache Pseudo-Locking
 ====================
