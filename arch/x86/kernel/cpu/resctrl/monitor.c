@@ -157,9 +157,9 @@ static int __rmid_read_phys(u32 prmid, enum resctrl_event_id eventid, u64 *val)
 	return 0;
 }
 
-static struct arch_mbm_state *get_arch_mbm_state(struct rdt_hw_l3_mon_domain *hw_dom,
-						 u32 rmid,
-						 enum resctrl_event_id eventid)
+struct arch_mbm_state *get_arch_mbm_state(struct rdt_hw_l3_mon_domain *hw_dom,
+					  u32 rmid,
+					  enum resctrl_event_id eventid)
 {
 	struct arch_mbm_state *state;
 
@@ -209,7 +209,7 @@ void resctrl_arch_reset_rmid_all(struct rdt_resource *r, struct rdt_l3_mon_domai
 	}
 }
 
-static u64 mbm_overflow_count(u64 prev_val, u64 cur_val, unsigned int width)
+u64 mbm_overflow_count(u64 prev_val, u64 cur_val, unsigned int width)
 {
 	u64 shift = 64 - width, chunks;
 
@@ -279,7 +279,7 @@ int resctrl_arch_rmid_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 	switch (r->rid) {
 	case RDT_RESOURCE_L3:
 		if (rmbm_event(eventid))
-			return erdt_mon_read(hdr->id, eventid, rmid);
+			return erdt_mon_read(hdr, eventid, rmid);
 		else
 			return arch_l3_read_event(hdr, rmid, eventid, val, r);
 	case RDT_RESOURCE_PERF_PKG:

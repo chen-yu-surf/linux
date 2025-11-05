@@ -26,6 +26,7 @@ static DEFINE_XARRAY(erdt_domain_xa); /* Indexed by L3 cache ID */
 #define VALID_VERSION 1
 #define UNAVAILABLE_COUNTER        BIT_ULL(63)
 
+#define FIXPOINT_LOW_BITS	16
 /*
  * erdt_enabled - Check if the ERDT table is present and enabled
  */
@@ -98,6 +99,72 @@ static u64 erdt_read_l3_occupancy(struct erdt_domain_info *d, int rmid)
 	return l3_cmt_count * cmrc->up_scale;
 }
 
+static u64 apply_correction_factor(u64 val, u32 factor)
+{
+	return ((val * factor) >> FIXPOINT_LOW_BITS);
+}
+
+static u64 erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
+				struct erdt_domain_info *d, int rmid,
+				int eventid)
+{
+	int region_idx = eventid - QOS_L3_MBM_R0_EVENT_ID;
+	u64 blk_rmid, blk_offset, mbm_rmid_count = 0;
+	int corr_factor_len, corr_factor = 1;
+	struct rdt_hw_l3_mon_domain *hw_dom;
+	struct acpi_erdt_mmrc *mmrc = NULL;
+	struct rdt_l3_mon_domain *mon_dom;
+	struct arch_mbm_state *am;
+	void __iomem *vaddr;
+
+	mmrc = d->mmrc;
+	if (!mmrc)
+		return 0;
+
+	if (!domain_header_is_valid(hdr, RESCTRL_MON_DOMAIN, RDT_RESOURCE_L3))
+		return 0;
+
+	mon_dom = container_of(hdr, struct rdt_l3_mon_domain, hdr);
+	hw_dom = resctrl_to_arch_mon_dom(mon_dom);
+
+	/*
+	 * Block_to_locate_RMID# = floor((RMID# % 32) / 8) x 4 x 4096B;
+	 * Offset_within_this_Block = (floor(((RMID#/32)x8)+RMID#%8) x
+	 * 8B)+(Region# x 2048B);
+	 * MMIO_ADDRESS_for_RMID#_Region# =
+	 * MBM Register Block Base Address + Block_to_locate_RMID# +
+	 * Offset_within_this_Block;
+	 */
+	blk_rmid = ((rmid % 32) / 8) * 4 * 4096;
+	blk_offset = ((rmid / 32) * 8 + (rmid % 8)) * 8 + region_idx * 2048;
+	vaddr = d->base[ERDT_MMIO_MMRC_BASE] + blk_rmid + blk_offset;
+
+	mbm_rmid_count = readq(vaddr);
+
+	/* verify if the data is valid */
+	if (mbm_rmid_count & UNAVAILABLE_COUNTER)
+		return 0;
+
+	corr_factor_len = mmrc->corr_factor_list_len;
+	if (corr_factor_len) {
+		if (corr_factor_len == 1)
+			corr_factor = mmrc->corr_factor_list[0];
+		else
+			corr_factor = mmrc->corr_factor_list[rmid];
+	}
+
+	am = get_arch_mbm_state(hw_dom, rmid, eventid);
+	if (am) {
+		u64 chunks = mbm_overflow_count(am->prev_mon_val, mbm_rmid_count,
+						mmrc->counter_width);
+
+		am->chunks += apply_correction_factor(chunks, corr_factor);
+		am->prev_mon_val = mbm_rmid_count;
+	}
+
+	return am->chunks * mmrc->up_scale;
+}
+
 /**
  * erdt_mon_read - Read monitoring data for a given domain and RMID
  * @hdr:    Domain header
@@ -121,6 +188,11 @@ u64 erdt_mon_read(struct rdt_domain_hdr *hdr, int ev_id, int rmid)
 
 	if (ev_id == QOS_L3_OCCUP_EVENT_ID)
 		return erdt_read_l3_occupancy(d, rmid);
+
+	if (rmbm_event(ev_id))
+		return erdt_read_region_mbm(hdr, d,
+					    rmid,
+					    ev_id);
 
 	return 0;
 }
