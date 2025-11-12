@@ -107,6 +107,65 @@ static u64 apply_correction_factor(u64 val, u32 factor)
 	return ((val * factor) >> FIXPOINT_LOW_BITS);
 }
 
+void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
+{
+	u64 cached_val, clos_offset, region_offset;
+	struct acpi_erdt_marc *marc = NULL;
+	u64 *cached_addr, cache_val;
+	struct erdt_domain_info *d;
+	bool first, *first_addr;
+	void __iomem *vaddr;
+
+	d = xa_load(&erdt_domain_xa, domid);
+	if (!d)
+		return;
+
+	marc = d->marc;
+	if (!marc)
+		return;
+
+	clos_offset = (region / 4) * 512 + closid * 8;
+	region_offset = (region % 4) * 2;
+	/*
+	 * Write to optimal memory bandwidth for now.
+	 * TBD: minimum/maximum memory bandwidth.
+	 * MMIO_ADDRESS_for_CLOS# = MBA Optimal BW Register Block Base
+	 * Address + Floor(Region# / 4) x 512B + CLOS# x 8B
+	 */
+	if (!d->marc_buf[ERDT_MMIO_MARC_OPT]->buf)
+		return;
+
+	if (!d->marc_buf[ERDT_MMIO_MARC_OPT]->first_write)
+		return;
+
+	vaddr = d->base[ERDT_MMIO_MARC_OPT] + clos_offset;
+
+	cached_addr = d->marc_buf[ERDT_MMIO_MARC_OPT]->buf +
+			clos_offset + region_offset;
+
+	first_addr = d->marc_buf[ERDT_MMIO_MARC_OPT]->first_write +
+		closid * 4 + region;
+	first = *first_addr;
+
+	if (first) {
+		cache_val = readq(vaddr);
+		*first_addr = false;
+	} else {
+		cached_val = *cached_addr;
+	}
+
+	if (!cached_val)
+		return;
+
+	/* bandwidth target field has 9 bits */
+	ctrl_val &= 0x1ff;
+	cached_val = (cached_val & ~(0x1ffULL << region_offset)) |
+			ctrl_val << region_offset;
+	*cached_addr = cached_val;
+
+	writeq(cached_val, vaddr);
+}
+
 static u64 erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 				struct erdt_domain_info *d, int rmid,
 				int eventid)
@@ -298,10 +357,32 @@ static __init int parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 			break;
 		case ACPI_ERDT_TYPE_MARC:
 			marc = (struct acpi_erdt_marc *)subtbl;
-			if (mmrc->index_fn == VALID_VERSION)
+			if (mmrc->index_fn == VALID_VERSION) {
 				domain_info->marc = marc;
-			else
+				/*
+				 * 1 block is composed of 4 regions, the block size is MBA Register
+				 * Block Size, and there are at most 4096 blocks. Allocate the
+				 * staging buffer for all the blocks, so to avoid reading from hardware.
+				 */
+				for (int i = 0; i < NR_MARC_OPT; i++) {
+					domain_info->marc_buf[i]->buf =
+						kzalloc(marc->mba_reg_size * 4096, GFP_KERNEL);
+					if (!domain_info->marc_buf[i]->buf)
+						continue;
+
+					domain_info->marc_buf[i]->first_write =
+						kzalloc(marc->mba_reg_size * 512 * sizeof(bool),
+							GFP_KERNEL);
+					if (!domain_info->marc_buf[i]->first_write)
+						continue;
+
+					memset(domain_info->marc_buf[i]->first_write,
+						marc->mba_reg_size * 512 * sizeof(bool),
+						true);
+				}
+			} else {
 				pr_info("Unknown MARC index function %d\n", marc->index_fn);
+			}
 			break;
 		default:
 			break;
