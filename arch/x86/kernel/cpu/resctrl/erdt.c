@@ -107,6 +107,89 @@ static u64 apply_correction_factor(u64 val, u32 factor)
 	return ((val * factor) >> FIXPOINT_LOW_BITS);
 }
 
+void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
+{
+	int closid_idx, closid_per_block, region_offset_bits;
+	struct acpi_erdt_marc *marc = NULL;
+	u64 *cached_addr, cached_val;
+	struct erdt_domain_info *d;
+	bool first, *first_addr;
+	void __iomem *vaddr;
+
+	d = xa_load(&erdt_domain_xa, domid);
+	if (!d)
+		return;
+
+	marc = d->marc;
+	if (!marc)
+		return;
+
+	/*
+	 * Write to optimal memory bandwidth for now.
+	 * TBD: minimum/maximum memory bandwidth.
+	 * MMIO_ADDRESS_for_CLOS# = MBA Optimal BW Register Block Base
+	 * Address + Floor(Region# / 4) x 512B + CLOS# x 8B
+	 */
+	if (!d->marc_buf[ERDT_MMIO_MARC_OPT].buf)
+		return;
+
+	if (!d->marc_buf[ERDT_MMIO_MARC_OPT].first_write)
+		return;
+
+	/*
+	 * Each closid is treated as a whole, which takes up to 8 bytes
+	 * number of closids per block.
+	 *
+	 * │                               │
+	 * ▼         CLOSID=0   8bytes     ▼
+	 * ┌───────┬───────┬───────┬───────┬───────┬
+	 * │region0│region1│region2│region3│region0│ ...
+	 * └───────┴───────┴───────┴───────┴───────┴
+	 *      closid_idx=0,1,2...
+	 */
+	closid_per_block = marc->mba_reg_size / 8;
+	/* the global closid index in the marc buffer, the unit is 8 bytes */
+	closid_idx = (region / 4) * closid_per_block + closid;
+
+	/*
+	 * region offset in bits within each closid, currently the max number
+	 * of regions is 4, it could be extended to more than 4 in the future.
+	 */
+	region_offset_bits = (region % 4) * 16;
+
+	/* the mmio address to write the MBA value into */
+	vaddr = d->base[ERDT_MMIO_MARC_OPT] + closid_idx * 8;
+
+	/*
+	 * cached buffer, each element is a u64, which is corresponding
+	 * to a closid. It is a pointer, so there is no need to multiply
+	 * it by 8, so does the pointer first_addr.
+	 */
+	cached_addr = d->marc_buf[ERDT_MMIO_MARC_OPT].buf +
+			closid_idx;
+	first_addr = d->marc_buf[ERDT_MMIO_MARC_OPT].first_write +
+			closid_idx;
+	first = *first_addr;
+
+	if (first) {
+		cached_val = readq(vaddr);
+		*first_addr = false;
+	} else {
+		cached_val = *cached_addr;
+	}
+
+	if (!cached_val)
+		return;
+
+	/* bandwidth target field has 9 bits */
+	ctrl_val &= 0x1ff;
+	cached_val = (cached_val & ~(0x1ffULL << region_offset_bits)) |
+			ctrl_val << region_offset_bits;
+	*cached_addr = cached_val;
+
+	writeq(cached_val, vaddr);
+}
+
 static u64 erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 				struct erdt_domain_info *d, int rmid,
 				int eventid)
@@ -298,10 +381,32 @@ static __init int parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 			break;
 		case ACPI_ERDT_TYPE_MARC:
 			marc = (struct acpi_erdt_marc *)subtbl;
-			if (mmrc->index_fn == VALID_VERSION)
+			if (mmrc->index_fn == VALID_VERSION) {
 				domain_info->marc = marc;
-			else
+				/*
+				 * 1 block is composed of 4 regions, the block size is MBA Register
+				 * Block Size, and there are at most 4096 blocks. Allocate the
+				 * staging buffer for all the blocks, so to avoid reading from hardware.
+				 */
+				for (int i = 0; i < NR_MARC_OPT; i++) {
+					domain_info->marc_buf[i].buf =
+						kzalloc(marc->mba_reg_size * 4096, GFP_KERNEL);
+					if (!domain_info->marc_buf[i].buf)
+						continue;
+
+					domain_info->marc_buf[i].first_write =
+						kzalloc(marc->mba_reg_size * 512 * sizeof(bool),
+							GFP_KERNEL);
+					if (!domain_info->marc_buf[i].first_write)
+						continue;
+
+					memset(domain_info->marc_buf[i].first_write,
+						true,
+						marc->mba_reg_size * 512 * sizeof(bool));
+				}
+			} else {
 				pr_info("Unknown MARC index function %d\n", marc->index_fn);
+			}
 			break;
 		default:
 			break;
