@@ -155,10 +155,46 @@ static struct event_group energy_0x48543760 = {
 	}
 };
 
+/*
+ * Link: https://github.com/intel/Intel-PMT
+ * FILE: xml/DMR/OOBMSM/RMID-PERF/dmr_aggregator.xml
+ */
+static struct event_group perf_0x14159109 = {
+	.feature	= FEATURE_PER_RMID_PERF_TELEM,
+	.name		= "perf",
+	.guid		= 0x14159109,
+	.num_rmid	= 256,
+	.mmio_size	= XML_MMIO_SIZE(256, 20, 3),
+	.num_events	= 20,
+	.evts		= {
+		EVT(PMT_EVENT_UNHALTED_REF_CYCLES, 0, 0),
+		EVT(PMT_EVENT_UNHALTED_CORE_CYCLES, 1, 0),
+		EVT(PMT_EVENT_INST_RETIRED, 2, 0),
+		EVT(PMT_EVENT_PCNT, 3, 0),
+		EVT(PMT_EVENT_TOPDOWN_SLOTS, 4, 0),
+		EVT(PMT_EVENT_UOPS_RETIRED, 5, 0),
+		EVT(PMT_EVENT_FE_BOUND_SLOTS, 6, 0),
+		EVT(PMT_EVENT_BACKEND_BOUND_SLOTS, 7, 0),
+		EVT(PMT_EVENT_UOPS_RETIRED_HEAVY, 8, 0),
+		EVT(PMT_EVENT_BR_MISPREDICT_SLOTS, 9, 0),
+		EVT(PMT_EVENT_FE_BOUND_SLOTS_LATENCY, 10, 0),
+		EVT(PMT_EVENT_MEMORY_BOUND_SLOTS, 11, 0),
+		EVT(PMT_EVENT_RESERVED, 12, 0),
+		EVT(PMT_EVENT_BOUND_ON_STORES, 13, 0),
+		EVT(PMT_EVENT_MEMORY_STALLS_L1, 14, 0),
+		EVT(PMT_EVENT_MEMORY_STALLS_L2, 15, 0),
+		EVT(PMT_EVENT_MEMORY_STALLS_L3, 16, 0),
+		EVT(PMT_EVENT_MEMORY_STALLS_MEM, 17, 0),
+		EVT(PMT_EVENT_MEM_LOAD_RETIRED_L3_MISS, 18, 0),
+		EVT(PMT_EVENT_MEM_LOAD_RETIRED_L4_MISS, 19, 0),
+	}
+};
+
 static struct event_group *known_event_groups[] = {
 	&energy_0x26696143,
 	&energy_0x48543760,
 	&perf_0x26557651,
+	&perf_0x14159109,
 };
 
 #define for_each_event_group(_peg)						\
