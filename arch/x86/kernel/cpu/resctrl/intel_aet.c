@@ -57,12 +57,16 @@ struct pmt_event {
  * struct event_group - Events with the same feature type ("energy" or "perf") and guid.
  * @feature:		Type of events, for example FEATURE_PER_RMID_PERF_TELEM or
  *			FEATURE_PER_RMID_ENERGY_TELEM, in this group.
+ * @name:		Name for this group (used by boot rdt= option)
  * @pfg:		Points to the aggregated telemetry space information
  *			returned by the intel_pmt_get_regions_by_feature()
  *			call to the INTEL_PMT_TELEMETRY driver that contains
  *			data for all telemetry regions type @feature.
  *			Valid if the system supports the event group.
  *			NULL otherwise.
+ * @force_off:		True when "rdt" command line disables this @guid.
+ * @force_on:		True when "rdt" command line overrides disable of
+ *			this @guid due to insufficient @num_rmid.
  * @guid:		Unique number per XML description file.
  * @mmio_size:		Number of bytes of MMIO registers for this group.
  * @num_events:		Number of events in this group.
@@ -71,7 +75,9 @@ struct pmt_event {
 struct event_group {
 	/* Data fields for additional structures to manage this group. */
 	enum pmt_feature_id		feature;
+	char				*name;
 	struct pmt_feature_group	*pfg;
+	bool				force_off, force_on;
 
 	/* Remaining fields initialized from XML file. */
 	u32				guid;
@@ -89,6 +95,7 @@ struct event_group {
  */
 static struct event_group energy_0x26696143 = {
 	.feature	= FEATURE_PER_RMID_ENERGY_TELEM,
+	.name		= "energy",
 	.guid		= 0x26696143,
 	.mmio_size	= XML_MMIO_SIZE(576, 2, 3),
 	.num_events	= 2,
@@ -104,6 +111,7 @@ static struct event_group energy_0x26696143 = {
  */
 static struct event_group perf_0x26557651 = {
 	.feature	= FEATURE_PER_RMID_PERF_TELEM,
+	.name		= "perf",
 	.guid		= 0x26557651,
 	.mmio_size	= XML_MMIO_SIZE(576, 7, 3),
 	.num_events	= 7,
@@ -127,6 +135,32 @@ static struct event_group *known_event_groups[] = {
 	for (_peg = known_event_groups;						\
 	     _peg < &known_event_groups[ARRAY_SIZE(known_event_groups)];	\
 	     _peg++)
+
+bool intel_aet_option(bool force_off, char *tok)
+{
+	struct event_group **peg;
+	bool ret = false;
+	u32 guid = 0;
+	char *name;
+
+	name = strsep(&tok, ":");
+	if (tok && kstrtou32(tok, 16, &guid))
+		return false;
+
+	for_each_event_group(peg) {
+		if (strcmp(name, (*peg)->name))
+			continue;
+		if (guid && (*peg)->guid != guid)
+			continue;
+		if (force_off)
+			(*peg)->force_off = true;
+		else
+			(*peg)->force_on = true;
+		ret = true;
+	}
+
+	return ret;
+}
 
 /*
  * Clear the address field of regions that did not pass the checks in
@@ -177,6 +211,9 @@ static bool group_has_usable_regions(struct event_group *e, struct pmt_feature_g
 static bool enable_events(struct event_group *e, struct pmt_feature_group *p)
 {
 	int skipped_events = 0;
+
+	if (e->force_off)
+		return false;
 
 	if (!group_has_usable_regions(e, p))
 		return false;
