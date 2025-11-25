@@ -107,14 +107,55 @@ static u64 apply_correction_factor(u64 val, u32 factor)
 	return ((val * factor) >> FIXPOINT_LOW_BITS);
 }
 
-void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
+static void ctrl_update_type(struct erdt_domain_info *d,
+			     u32 ctrl_val, int type,
+			     int closid_idx, int region_offset_bits)
 {
-	int closid_idx, closid_per_block, region_offset_bits, marc_type;
-	struct acpi_erdt_marc *marc = NULL;
 	u64 *cached_addr, cached_val;
-	struct erdt_domain_info *d;
 	bool first, *first_addr;
 	void __iomem *vaddr;
+
+	if (!d->marc_buf[type].buf)
+		return;
+
+	if (!d->marc_buf[type].first_write)
+		return;
+
+	/* the mmio address to write the MBA value into */
+	vaddr = d->base[type] + closid_idx * 8;
+	cached_addr = d->marc_buf[type].buf +
+			closid_idx;
+	first_addr = d->marc_buf[type].first_write +
+			closid_idx;
+	first = *first_addr;
+	if (first) {
+		cached_val = readq(vaddr);
+		*first_addr = false;
+	} else {
+		cached_val = *cached_addr;
+	}
+
+	/*
+	 * cached buffer, each element is a u64, which is corresponding
+	 * to a closid. It is a pointer, so there is no need to multiply
+	 * it by 8, so does the pointer first_addr.
+	 */
+	if (!cached_val)
+		return;
+
+	/* bandwidth target field has 9 bits */
+	ctrl_val &= 0x1ff;
+	cached_val = (cached_val & ~(0x1ffULL << region_offset_bits)) |
+			ctrl_val << region_offset_bits;
+	*cached_addr = cached_val;
+	writeq(cached_val, vaddr);
+}
+
+void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
+{
+	int closid_idx, closid_per_block, region_offset_bits;
+	struct acpi_erdt_marc *marc = NULL;
+	struct erdt_domain_info *d;
 
 	d = xa_load(&erdt_domain_xa, domid);
 	if (!d)
@@ -130,12 +171,6 @@ void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
 	 * MMIO_ADDRESS_for_CLOS# = MBA Optimal BW Register Block Base
 	 * Address + Floor(Region# / 4) x 512B + CLOS# x 8B
 	 */
-	marc_type = MARC_TYPE_IDX(ERDT_MMIO_MARC_OPT);
-	if (!d->marc_buf[marc_type].buf)
-		return;
-
-	if (!d->marc_buf[marc_type].first_write)
-		return;
 
 	/*
 	 * Each closid is treated as a whole, which takes up to 8 bytes
@@ -158,37 +193,9 @@ void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
 	 */
 	region_offset_bits = (region % 4) * 16;
 
-	/* the mmio address to write the MBA value into */
-	vaddr = d->base[ERDT_MMIO_MARC_OPT] + closid_idx * 8;
-
-	/*
-	 * cached buffer, each element is a u64, which is corresponding
-	 * to a closid. It is a pointer, so there is no need to multiply
-	 * it by 8, so does the pointer first_addr.
-	 */
-	cached_addr = d->marc_buf[marc_type].buf +
-			closid_idx;
-	first_addr = d->marc_buf[marc_type].first_write +
-			closid_idx;
-	first = *first_addr;
-
-	if (first) {
-		cached_val = readq(vaddr);
-		*first_addr = false;
-	} else {
-		cached_val = *cached_addr;
-	}
-
-	if (!cached_val)
-		return;
-
-	/* bandwidth target field has 9 bits */
-	ctrl_val &= 0x1ff;
-	cached_val = (cached_val & ~(0x1ffULL << region_offset_bits)) |
-			ctrl_val << region_offset_bits;
-	*cached_addr = cached_val;
-
-	writeq(cached_val, vaddr);
+	ctrl_update_type(d, ctrl_val,
+			 MARC_TYPE_IDX(ERDT_MMIO_MARC_OPT),
+			 closid_idx, region_offset_bits);
 }
 
 static u64 erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
