@@ -193,6 +193,12 @@ void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
 	 */
 	region_offset_bits = (region % 4) * 16;
 
+	ctrl_update_type(d, 1,
+			 MARC_TYPE_IDX(ERDT_MMIO_MARC_MIN),
+			 closid_idx, region_offset_bits);
+	ctrl_update_type(d, 255,
+			 MARC_TYPE_IDX(ERDT_MMIO_MARC_MAX),
+			 closid_idx, region_offset_bits);
 	ctrl_update_type(d, ctrl_val,
 			 MARC_TYPE_IDX(ERDT_MMIO_MARC_OPT),
 			 closid_idx, region_offset_bits);
