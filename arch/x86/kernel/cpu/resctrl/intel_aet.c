@@ -125,8 +125,24 @@ static struct event_group perf_0x26557651 = {
 	}
 };
 
+/*
+ * Link: Not published yet
+ */
+static struct event_group energy_0x48543760 = {
+	.pfname		= "energy",
+	.guid		= 0x48543760,
+	.num_rmid	= 256,
+	.mmio_size	= XML_MMIO_SIZE(256, 2, 3),
+	.num_events	= 2,
+	.evts		= {
+		EVT(PMT_EVENT_ENERGY, 0, 18),
+		EVT(PMT_EVENT_ACTIVITY, 1, 18),
+	}
+};
+
 static struct event_group *known_event_groups[] = {
 	&energy_0x26696143,
+	&energy_0x48543760,
 	&perf_0x26557651,
 };
 
