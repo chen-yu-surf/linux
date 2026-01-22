@@ -61,8 +61,11 @@ enum resctrl_event_id {
 	PMT_EVENT_UNHALTED_REF_CYCLES,
 	PMT_EVENT_UOPS_RETIRED,
 
-	/* Must be the last */
+	/* Mark the end of valid events */
 	QOS_NUM_EVENTS,
+
+	/* Tag for unused/reserved events */
+	QOS_RESERVED_EVENT,
 };
 
 #define QOS_NUM_L3_MBM_EVENTS	(QOS_L3_MBM_LOCAL_EVENT_ID - QOS_L3_MBM_TOTAL_EVENT_ID + 1)
