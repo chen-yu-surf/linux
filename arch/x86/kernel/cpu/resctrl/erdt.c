@@ -107,6 +107,88 @@ static u64 apply_correction_factor(u64 val, u32 factor)
 	return ((val * factor) >> FIXPOINT_LOW_BITS);
 }
 
+static void ctrl_update_type(struct erdt_domain_info *d,
+			     u32 ctrl_val, int type,
+			     int closid_idx, int region_offset_bits)
+{
+	int idx = MARC_TYPE_IDX(type);
+	u64 *cached_addr, cached_val;
+	void __iomem *vaddr;
+
+	if (!d->marc_buf[idx])
+		return;
+
+	/* the mmio address to write the MBA value into */
+	vaddr = d->base[type] + closid_idx * 8;
+	cached_addr = d->marc_buf[idx] +
+			closid_idx;
+	cached_val = *cached_addr;
+	/* first time to read */
+	if (!cached_val)
+		cached_val = readq(vaddr);
+
+	if (WARN_ON_ONCE(!cached_val))
+		return;
+
+	/* bandwidth target field has 9 bits */
+	ctrl_val &= 0x1ff;
+	cached_val = (cached_val & ~(0x1ffULL << region_offset_bits)) |
+			(u64)ctrl_val << region_offset_bits;
+	*cached_addr = cached_val;
+	writeq(cached_val, vaddr);
+}
+
+void erdt_ctrl_update(int domid, u32 ctrl_val, int closid, int region)
+{
+	int closid_idx, closid_per_block, region_offset_bits;
+	struct acpi_erdt_marc *marc = NULL;
+	struct erdt_domain_info *d;
+
+	d = xa_load(&erdt_domain_xa, domid);
+	if (!d)
+		return;
+
+	marc = d->marc;
+	if (!marc)
+		return;
+
+	/*
+	 * Write the same value to optimal/min/max memory bandwidth
+	 * for now.
+	 * MMIO_ADDRESS_for_CLOS# = MBA Optimal BW Register Block Base
+	 * Address + Floor(Region# / 4) x 512B + CLOS# x 8B
+	 *
+	 * The MMIO register for each CLOSID is 8-bytes and contains the
+	 * throttle values for all four regions (with the low two-bytes for
+	 * region0 and the high two-bytes for region3.
+	 *
+	 * The mba_reg_size is the size of MBA registers in units of
+	 * number of 4KB pages. A value of X in this field indicates
+	 * X*4KB space for each of the optimal, minimum, and maximum
+	 * register sets. Since each CLOSID takes up 8-bytes, the number
+	 * of CLOSID per block is marc->mba_reg_size * 4K / 8.
+	 */
+	closid_per_block = marc->mba_reg_size * 512;
+	/* the global closid index in the marc buffer, the unit is 8 bytes */
+	closid_idx = (region / 4) * closid_per_block + closid;
+
+	/*
+	 * region offset in bits within each closid, currently the max number
+	 * of regions is 4, it could be extended to more than 4 in the future.
+	 */
+	region_offset_bits = (region % 4) * 16;
+
+	ctrl_update_type(d, ctrl_val,
+			 ERDT_MMIO_MARC_MIN,
+			 closid_idx, region_offset_bits);
+	ctrl_update_type(d, ctrl_val,
+			 ERDT_MMIO_MARC_MAX,
+			 closid_idx, region_offset_bits);
+	ctrl_update_type(d, ctrl_val,
+			 ERDT_MMIO_MARC_OPT,
+			 closid_idx, region_offset_bits);
+}
+
 static u64 erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 				struct erdt_domain_info *d, int rmid,
 				int eventid)
@@ -230,6 +312,14 @@ static __init int get_l3_cache_id_from_cacd(struct acpi_erdt_cacd *cacd)
 	return -1;
 }
 
+static void release_marc_buf(struct erdt_domain_info *domain_info)
+{
+	for (int i = 0; i < NR_MARC_CHOICE; i++) {
+		if (domain_info->marc_buf[i])
+			kfree(domain_info->marc_buf[i]);
+	}
+}
+
 /**
  * parse_rmdd_entry - Parse an ACPI ERDT RMDD entry and populate domain info
  * @rmdd_hdr: Pointer to the ACPI RMDD header structure (ACPI subtable)
@@ -298,10 +388,23 @@ static __init int parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 			break;
 		case ACPI_ERDT_TYPE_MARC:
 			marc = (struct acpi_erdt_marc *)subtbl;
-			if (marc->index_fn == VALID_VERSION)
+			if (marc->index_fn == VALID_VERSION) {
 				domain_info->marc = marc;
-			else
+				/*
+				 * A block is composed of 4 regions, with its size
+				 * defined by the MBA Register Block Size. There are
+				 * at most 4096 blocks. Allocate a staging buffer for
+				 * all blocks to avoid direct reads from the hardware.
+				 */
+				for (int i = 0; i < NR_MARC_CHOICE; i++) {
+					domain_info->marc_buf[i] =
+					  kzalloc(marc->mba_reg_size * 4096, GFP_KERNEL);
+					if (!domain_info->marc_buf[i])
+						continue;
+				}
+			} else {
 				pr_info("Unknown MARC index function %d\n", marc->index_fn);
+			}
 			break;
 		default:
 			break;
@@ -311,6 +414,7 @@ static __init int parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 	if (l3_cache_id == -1) {
 		pr_info("ERDT: Failed to resolve L3 cache ID for RMDD domain %d\n",
 			rmdd->domain_id);
+		release_marc_buf(domain_info);
 		return -EINVAL;
 	}
 
@@ -318,6 +422,7 @@ static __init int parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 	if (xa_is_err(ptr)) {
 		pr_info("ERDT: Failed to store domain info for RMDD domain %d\n",
 			rmdd->domain_id);
+		release_marc_buf(domain_info);
 		return -EINVAL;
 	}
 
