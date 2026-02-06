@@ -999,6 +999,13 @@ void free_rmid_lru_list(void)
 }
 
 /*
+ * The name field will be replaced by the information
+ * of local/remote and tiering at runtime.
+ */
+#define MON_REGION_EVENT(id)			\
+	MON_EVENT(QOS_L3_MBM_R##id##_EVENT_ID,	\
+	"mbm_region_" #id "_bytes", RDT_RESOURCE_L3, false)
+/*
  * All available events. Architecture code marks the ones that
  * are supported by a system using resctrl_enable_mon_event()
  * to set .enabled.
@@ -1032,6 +1039,10 @@ struct mon_evt mon_event_all[QOS_NUM_EVENTS] = {
 	MON_EVENT(PMT_EVENT_MEMORY_STALLS_MEM,		"memory_stalls_mem",		RDT_RESOURCE_PERF_PKG,	false),
 	MON_EVENT(PMT_EVENT_MEM_LOAD_RETIRED_L3_MISS,	"mem_load_retired_l3_miss",	RDT_RESOURCE_PERF_PKG,	false),
 	MON_EVENT(PMT_EVENT_MEM_LOAD_RETIRED_L4_MISS,	"mem_load_retired_l4_miss",	RDT_RESOURCE_PERF_PKG,	false),
+	MON_REGION_EVENT(0),
+	MON_REGION_EVENT(1),
+	MON_REGION_EVENT(2),
+	MON_REGION_EVENT(3),
 };
 
 bool resctrl_enable_mon_event(enum resctrl_event_id eventid, bool any_cpu,
@@ -1066,6 +1077,54 @@ bool resctrl_is_mon_event_enabled(enum resctrl_event_id eventid)
 u32 resctrl_get_mon_evt_cfg(enum resctrl_event_id evtid)
 {
 	return mon_event_all[evtid].evt_cfg;
+}
+
+static void resctrl_set_mon_name(enum resctrl_event_id eventid,
+				 char *name)
+{
+	char temp[32];
+	char *p;
+
+	snprintf(temp, sizeof(temp), "mbm_%s_bytes", name);
+	p = kstrdup(temp, GFP_KERNEL);
+	if (!p)
+		return;
+
+	mon_event_all[eventid].name = p;
+}
+
+static void erdt_resctrl_enable_mon_event(enum resctrl_event_id eventid)
+{
+	int region = RMBM_STATE_IDX(eventid);
+	char *new_name = get_mrrm_region_name(region, false);
+
+	if (!new_name)
+		return;
+
+	/*
+	 * Replace the old display name by the new name which
+	 * better reflects the locality and memory tiering.
+	 */
+	resctrl_set_mon_name(eventid, new_name);
+	resctrl_enable_mon_event(eventid, true, 0, NULL);
+}
+
+bool erdt_enable_mon(void)
+{
+	int i, max_regions;
+
+	if (!erdt_enabled())
+		return false;
+
+	max_regions = acpi_mrrm_max_mem_region();
+	for_each_rmbm_event_id(i) {
+		if (!max_regions--)
+			break;
+
+		erdt_resctrl_enable_mon_event(i);
+	}
+
+	return true;
 }
 
 /**
