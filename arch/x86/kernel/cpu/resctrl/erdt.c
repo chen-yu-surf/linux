@@ -23,6 +23,7 @@
 static struct erdt_table_info erdt_info;
 static DEFINE_XARRAY(erdt_domain_xa); /* Indexed by L3 cache ID */
 
+#define RDT_CTRL_LEGACY_MODE	BIT_ULL(2)
 #define VALID_VERSION 1
 /*
  * erdt_enabled - Check if the ERDT table is present and enabled
@@ -198,6 +199,146 @@ static __init int parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 	return 0;
 }
 
+static void region_aware_enable(void __iomem *addr, bool enable)
+{
+	u64 rdt_ctrl = readq(addr);
+
+	if (enable)
+		rdt_ctrl &= ~RDT_CTRL_LEGACY_MODE;
+	else
+		rdt_ctrl |= RDT_CTRL_LEGACY_MODE;
+
+	writeq(rdt_ctrl, addr);
+}
+
+/*
+ * erdt_ioremap_checked - Helper to safely map physical MMIO region
+ * @base: Physical address base to map
+ * @size: Size in 4KB pages
+ * @desc: Description for logging in case of error
+ */
+static void __iomem *erdt_ioremap_checked(phys_addr_t base, u32 size,
+					  const char *desc)
+{
+	void __iomem *addr = ioremap(base, size << 12);
+
+	if (!addr)
+		pr_err("ERDT: Failed to map %s at phys addr %#llx (size: %u KB)\n",
+		       desc, (unsigned long long)base, size << 12);
+	return addr;
+}
+
+/*
+ * erdt_iounmap_domain - Unmap all MMIO regions for a domain
+ * @domain: Domain info structure containing MMIO mappings
+ */
+static void erdt_iounmap_domain(struct erdt_domain_info *domain)
+{
+	for (int i = 0; i < ERDT_MMIO_MAX; i++) {
+		if (domain->base[i]) {
+			iounmap(domain->base[i]);
+			domain->base[i] = NULL;
+		}
+	}
+}
+
+/*
+ * erdt_enable_mmio - Map and initialize MMIO register bases for all RMDD domains
+ *
+ * This function maps optional memory-mapped I/O regions for MARC, CMRC, MMRC,
+ * and control registers as described in the ERDT sub-tables. It also sets the
+ * opt-in bit for MMIO mode operation.
+ */
+static int __init erdt_enable_mmio(void)
+{
+	struct erdt_domain_info *d;
+	unsigned long index;
+
+	xa_for_each(&erdt_domain_xa, index, d) {
+		struct {
+		enum erdt_mmio_type type;
+		phys_addr_t base;
+		u32 size;
+		const char *desc;
+		} mmios[] = {
+			{
+				ERDT_MMIO_RMDD_CREG,
+				d->rmdd ? d->rmdd->creg_base : 0,
+				d->rmdd ? d->rmdd->creg_size : 0,
+				"RMDD ctrl base"
+			},
+			{
+				ERDT_MMIO_CMRC_BASE,
+				d->cmrc ? d->cmrc->cmt_reg_base : 0,
+				d->cmrc ? d->cmrc->cmt_reg_size : 0,
+				"CMRC base"
+			},
+			{
+				ERDT_MMIO_MMRC_BASE,
+				d->mmrc ? d->mmrc->reg_base : 0,
+				d->mmrc ? d->mmrc->reg_size : 0,
+				"MMRC base"
+			},
+			{
+				ERDT_MMIO_MARC_OPT,
+				d->marc ? d->marc->reg_base_opt : 0,
+				d->marc ? d->marc->mba_reg_size : 0,
+				"MARC opt"
+			},
+			{
+				ERDT_MMIO_MARC_MIN,
+				d->marc ? d->marc->reg_base_min : 0,
+				d->marc ? d->marc->mba_reg_size : 0,
+				"MARC min"
+			},
+			{
+				ERDT_MMIO_MARC_MAX,
+				d->marc ? d->marc->reg_base_max : 0,
+				d->marc ? d->marc->mba_reg_size : 0,
+				"MARC max"
+			},
+		};
+
+		/* Memory Map IO regions for all sub-tables */
+		for (int i = 0; i < ARRAY_SIZE(mmios); i++) {
+			d->base[mmios[i].type] = erdt_ioremap_checked(mmios[i].base,
+								      mmios[i].size,
+								      mmios[i].desc);
+			if (!d->base[mmios[i].type])
+				goto cleanup;
+		}
+
+		region_aware_enable(d->base[ERDT_MMIO_RMDD_CREG], true);
+		continue;
+
+cleanup:
+		pr_err("MMIO mapping failed at rmdd index %lu, starting full cleanup\n",
+		       index);
+		erdt_iounmap_domain(d);
+
+		while (index-- > 0) {
+			struct erdt_domain_info *prev = xa_load(&erdt_domain_xa, index);
+
+			if (!prev)
+				continue;
+
+			for (int i = 0; i < ERDT_MMIO_MAX; i++) {
+				if (prev->base[i]) {
+					if (i == ERDT_MMIO_RMDD_CREG)
+						region_aware_enable(prev->base[ERDT_MMIO_RMDD_CREG], false);
+
+					iounmap(prev->base[i]);
+					prev->base[i] = NULL;
+				}
+			}
+		}
+
+		return -EIO;
+	}
+
+	return 0;
+}
+
 /*
  * walk_erdt_subtables - Iterate over ERDT subtables and invoke a handler
  * @table:   Pointer to the full ACPI ERDT table
@@ -259,5 +400,11 @@ static __init int enumerate_erdt_table(struct acpi_table_header *table_hdr)
  */
 __init int erdt_init(void)
 {
-	return acpi_table_parse(ACPI_SIG_ERDT, enumerate_erdt_table);
+	int ret;
+
+	ret = acpi_table_parse(ACPI_SIG_ERDT, enumerate_erdt_table);
+	if (!ret)
+		erdt_enable_mmio();
+
+	return 0;
 }
