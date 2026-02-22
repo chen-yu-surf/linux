@@ -224,14 +224,14 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	bool rmba = RESOURCE_IS_MBA_REGION(r->rid);
 
 	cpuid_count(0x00000010, 3, &eax.full, &ebx, &ecx, &edx.full);
-	hw_res->num_closid = edx.split.cos_max + 1;
+	hw_res->num_closid = 16;
 	max_delay = eax.split.max_delay + 1;
 	/*
 	 * TBD: region aware hardware max could be 255.
 	 */
 	r->membw.max_bw = MAX_MBA_BW;
 	r->membw.arch_needs_linear = true;
-	if (ecx & MBA_IS_LINEAR) {
+	if (1 || ecx & MBA_IS_LINEAR) {
 		r->membw.delay_linear = true;
 		r->membw.min_bw = rmba ? 1 : (MAX_MBA_BW - max_delay);
 		r->membw.bw_gran = rmba ? 1 : (MAX_MBA_BW - max_delay);
@@ -241,7 +241,7 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 		r->membw.arch_needs_linear = false;
 	}
 
-	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
+	if (1 || boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->membw.throttle_mode = THREAD_THROTTLE_PER_THREAD;
 	else
 		r->membw.throttle_mode = THREAD_THROTTLE_MAX;
@@ -292,7 +292,7 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	u32 ebx, default_ctrl;
 
 	cpuid_count(0x00000010, idx, &eax.full, &ebx, &ecx.full, &edx.full);
-	hw_res->num_closid = edx.split.cos_max + 1;
+	hw_res->num_closid = 16;
 	r->cache.cbm_len = eax.split.cbm_len + 1;
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;
 	r->cache.shareable_bits = ebx & default_ctrl;
@@ -367,8 +367,11 @@ static void cat_wrmsr(struct hw_param *m)
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
 	unsigned int i;
 
-	for (i = m->low; i < m->high; i++)
-		wrmsrq(hw_res->msr_base + i, hw_dom->ctrl_val[i]);
+	for (i = m->low; i < m->high; i++) {
+		printk("%s msr address:0x%x ctrl_val:0x%x\n",
+			__func__, hw_res->msr_base + i, hw_dom->ctrl_val[i]);
+		//wrmsrq(hw_res->msr_base + i, hw_dom->ctrl_val[i]);
+	}
 }
 
 /* map [1,100] to [1,255] */
@@ -770,8 +773,9 @@ static void clear_closid_rmid(int cpu)
 	state->default_rmid = RESCTRL_RESERVED_RMID;
 	state->cur_closid = RESCTRL_RESERVED_CLOSID;
 	state->cur_rmid = RESCTRL_RESERVED_RMID;
-	wrmsr(MSR_IA32_PQR_ASSOC, RESCTRL_RESERVED_RMID,
-	      RESCTRL_RESERVED_CLOSID);
+	printk("%s PQR_ASSOC clear\n", __func__);
+	//wrmsr(MSR_IA32_PQR_ASSOC, RESCTRL_RESERVED_RMID,
+	//      RESCTRL_RESERVED_CLOSID);
 }
 
 static int resctrl_arch_online_cpu(unsigned int cpu)
@@ -939,7 +943,7 @@ static __init bool get_region_mem_config(void)
 	struct rdt_hw_resource *hw_res;
 	int num_regions;
 
-	if (!erdt_enabled() || !rdt_cpu_has(X86_FEATURE_MBA) ||
+	if (!erdt_enabled() ||
 	    boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
 		return false;
 
@@ -991,10 +995,10 @@ static __init bool get_rdt_alloc_resources(void)
 	if (rdt_alloc_capable)
 		return true;
 
-	if (!boot_cpu_has(X86_FEATURE_RDT_A))
+	if (0 && !boot_cpu_has(X86_FEATURE_RDT_A))
 		return false;
 
-	if (rdt_cpu_has(X86_FEATURE_CAT_L3)) {
+	if (1 || rdt_cpu_has(X86_FEATURE_CAT_L3)) {
 		r = &rdt_resources_all[RDT_RESOURCE_L3].r_resctrl;
 		rdt_get_cache_alloc_cfg(1, r);
 		if (rdt_cpu_has(X86_FEATURE_CDP_L3))
