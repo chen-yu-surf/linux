@@ -4022,6 +4022,8 @@ static inline void mm_cid_switch_to(struct task_struct *prev, struct task_struct
 #endif /* !CONFIG_SCHED_MM_CID */
 
 #ifdef CONFIG_SCHED_CACHE
+extern int max_lid;
+
 static inline bool sched_cache_enabled(void)
 {
 	return false;
