@@ -48,7 +48,28 @@ bool erdt_support(int flag)
 	if (flag == X86_FEATURE_CQM_OCCUP_LLC)
 		return valid_subtbl_mask & BIT(ACPI_ERDT_TYPE_CMRC);
 
+	if (flag == X86_FEATURE_CQM_MBM_TOTAL)
+		return valid_subtbl_mask & BIT(ACPI_ERDT_TYPE_MMRC);
+
 	return false;
+}
+
+bool erdt_enable_mon(void)
+{
+	int i, max_regions;
+
+	if (!erdt_cpu_has(X86_FEATURE_CQM_MBM_TOTAL))
+		return false;
+
+	max_regions = acpi_mrrm_max_mem_region();
+	for_each_rmbm_event_id(i) {
+		if (!max_regions--)
+			break;
+
+		resctrl_enable_mon_event(i, true, 0, NULL);
+	}
+
+	return true;
 }
 
 int erdt_get_max_rmid(void)
@@ -131,7 +152,7 @@ static int erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 				const struct erdt_domain_info *d, int rmid,
 				int eventid, u64 *val)
 {
-	int region_idx = eventid - QOS_L3_MBM_R0_EVENT_ID;
+	int region_idx = RMBM_STATE_IDX(eventid);
 	int corr_factor_len, corr_factor = 0;
 	struct rdt_hw_l3_mon_domain *hw_dom;
 	u64 mbm_rmid_count = 0, chunks = 0;
