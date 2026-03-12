@@ -1163,6 +1163,54 @@ static int rdt_num_rmids_show(struct kernfs_open_file *of,
 	return 0;
 }
 
+#define DEFINE_RDT_SHOW_FUNC(field)				\
+static int rdt_##field##_show(struct kernfs_open_file *of,		\
+			  struct seq_file *seq, void *v)	\
+{								\
+	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);	\
+	seq_printf(seq, "%d\n", s->info_ext.field);		\
+	return 0;						\
+}
+
+DEFINE_RDT_SHOW_FUNC(min)
+DEFINE_RDT_SHOW_FUNC(max)
+DEFINE_RDT_SHOW_FUNC(tolerance)
+DEFINE_RDT_SHOW_FUNC(resolution)
+DEFINE_RDT_SHOW_FUNC(scale)
+
+char *schemata_type_flags_names[SCHEMA_TYPE_NR] = {
+	[SCHEMA_TYPE_SCALAR] = "scalar",
+	[SCHEMA_TYPE_BITMAP] = "bitmap",
+	[SCHEMA_TYPE_LINEAR] = "linear",
+	[SCHEMA_TYPE_SPARSE] = "sparse",
+};
+
+static int rdt_type_show(struct kernfs_open_file *of,
+			 struct seq_file *seq, void *v)
+{
+	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
+	u32 type = s->info_ext.type;
+
+	for (int i = 0; i < SCHEMA_TYPE_NR; i++) {
+		if (type & (1U << i))
+			seq_printf(seq, "%s ",
+				   schemata_type_flags_names[i]);
+	}
+	seq_printf(seq, "\n");
+
+	return 0;
+}
+
+static int rdt_unit_show(struct kernfs_open_file *of,
+			 struct seq_file *seq, void *v)
+{
+	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%s\n", s->info_ext.unit);
+
+	return 0;
+}
+
 static int rdt_mon_features_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
@@ -1873,6 +1921,15 @@ const char *rdtgroup_name_by_closid(u32 closid)
 	return NULL;
 }
 
+#define RES_EXT_FILE(field)					\
+	{							\
+		.name		= #field,			\
+		.mode		= 0444,				\
+		.kf_ops		= &rdtgroup_kf_single_ops,	\
+		.seq_show	= rdt_##field##_show,		\
+		.fflags		= RFTYPE_CTRL_EXT,		\
+	}
+
 /* rdtgroup information files for one cache resource. */
 static struct rftype res_common_files[] = {
 	{
@@ -1971,6 +2028,13 @@ static struct rftype res_common_files[] = {
 		.seq_show	= rdt_delay_linear_show,
 		.fflags		= RFTYPE_CTRL_INFO | RFTYPE_RES_MB,
 	},
+	RES_EXT_FILE(type),
+	RES_EXT_FILE(min),
+	RES_EXT_FILE(max),
+	RES_EXT_FILE(tolerance),
+	RES_EXT_FILE(resolution),
+	RES_EXT_FILE(scale),
+	RES_EXT_FILE(unit),
 	/*
 	 * Platform specific which (if any) capabilities are provided by
 	 * thread_throttle_mode. Defer "fflags" initialization to platform
@@ -2348,14 +2412,18 @@ out:
 }
 
 static int rdtgroup_mkdir_info_resdir(void *priv, char *name,
-				      unsigned long fflags)
+				      unsigned long fflags,
+				      struct kernfs_node *parent)
 {
 	struct kernfs_node *kn_subdir;
 	struct rdt_resource *r;
 	int ret;
 
-	kn_subdir = kernfs_create_dir(kn_info, name,
-				      kn_info->mode, priv);
+	if (!parent)
+		parent = kn_info;
+
+	kn_subdir = kernfs_create_dir(parent, name,
+				      parent->mode, priv);
 	if (IS_ERR(kn_subdir))
 		return PTR_ERR(kn_subdir);
 
@@ -2403,6 +2471,34 @@ static unsigned long fflags_from_resource(struct rdt_resource *r)
 	return WARN_ON_ONCE(1);
 }
 
+static int _rdtgroup_create_dir(struct kernfs_node *parent,
+				struct kernfs_node **child,
+				char *name)
+{
+	struct kernfs_node *kn;
+	int ret;
+
+	kn = kernfs_find_and_get(parent, name);
+	if (!kn) {
+		kn = kernfs_create_dir(parent, name, parent->mode, NULL);
+		if (IS_ERR(kn))
+			return PTR_ERR(kn);
+
+		ret = rdtgroup_kn_set_ugid(kn);
+		if (ret)
+			return ret;
+
+		kernfs_activate(kn);
+	} else {
+		/* protected by rdtgroup_mutex */
+		kernfs_put(kn);
+	}
+
+	*child = kn;
+
+	return 0;
+}
+
 static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 {
 	struct resctrl_schema *s;
@@ -2424,7 +2520,7 @@ static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 	list_for_each_entry(s, &resctrl_schema_all, list) {
 		r = s->res;
 		fflags = fflags_from_resource(r) | RFTYPE_CTRL_INFO;
-		ret = rdtgroup_mkdir_info_resdir(s, s->name, fflags);
+		ret = rdtgroup_mkdir_info_resdir(s, s->name, fflags, NULL);
 		if (ret)
 			goto out_destroy;
 	}
@@ -2432,9 +2528,40 @@ static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 	for_each_mon_capable_rdt_resource(r) {
 		fflags = fflags_from_resource(r) | RFTYPE_MON_INFO;
 		sprintf(name, "%s_MON", r->name);
-		ret = rdtgroup_mkdir_info_resdir(r, name, fflags);
+		ret = rdtgroup_mkdir_info_resdir(r, name, fflags, NULL);
 		if (ret)
 			goto out_destroy;
+	}
+
+	/* create resource extended directory */
+	for_each_capable_rdt_resource(r) {
+		struct kernfs_node *kn_r, *kn_s;
+
+		if (!r->membw.arch_ext_info)
+			continue;
+
+		/*
+		 * Create directory for this resource if not present.
+		 * The resource directory might have already been
+		 * created.
+		 */
+		ret = _rdtgroup_create_dir(kn_info, &kn_r, r->name);
+		if (ret)
+			goto out_destroy;
+
+		/* create directory for schema belonged to this resource */
+		ret = _rdtgroup_create_dir(kn_r, &kn_s, "resource_schemata");
+		if (ret)
+			goto out_destroy;
+
+		list_for_each_entry(s, &resctrl_schema_all, list) {
+			if (s->res != r)
+				continue;
+
+			ret = rdtgroup_mkdir_info_resdir(s, s->name, RFTYPE_CTRL_EXT, kn_s);
+			if (ret)
+				goto out_destroy;
+		}
 	}
 
 	ret = rdtgroup_kn_set_ugid(kn_info);
@@ -2696,6 +2823,17 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 		s->num_closid /= 2;
 
 	s->conf_type = type;
+
+	if (r->membw.arch_ext_info) {
+		s->info_ext.type = (BIT(SCHEMA_TYPE_SCALAR) | BIT(SCHEMA_TYPE_LINEAR));
+		s->info_ext.min = 10;
+		s->info_ext.max = MAX_MBA_BW;
+		s->info_ext.tolerance = 0;
+		s->info_ext.resolution = MAX_MBA_BW;
+		s->info_ext.scale = 1;
+		s->info_ext.unit = "all";
+	}
+
 	switch (type) {
 	case CDP_CODE:
 		suffix = "CODE";

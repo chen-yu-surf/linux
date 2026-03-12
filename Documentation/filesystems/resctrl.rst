@@ -501,6 +501,21 @@ with the following files:
 The upper bound for how many "CTRL_MON" + "MON" can be created
 is the smaller of the L3_MON and PERF_PKG_MON "num_rmids" values.
 
+Under each resource directory, there is a "resource_schemata" directory which
+contains the information for each schema belonging to this resource. Under
+each schema directory, there are attributes such as type, min, max, tolerance,
+resolution, scale, and unit. The design defines scalar and bitmap schema types
+with linear mapping support, clarifies value calculation and units, and adds a
+tolerance field to signal hardware control uncertainty. For example:
+ /sys/fs/resctrl/info/MB/resource_schemata/MB
+   max
+   min
+   resolution
+   scale
+   tolerance
+   type
+   unit
+
 Finally, in the top level of the "info" directory there is a file
 named "last_cmd_status". This is reset with every "command" issued
 via the file system (making new directories or writing to any of the

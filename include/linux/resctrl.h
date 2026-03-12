@@ -249,6 +249,7 @@ enum membw_throttle_mode {
  * @bw_gran:		Granularity at which the memory bandwidth is allocated
  * @delay_linear:	True if memory B/W delay is in linear scale
  * @arch_needs_linear:	True if we can't configure non-linear resources
+ * @arch_ext_info:	True if extended information is supported
  * @throttle_mode:	Bandwidth throttling mode when threads request
  *			different memory bandwidths
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
@@ -260,6 +261,7 @@ struct resctrl_membw {
 	u32				bw_gran;
 	u32				delay_linear;
 	bool				arch_needs_linear;
+	bool				arch_ext_info;
 	enum membw_throttle_mode	throttle_mode;
 	bool				mba_sc;
 	u32				*mb_map;
@@ -341,6 +343,29 @@ struct rdt_resource {
  */
 struct rdt_resource *resctrl_arch_get_resource(enum resctrl_res_level l);
 
+/*
+ * The lower 16 bits represent the type; the upper 16 bits
+ * represent the flags.
+ */
+enum resctrl_schema_type {
+	SCHEMA_TYPE_SCALAR,		/* type */
+	SCHEMA_TYPE_BITMAP,
+	SCHEMA_TYPE_LINEAR = 16, 	/* flags */
+	SCHEMA_TYPE_SPARSE,
+};
+
+#define SCHEMA_TYPE_NR 32
+
+struct resctrl_schema_ext {
+	u32		type;
+	int		min;
+	int		max;
+	int		tolerance;
+	int		resolution;
+	int		scale;
+	char		*unit;
+};
+
 /**
  * struct resctrl_schema - configuration abilities of a resource presented to
  *			   user-space
@@ -361,6 +386,7 @@ struct resctrl_schema {
 	enum resctrl_conf_type		conf_type;
 	struct rdt_resource		*res;
 	u32				num_closid;
+	struct resctrl_schema_ext	info_ext;
 };
 
 struct resctrl_cpu_defaults {
