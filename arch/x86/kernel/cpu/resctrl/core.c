@@ -217,10 +217,12 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 		r->membw.delay_linear = true;
 		r->membw.min_bw = MAX_MBA_BW - max_delay;
 		r->membw.bw_gran = MAX_MBA_BW - max_delay;
+		r->membw.arch_ext_info = true;
 	} else {
 		if (!rdt_get_mb_table(r))
 			return false;
 		r->membw.arch_needs_linear = false;
+		r->membw.arch_ext_info = false;
 	}
 
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
