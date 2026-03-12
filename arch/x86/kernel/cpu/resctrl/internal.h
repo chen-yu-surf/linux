@@ -315,8 +315,10 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 
 bool erdt_support(int flag);
 bool erdt_cpu_has(int flag);
+bool erdt_enable_mon(void);
 int erdt_get_max_rmid(void);
-int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid, u64 *val);
+int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid,
+		  u64 *val, bool first);
 int erdt_init(void);
 void erdt_exit(void);
 

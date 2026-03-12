@@ -179,14 +179,19 @@ void resctrl_arch_reset_rmid(struct rdt_resource *r, struct rdt_l3_mon_domain *d
 	int cpu = cpumask_any(&d->hdr.cpu_mask);
 	struct arch_mbm_state *am;
 	u32 prmid;
+	u64 tmp;
 
 	am = get_arch_mbm_state(hw_dom, rmid, eventid);
 	if (am) {
 		memset(am, 0, sizeof(*am));
 
-		prmid = logical_rmid_to_physical_rmid(cpu, rmid);
 		/* Record any initial, non-zero count value. */
-		__rmid_read_phys(prmid, eventid, &am->prev_mon_val);
+		if (rmbm_event(eventid) && erdt_cpu_has(X86_FEATURE_CQM_MBM_TOTAL)) {
+			erdt_mon_read(&d->hdr, eventid, rmid, &tmp, true);
+		} else {
+			prmid = logical_rmid_to_physical_rmid(cpu, rmid);
+			__rmid_read_phys(prmid, eventid, &am->prev_mon_val);
+		}
 	}
 }
 
@@ -280,7 +285,10 @@ int resctrl_arch_rmid_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 	case RDT_RESOURCE_L3:
 		if (eventid == QOS_L3_OCCUP_EVENT_ID &&
 		    erdt_cpu_has(X86_FEATURE_CQM_OCCUP_LLC))
-			return erdt_mon_read(hdr, eventid, rmid, val);
+			return erdt_mon_read(hdr, eventid, rmid, val, false);
+
+		if (rmbm_event(eventid) && erdt_cpu_has(X86_FEATURE_CQM_MBM_TOTAL))
+			return erdt_mon_read(hdr, eventid, rmid, val, false);
 
 		return arch_l3_read_event(hdr, rmid, eventid, val, r);
 	case RDT_RESOURCE_PERF_PKG:
