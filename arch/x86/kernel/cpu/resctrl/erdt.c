@@ -24,6 +24,7 @@ static bool erdt_enabled;
 
 #define ERDT_VALID_VERSION		1
 #define CMRC_SUPPORTED_INDEX_FN		1
+#define MMRC_SUPPORTED_INDEX_FN		1
 #define RMDD_FLAG_CPU_L3_DOMAIN		BIT(0)
 
 /* Set in a monitoring counter when it holds no valid data to report. */
@@ -141,6 +142,7 @@ static void cleanup_one_domain(struct erdt_domain_info *d)
 {
 	erdt_iounmap_domain(d);
 	kfree(d->cmrc);
+	kfree(d->mmrc);
 	kfree(d);
 }
 
@@ -207,6 +209,36 @@ static __init int cmrc_init(struct acpi_subtbl_hdr_16 *subtbl,
 	}
 
 	erdt_scale = max_t(int, erdt_scale, cmrc->up_scale);
+
+	return 0;
+}
+
+static __init int mmrc_init(struct acpi_subtbl_hdr_16 *subtbl,
+			    struct erdt_domain_info *domain_info)
+{
+	struct acpi_erdt_mmrc *mmrc = (struct acpi_erdt_mmrc *)subtbl;
+
+	if (subtbl->length < sizeof(*mmrc)) {
+		pr_warn(FW_BUG "Truncated MMRC subtable\n");
+		return -EIO;
+	}
+
+	if (mmrc->index_fn != MMRC_SUPPORTED_INDEX_FN) {
+		pr_info("Unsupported MMRC index function %d\n", mmrc->index_fn);
+		return -EIO;
+	}
+
+	domain_info->base[ERDT_MMIO_MMRC_BASE] =
+		erdt_ioremap(mmrc->reg_base, mmrc->reg_size, "MMRC base");
+	if (!domain_info->base[ERDT_MMIO_MMRC_BASE])
+		return -EIO;
+
+	domain_info->mmrc = kmemdup(mmrc, subtbl->length, GFP_KERNEL);
+	if (!domain_info->mmrc) {
+		iounmap(domain_info->base[ERDT_MMIO_MMRC_BASE]);
+		domain_info->base[ERDT_MMIO_MMRC_BASE] = NULL;
+		return -ENOMEM;
+	}
 
 	return 0;
 }
@@ -286,6 +318,12 @@ static __init bool parse_rmdd_table(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 			if (!(subtbl_mask & BIT(ACPI_ERDT_TYPE_CMRC)) &&
 			    !cmrc_init(subtbl, domain_info))
 				subtbl_mask |= BIT(ACPI_ERDT_TYPE_CMRC);
+
+			break;
+		case ACPI_ERDT_TYPE_MMRC:
+			if (!(subtbl_mask & BIT(ACPI_ERDT_TYPE_MMRC)) &&
+			    !mmrc_init(subtbl, domain_info))
+				subtbl_mask |= BIT(ACPI_ERDT_TYPE_MMRC);
 
 			break;
 		default:
