@@ -50,9 +50,9 @@ DEFINE_PER_CPU(struct resctrl_pqr_state, pqr_state);
  */
 bool rdt_alloc_capable;
 
-static void mba_wrmsr_intel(struct msr_param *m);
-static void cat_wrmsr(struct msr_param *m);
-static void mba_wrmsr_amd(struct msr_param *m);
+static void mba_wrmsr_intel(struct hw_param *m);
+static void cat_wrmsr(struct hw_param *m);
+static void mba_wrmsr_amd(struct hw_param *m);
 
 #define ctrl_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.controls)
 #define mon_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.mon_domains)
@@ -226,7 +226,7 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
 
 	hw_ctrl->msr_base = MSR_IA32_MBA_THRTL_BASE;
-	hw_ctrl->msr_update = mba_wrmsr_intel;
+	hw_ctrl->hw_update = mba_wrmsr_intel;
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
@@ -285,10 +285,10 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 
 	if (r->rid == RDT_RESOURCE_MBA) {
 		hw_ctrl->msr_base = MSR_IA32_MBA_BW_BASE;
-		hw_ctrl->msr_update = mba_wrmsr_amd;
+		hw_ctrl->hw_update = mba_wrmsr_amd;
 	} else { /* r->rid == RDT_RESOURCE_SMBA */
 		hw_ctrl->msr_base = MSR_IA32_SMBA_BW_BASE;
-		hw_ctrl->msr_update = mba_wrmsr_amd;
+		hw_ctrl->hw_update = mba_wrmsr_amd;
 	}
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
@@ -339,7 +339,7 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	}
 
 	hw_ctrl->msr_base = idx == 1 ? MSR_IA32_L3_CBM_BASE: MSR_IA32_L2_CBM_BASE;
-	hw_ctrl->msr_update = cat_wrmsr;
+	hw_ctrl->hw_update = cat_wrmsr;
 
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
@@ -371,7 +371,7 @@ static void rdt_get_cdp_l2_config(void)
 	rdt_get_cdp_config(RDT_RESOURCE_L2);
 }
 
-static void mba_wrmsr_amd(struct msr_param *m)
+static void mba_wrmsr_amd(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
@@ -395,7 +395,7 @@ static u32 delay_bw_map(unsigned long bw, struct rdt_resource *r)
 	return MAX_MBA_BW;
 }
 
-static void mba_wrmsr_intel(struct msr_param *m)
+static void mba_wrmsr_intel(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
@@ -406,7 +406,7 @@ static void mba_wrmsr_intel(struct msr_param *m)
 		wrmsrq(hw_ctrl->msr_base + i, delay_bw_map(hw_dom->ctrl_val[i], m->res));
 }
 
-static void cat_wrmsr(struct msr_param *m)
+static void cat_wrmsr(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
@@ -424,10 +424,10 @@ u32 resctrl_arch_get_num_closid(struct rdt_resource *r)
 void rdt_ctrl_update(void *arg)
 {
 	struct resctrl_hw_ctrl *hw_ctrl;
-	struct msr_param *m = arg;
+	struct hw_param *m = arg;
 
 	hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
-	hw_ctrl->msr_update(m);
+	hw_ctrl->hw_update(m);
 }
 
 static void setup_default_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
@@ -466,7 +466,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(ctrl);
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
-	struct msr_param m;
+	struct hw_param m;
 	u32 *dc;
 
 	dc = kmalloc_array(hw_res->num_closid, sizeof(*hw_dom->ctrl_val),
@@ -482,7 +482,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 	m.dom = d;
 	m.low = 0;
 	m.high = hw_res->num_closid;
-	hw_ctrl->msr_update(&m);
+	hw_ctrl->hw_update(&m);
 	return 0;
 }
 
