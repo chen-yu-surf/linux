@@ -25,11 +25,13 @@
  * Index into erdt_domain_info::base[] for each MMIO region.
  * @ERDT_MMIO_RMDD_CREG: RMDD control register base address
  * @ERDT_MMIO_CMRC_BASE: CMRC monitoring register base address
+ * @ERDT_MMIO_MMRC_BASE: MMRC monitoring register base address
  */
 enum erdt_mmio_type {
 	ERDT_MMIO_RMDD_CREG,
 	ERDT_MMIO_CMRC_BASE,
-	ERDT_MMIO_LAST = ERDT_MMIO_CMRC_BASE
+	ERDT_MMIO_MMRC_BASE,
+	ERDT_MMIO_LAST = ERDT_MMIO_MMRC_BASE
 };
 
 #define ERDT_MMIO_NUM_TYPES	(ERDT_MMIO_LAST + 1)
@@ -37,6 +39,7 @@ enum erdt_mmio_type {
 struct erdt_domain_info {
 	void __iomem		*base[ERDT_MMIO_NUM_TYPES];
 	struct acpi_erdt_cmrc	*cmrc;
+	struct acpi_erdt_mmrc	*mmrc;
 	cpumask_var_t		cpu_mask;
 	int			max_rmid;
 	struct list_head	list;
