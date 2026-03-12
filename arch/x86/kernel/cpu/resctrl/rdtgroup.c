@@ -234,7 +234,7 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	struct rdt_hw_ctrl_domain *hw_dom;
-	struct msr_param msr_param;
+	struct hw_param hw_param;
 	struct resctrl_ctrl *ctrl;
 	struct rdt_ctrl_domain *d;
 	int i;
@@ -242,9 +242,9 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	msr_param.res = r;
-	msr_param.low = 0;
-	msr_param.high = hw_res->num_closid;
+	hw_param.res = r;
+	hw_param.low = 0;
+	hw_param.high = hw_res->num_closid;
 
 	/*
 	 * Disable resource control for this resource by setting all
@@ -252,14 +252,14 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 	 * Pick one CPU from each domain to update the MSRs below.
 	 */
 	for_each_resource_ctrl(ctrl, r) {
-		msr_param.ctrl = ctrl;
+		hw_param.ctrl = ctrl;
 		list_for_each_entry(d, &ctrl->domains, hdr.list) {
 			hw_dom = resctrl_to_arch_ctrl_dom(d);
 
 			for (i = 0; i < hw_res->num_closid; i++)
 				hw_dom->ctrl_val[i] = resctrl_get_default_ctrlval(ctrl);
-			msr_param.dom = d;
-			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &msr_param, 1);
+			hw_param.dom = d;
+			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &hw_param, 1);
 		}
 	}
 
