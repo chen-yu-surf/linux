@@ -26,6 +26,7 @@ static DEFINE_XARRAY(erdt_domain_xa); /* Indexed by L3 cache ID */
 #define ERDT_VALID_VERSION 1
 #define CMRC_VALID_INDEX_FUNC_VERSION 1
 #define MMRC_VALID_INDEX_FUNC_VERSION 1
+#define MARC_VALID_INDEX_FUNC_VERSION 1
 
 static u32 valid_subtbl_mask;
 
@@ -190,6 +191,35 @@ static bool mmrc_init(struct erdt_domain_info *d, struct acpi_subtbl_hdr_16 *sub
 	return !!d->base[ERDT_MMIO_MMRC_BASE];
 }
 
+static bool marc_init(struct erdt_domain_info *d, struct acpi_subtbl_hdr_16 *subtbl)
+{
+	struct acpi_erdt_marc *marc = (struct acpi_erdt_marc *)subtbl;
+
+	if (marc->index_fn != MARC_VALID_INDEX_FUNC_VERSION) {
+		pr_info("Unknown MARC index function %d\n", marc->index_fn);
+		return false;
+	}
+
+	d->marc = marc;
+
+	d->base[ERDT_MMIO_MARC_OPT] = erdt_ioremap_checked(marc->reg_base_opt,
+							   marc->mba_reg_size, "MARC OPT base");
+	if (!d->base[ERDT_MMIO_MARC_OPT])
+		return false;
+
+	d->base[ERDT_MMIO_MARC_MIN] = erdt_ioremap_checked(marc->reg_base_min,
+							   marc->mba_reg_size, "MARC MIN base");
+	if (!d->base[ERDT_MMIO_MARC_MIN])
+		return false;
+
+	d->base[ERDT_MMIO_MARC_MAX] = erdt_ioremap_checked(marc->reg_base_max,
+							   marc->mba_reg_size, "MARC MAX base");
+	if (!d->base[ERDT_MMIO_MARC_MAX])
+		return false;
+
+	return true;
+}
+
 static __init bool parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 {
 	struct acpi_erdt_rmdd *rmdd = (struct acpi_erdt_rmdd *)rmdd_hdr;
@@ -232,6 +262,10 @@ static __init bool parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 		case ACPI_ERDT_TYPE_MMRC:
 			if (mmrc_init(domain_info, subtbl))
 				subtbl_mask |= BIT(ACPI_ERDT_TYPE_MMRC);
+			break;
+		case ACPI_ERDT_TYPE_MARC:
+			if (marc_init(domain_info, subtbl))
+				subtbl_mask |= BIT(ACPI_ERDT_TYPE_MARC);
 			break;
 		default:
 			break;
