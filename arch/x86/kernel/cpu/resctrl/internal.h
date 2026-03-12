@@ -299,6 +299,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 
 bool erdt_support_features(int flag);
 bool erdt_cpu_has(int flag);
+bool erdt_enable_mon(void);
 int erdt_get_max_rmid(int cpu);
 int erdt_init(void);
 void erdt_exit(void);
