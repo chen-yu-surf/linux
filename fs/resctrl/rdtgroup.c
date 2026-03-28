@@ -2845,8 +2845,8 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 
 	if (r->membw.arch_ext_info) {
 		s->info_ext.type = (BIT(SCHEMA_TYPE_SCALAR) | BIT(SCHEMA_TYPE_LINEAR));
-		s->info_ext.min = 10;
-		s->info_ext.max = MAX_MBA_BW;
+		s->info_ext.min = region != -1 ? 1 : 10;
+		s->info_ext.max = region != -1 ? MAX_MBA_REGION_BW : MAX_MBA_BW;
 		s->info_ext.tolerance = 0;
 		s->info_ext.resolution = MAX_MBA_BW;
 		s->info_ext.scale = 1;
