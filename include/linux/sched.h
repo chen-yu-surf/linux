@@ -1421,6 +1421,12 @@ struct task_struct {
 
 #ifdef CONFIG_SCHED_CACHE
 	struct callback_head		cache_work;
+	/*
+	 * Grouping statistics this task is aggregated into. Points
+	 * directly at the sched_cache_stat so the grouping can be
+	 * accessed without going through ->mm.
+	 */
+	struct sched_cache_stat		*sc_stat;
 	int				preferred_llc;
 	/* 1: task was enqueued to its preferred LLC, 0 otherwise */
 	int				pref_llc_queued;
@@ -2390,6 +2396,18 @@ struct sched_cache_time {
 	unsigned long epoch;
 };
 
+enum sched_cache_type {
+	/* aggregate process to LLC */
+	process = 0,
+	/* aggregate cgroup to LLC */
+	cgrp,
+};
+
+union sched_cache_group {
+	struct mm_struct *mm;
+	struct cgroup *cgroup;
+};
+
 struct sched_cache_stat {
 	struct sched_cache_time __percpu *pcpu_sched;
 	raw_spinlock_t lock;
@@ -2398,7 +2416,12 @@ struct sched_cache_stat {
 	unsigned long next_scan;
 	unsigned long footprint;
 	int cpu;
+	enum sched_cache_type type;
+	union sched_cache_group grp;
 } ____cacheline_aligned_in_smp;
+
+struct sched_cache_stat *alloc_sched_stat(void);
+int mm_alloc_sched_noprof(struct mm_struct *mm);
 
 #else
 

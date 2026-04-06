@@ -1210,8 +1210,10 @@ struct mm_struct {
 		/* MM CID related storage */
 		struct mm_mm_cid mm_cid;
 
+#ifdef CONFIG_SCHED_CACHE
 		/* sched_cache related statistics */
-		struct sched_cache_stat sc_stat;
+		struct sched_cache_stat *sc_stat;
+#endif
 #ifdef CONFIG_MMU
 		atomic_long_t pgtables_bytes;	/* size of all page tables */
 #endif
@@ -1609,28 +1611,9 @@ static inline unsigned int mm_cid_size(void)
 #endif /* CONFIG_SCHED_MM_CID */
 
 #ifdef CONFIG_SCHED_CACHE
-void mm_init_sched(struct mm_struct *mm,
-		   struct sched_cache_time __percpu *pcpu_sched);
-
-static inline int mm_alloc_sched_noprof(struct mm_struct *mm)
-{
-	struct sched_cache_time __percpu *pcpu_sched =
-		alloc_percpu_noprof(struct sched_cache_time);
-
-	if (!pcpu_sched)
-		return -ENOMEM;
-
-	mm_init_sched(mm, pcpu_sched);
-	return 0;
-}
-
 #define mm_alloc_sched(...)	alloc_hooks(mm_alloc_sched_noprof(__VA_ARGS__))
 
-static inline void mm_destroy_sched(struct mm_struct *mm)
-{
-	free_percpu(mm->sc_stat.pcpu_sched);
-	mm->sc_stat.pcpu_sched = NULL;
-}
+void mm_destroy_sched(struct mm_struct *mm);
 #else /* !CONFIG_SCHED_CACHE */
 
 static inline int mm_alloc_sched(struct mm_struct *mm) { return 0; }

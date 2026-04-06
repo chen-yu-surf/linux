@@ -1594,6 +1594,11 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 
 	tsk->mm = mm;
 	tsk->active_mm = mm;
+#ifdef CONFIG_SCHED_CACHE
+	/* default to grouping the task by its process (mm) */
+	if (mm->sc_stat)
+		tsk->sc_stat = mm->sc_stat;
+#endif
 	return 0;
 }
 
@@ -2250,6 +2255,9 @@ __latent_entropy struct task_struct *copy_process(
 #ifdef CONFIG_BPF_SYSCALL
 	RCU_INIT_POINTER(p->bpf_storage, NULL);
 	p->bpf_ctx = NULL;
+#endif
+#ifdef CONFIG_SCHED_CACHE
+	p->sc_stat = NULL;
 #endif
 
 	unwind_task_init(p);

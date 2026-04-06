@@ -1431,12 +1431,15 @@ static inline int get_sched_cache_scale(int mul)
 	return (1 + (tol - 1) * mul);
 }
 
-static bool exceed_llc_capacity(struct mm_struct *mm, int cpu)
+static bool exceed_llc_capacity(struct sched_cache_stat *sc_stat, int cpu)
 {
 #ifdef CONFIG_NUMA_BALANCING
 	unsigned long llc, footprint;
 	struct sched_domain *sd;
 	int scale;
+
+	if (!sc_stat)
+		return true;
 
 	guard(rcu)();
 
@@ -1450,7 +1453,7 @@ static bool exceed_llc_capacity(struct mm_struct *mm, int cpu)
 		 * excluded.
 		 */
 		llc = sd->llc_bytes;
-		footprint = READ_ONCE(mm->sc_stat.footprint);
+		footprint = READ_ONCE(sc_stat->footprint);
 
 		/*
 		 * Scale the LLC size by 256*llc_aggr_tolerance
@@ -1479,10 +1482,13 @@ static bool exceed_llc_capacity(struct mm_struct *mm, int cpu)
 	return false;
 }
 
-static bool invalid_llc_nr(struct mm_struct *mm, struct task_struct *p,
+static bool invalid_llc_nr(struct sched_cache_stat *sc_stat, struct task_struct *p,
 			   int cpu)
 {
 	int scale;
+
+	if (!sc_stat)
+		return true;
 
 	if (get_nr_threads(p) <= 1)
 		return true;
@@ -1495,7 +1501,7 @@ static bool invalid_llc_nr(struct mm_struct *mm, struct task_struct *p,
 	if (scale == INT_MAX)
 		return false;
 
-	return !fits_capacity((mm->sc_stat.nr_running_avg * cpu_smt_num_threads),
+	return !fits_capacity((sc_stat->nr_running_avg * cpu_smt_num_threads),
 			(scale * per_cpu(sd_llc_size, cpu)));
 }
 
@@ -1572,34 +1578,79 @@ static void account_llc_dequeue(struct rq *rq, struct task_struct *p)
 	}
 }
 
-void mm_init_sched(struct mm_struct *mm,
-		   struct sched_cache_time __percpu *_pcpu_sched)
+struct sched_cache_stat *alloc_sched_stat(void)
 {
+	struct sched_cache_time __percpu *pcpu_sched;
+	struct sched_cache_stat *sc_stat;
 	unsigned long epoch = 0;
 	int i;
 
-	for_each_possible_cpu(i) {
-		struct sched_cache_time *pcpu_sched = per_cpu_ptr(_pcpu_sched, i);
-		struct rq *rq = cpu_rq(i);
+	sc_stat = kzalloc(sizeof(*sc_stat), GFP_KERNEL | __GFP_NOWARN);
+	if (!sc_stat)
+		return NULL;
 
-		pcpu_sched->runtime = 0;
-		/* a slightly stale cpu epoch is acceptible */
-		pcpu_sched->epoch = rq->cpu_epoch;
-		epoch = rq->cpu_epoch;
+	pcpu_sched = alloc_percpu_noprof(struct sched_cache_time);
+	if (!pcpu_sched) {
+		kfree(sc_stat);
+		return NULL;
 	}
 
-	raw_spin_lock_init(&mm->sc_stat.lock);
-	mm->sc_stat.epoch = epoch;
-	mm->sc_stat.cpu = -1;
-	mm->sc_stat.next_scan = jiffies;
-	mm->sc_stat.nr_running_avg = 0;
-	mm->sc_stat.footprint = 0;
+	for_each_possible_cpu(i) {
+		struct sched_cache_time *psched = per_cpu_ptr(pcpu_sched, i);
+		struct rq *rq = cpu_rq(i);
+
+		psched->runtime = 0;
+		/* a slightly stale cpu epoch is acceptible */
+		psched->epoch = rq->cpu_epoch;
+		epoch = max(epoch, rq->cpu_epoch);
+	}
+
+	raw_spin_lock_init(&sc_stat->lock);
+	sc_stat->epoch = epoch;
+	sc_stat->cpu = -1;
+	sc_stat->next_scan = jiffies;
+	sc_stat->nr_running_avg = 0;
+	sc_stat->footprint = 0;
 	/*
-	 * The update to mm->sc_stat should not be reordered
-	 * before initialization to mm's other fields, in case
-	 * the readers may get invalid mm_sched_epoch, etc.
+	 * The update to sc_stat->pcpu_sched should not be reordered
+	 * before initialization to its other fields, in case the
+	 * readers may get an invalid epoch, etc.
 	 */
-	smp_store_release(&mm->sc_stat.pcpu_sched, _pcpu_sched);
+	smp_store_release(&sc_stat->pcpu_sched, pcpu_sched);
+
+	return sc_stat;
+}
+
+static inline void mm_init_sched(struct mm_struct *mm,
+				 struct sched_cache_stat *sc_stat)
+{
+	/* default to grouping the task by its process (mm) */
+	sc_stat->type = process;
+	sc_stat->grp.mm = mm;
+	mm->sc_stat = sc_stat;
+}
+
+int mm_alloc_sched_noprof(struct mm_struct *mm)
+{
+	struct sched_cache_stat *sc_stat;
+
+	sc_stat = alloc_sched_stat();
+	if (!sc_stat)
+		return -ENOMEM;
+
+	mm_init_sched(mm, sc_stat);
+	return 0;
+}
+
+void mm_destroy_sched(struct mm_struct *mm)
+{
+	if (!mm->sc_stat)
+		return;
+
+	free_percpu(mm->sc_stat->pcpu_sched);
+	mm->sc_stat->pcpu_sched = NULL;
+	kfree(mm->sc_stat);
+	mm->sc_stat = NULL;
 }
 
 /* because why would C be fully specified */
@@ -1650,14 +1701,14 @@ static unsigned long fraction_mm_sched(struct rq *rq,
 	return div64_u64(NICE_0_LOAD * pcpu_sched->runtime, rq->cpu_runtime + 1);
 }
 
-static int get_pref_llc(struct task_struct *p, struct mm_struct *mm)
+static int get_pref_llc(struct task_struct *p)
 {
 	int mm_sched_llc = -1, mm_sched_cpu;
 
-	if (!mm)
+	if (!p->sc_stat)
 		return -1;
 
-	mm_sched_cpu = READ_ONCE(mm->sc_stat.cpu);
+	mm_sched_cpu = READ_ONCE(p->sc_stat->cpu);
 	if (mm_sched_cpu != -1) {
 		mm_sched_llc = llc_id(mm_sched_cpu);
 
@@ -1688,7 +1739,7 @@ static inline
 void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 {
 	struct sched_cache_time *pcpu_sched;
-	struct mm_struct *mm = p->mm;
+	struct sched_cache_stat *sc_stat = p->sc_stat;
 	int mm_sched_llc = -1;
 	unsigned long epoch;
 
@@ -1699,12 +1750,12 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 		return;
 	/*
 	 * init_task, kthreads and user thread created
-	 * by user_mode_thread() don't have mm.
+	 * by user_mode_thread() don't have a grouping.
 	 */
-	if (!mm || !mm->sc_stat.pcpu_sched)
+	if (!sc_stat || !sc_stat->pcpu_sched)
 		return;
 
-	pcpu_sched = per_cpu_ptr(mm->sc_stat.pcpu_sched, cpu_of(rq));
+	pcpu_sched = per_cpu_ptr(sc_stat->pcpu_sched, cpu_of(rq));
 
 	scoped_guard (raw_spinlock, &rq->cpu_epoch_lock) {
 		__update_mm_sched(rq, pcpu_sched);
@@ -1717,14 +1768,14 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 	 * If this process hasn't hit task_cache_work() for a while invalidate
 	 * its preferred state.
 	 */
-	if ((long)(epoch - READ_ONCE(mm->sc_stat.epoch)) > llc_epoch_affinity_timeout ||
-	    invalid_llc_nr(mm, p, cpu_of(rq)) ||
-	    exceed_llc_capacity(mm, cpu_of(rq))) {
-		if (READ_ONCE(mm->sc_stat.cpu) != -1)
-			WRITE_ONCE(mm->sc_stat.cpu, -1);
+	if ((long)(epoch - READ_ONCE(sc_stat->epoch)) > llc_epoch_affinity_timeout ||
+	    invalid_llc_nr(sc_stat, p, cpu_of(rq)) ||
+	    exceed_llc_capacity(sc_stat, cpu_of(rq))) {
+		if (READ_ONCE(sc_stat->cpu) != -1)
+			WRITE_ONCE(sc_stat->cpu, -1);
 	}
 
-	mm_sched_llc = get_pref_llc(p, mm);
+	mm_sched_llc = get_pref_llc(p);
 
 	/* task not on rq accounted later in account_entity_enqueue() */
 	if (task_running_on_cpu(rq->cpu, p) &&
@@ -1738,26 +1789,26 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 static void task_tick_cache(struct rq *rq, struct task_struct *p)
 {
 	struct callback_head *work = &p->cache_work;
-	struct mm_struct *mm = p->mm;
+	struct sched_cache_stat *sc_stat = p->sc_stat;
 	unsigned long epoch;
 
 	if (!sched_cache_enabled())
 		return;
 
-	if (!mm || p->flags & PF_KTHREAD ||
-	    !mm->sc_stat.pcpu_sched)
+	if (!sc_stat || p->flags & PF_KTHREAD ||
+	    !sc_stat->pcpu_sched)
 		return;
 
 	epoch = rq->cpu_epoch;
 	/* avoid moving backwards */
-	if (time_after_eq(mm->sc_stat.epoch, epoch))
+	if (time_after_eq(sc_stat->epoch, epoch))
 		return;
 
-	guard(raw_spinlock)(&mm->sc_stat.lock);
+	guard(raw_spinlock)(&sc_stat->lock);
 
 	if (work->next == work) {
 		task_work_add(p, work, TWA_RESUME);
-		WRITE_ONCE(mm->sc_stat.epoch, epoch);
+		WRITE_ONCE(sc_stat->epoch, epoch);
 	}
 }
 
@@ -1769,7 +1820,7 @@ static void get_scan_cpumasks(cpumask_var_t cpus, struct task_struct *p)
 	if (!static_branch_likely(&sched_numa_balancing))
 		goto out;
 
-	cpu = READ_ONCE(p->mm->sc_stat.cpu);
+	cpu = READ_ONCE(p->sc_stat->cpu);
 	if (cpu != -1)
 		nid = cpu_to_node(cpu);
 	curr_cpu = task_cpu(p);
@@ -1830,7 +1881,7 @@ static void task_cache_work(struct callback_head *work)
 	unsigned long next_scan, now = jiffies;
 	struct task_struct *p = current, *cur;
 	unsigned long curr_m_a_occ = 0;
-	struct mm_struct *mm = p->mm;
+	struct sched_cache_stat *sc_stat = p->sc_stat;
 	unsigned long m_a_occ = 0;
 	cpumask_var_t cpus;
 
@@ -1841,21 +1892,24 @@ static void task_cache_work(struct callback_head *work)
 	if (p->flags & PF_EXITING)
 		return;
 
-	next_scan = READ_ONCE(mm->sc_stat.next_scan);
+	if (!sc_stat)
+		return;
+
+	next_scan = READ_ONCE(sc_stat->next_scan);
 	if (time_before(now, next_scan))
 		return;
 
 	/* only 1 thread is allowed to scan */
-	if (!try_cmpxchg(&mm->sc_stat.next_scan, &next_scan,
+	if (!try_cmpxchg(&sc_stat->next_scan, &next_scan,
 			 now + max_t(unsigned long,
 				     READ_ONCE(llc_epoch_period), 1)))
 		return;
 
 	curr_cpu = task_cpu(p);
-	if (invalid_llc_nr(mm, p, curr_cpu) ||
-	    exceed_llc_capacity(mm, curr_cpu)) {
-		if (READ_ONCE(mm->sc_stat.cpu) != -1)
-			WRITE_ONCE(mm->sc_stat.cpu, -1);
+	if (invalid_llc_nr(sc_stat, p, curr_cpu) ||
+	    exceed_llc_capacity(sc_stat, curr_cpu)) {
+		if (READ_ONCE(sc_stat->cpu) != -1)
+			WRITE_ONCE(sc_stat->cpu, -1);
 
 		return;
 	}
@@ -1879,7 +1933,7 @@ static void task_cache_work(struct callback_head *work)
 
 			for_each_cpu(i, sched_domain_span(sd)) {
 				occ = fraction_mm_sched(cpu_rq(i),
-							per_cpu_ptr(mm->sc_stat.pcpu_sched, i));
+							per_cpu_ptr(sc_stat->pcpu_sched, i));
 				a_occ += occ;
 				if (occ > m_occ) {
 					m_occ = occ;
@@ -1888,7 +1942,7 @@ static void task_cache_work(struct callback_head *work)
 
 				cur = rcu_dereference_all(cpu_rq(i)->curr);
 				if (cur && !(cur->flags & (PF_EXITING | PF_KTHREAD)) &&
-				    cur->mm == mm)
+				    cur->sc_stat == sc_stat)
 					nr_running++;
 			}
 
@@ -1912,7 +1966,7 @@ static void task_cache_work(struct callback_head *work)
 				m_a_cpu = m_cpu;
 			}
 
-			if (llc_id(cpu) == llc_id(READ_ONCE(mm->sc_stat.cpu)))
+			if (llc_id(cpu) == llc_id(READ_ONCE(sc_stat->cpu)))
 				curr_m_a_occ = a_occ;
 
 			cpumask_andnot(cpus, cpus, sched_domain_span(sd));
@@ -1930,10 +1984,10 @@ static void task_cache_work(struct callback_head *work)
 		 * 3. 2X is chosen based on test results, as it delivers
 		 *    the optimal performance gain so far.
 		 */
-		WRITE_ONCE(mm->sc_stat.cpu, m_a_cpu);
+		WRITE_ONCE(sc_stat->cpu, m_a_cpu);
 	}
 
-	update_avg_scale(&mm->sc_stat.nr_running_avg, nr_running);
+	update_avg_scale(&sc_stat->nr_running_avg, nr_running);
 	free_cpumask_var(cpus);
 }
 
@@ -1959,8 +2013,7 @@ void init_sched_mm(struct task_struct *p) { }
 
 static void task_tick_cache(struct rq *rq, struct task_struct *p) { }
 
-static inline int get_pref_llc(struct task_struct *p,
-			       struct mm_struct *mm)
+static inline int get_pref_llc(struct task_struct *p)
 {
 	return -1;
 }
@@ -3741,8 +3794,8 @@ static void task_numa_placement(struct task_struct *p)
 			 * go negative. Clamp to zero to prevent the
 			 * unsigned footprint from wrapping.
 			 */
-			new_fp = (long)READ_ONCE(p->mm->sc_stat.footprint) + diff;
-			WRITE_ONCE(p->mm->sc_stat.footprint,
+			new_fp = (long)READ_ONCE(p->sc_stat->footprint) + diff;
+			WRITE_ONCE(p->sc_stat->footprint,
 				   max(new_fp, 0L));
 #endif
 		}
@@ -10570,23 +10623,23 @@ static enum llc_mig can_migrate_llc(int src_cpu, int dst_cpu,
 static enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu,
 					 struct task_struct *p)
 {
-	struct mm_struct *mm;
+	struct sched_cache_stat *sc_stat;
 	bool to_pref;
 	int cpu;
 
-	mm = p->mm;
-	if (!mm)
+	sc_stat = p->sc_stat;
+	if (!sc_stat)
 		return mig_unrestricted;
 
-	cpu = READ_ONCE(mm->sc_stat.cpu);
+	cpu = READ_ONCE(sc_stat->cpu);
 	if (cpu < 0 || cpus_share_cache(src_cpu, dst_cpu))
 		return mig_unrestricted;
 
 	/* skip cache aware load balance for too many threads */
-	if (invalid_llc_nr(mm, p, dst_cpu) ||
-	    exceed_llc_capacity(mm, dst_cpu)) {
-		if (READ_ONCE(mm->sc_stat.cpu) != -1)
-			WRITE_ONCE(mm->sc_stat.cpu, -1);
+	if (invalid_llc_nr(sc_stat, p, dst_cpu) ||
+	    exceed_llc_capacity(sc_stat, dst_cpu)) {
+		if (READ_ONCE(sc_stat->cpu) != -1)
+			WRITE_ONCE(sc_stat->cpu, -1);
 		return mig_unrestricted;
 	}
 
