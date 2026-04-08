@@ -117,7 +117,7 @@ void rdt_staged_configs_clear(void)
 	lockdep_assert_held(&rdtgroup_mutex);
 
 	for_each_alloc_capable_rdt_resource(r) {
-		list_for_each_entry_rcu(dom, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held())
+		list_for_each_entry_rcu(dom, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held())
 			memset(dom->staged_config, 0, sizeof(dom->staged_config));
 	}
 }
@@ -1037,7 +1037,7 @@ static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->cache.min_cbm_bits);
+	seq_printf(seq, "%u\n", r->ctrl.cache.min_cbm_bits);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1052,7 +1052,7 @@ static int rdt_shareable_bits_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%x\n", r->cache.shareable_bits);
+	seq_printf(seq, "%x\n", r->ctrl.cache.shareable_bits);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1092,10 +1092,10 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	list_for_each_entry_rcu(dom, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry_rcu(dom, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
 		if (sep)
 			seq_putc(seq, ';');
-		hw_shareable = r->cache.shareable_bits;
+		hw_shareable = r->ctrl.cache.shareable_bits;
 		sw_shareable = 0;
 		exclusive = 0;
 		seq_printf(seq, "%d=", dom->hdr.id);
@@ -1145,7 +1145,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 			hw_shareable |= ctrl_val;
 		}
 
-		for (i = r->cache.cbm_len - 1; i >= 0; i--) {
+		for (i = r->ctrl.cache.cbm_len - 1; i >= 0; i--) {
 			pseudo_locked = dom->plr ? dom->plr->cbm : 0;
 			hwb = test_bit(i, &hw_shareable);
 			swb = test_bit(i, &sw_shareable);
@@ -1180,7 +1180,7 @@ static int rdt_min_bw_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->membw.min_bw);
+	seq_printf(seq, "%u\n", r->ctrl.membw.min_bw);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1231,7 +1231,7 @@ static int rdt_bw_gran_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->membw.bw_gran);
+	seq_printf(seq, "%u\n", r->ctrl.membw.bw_gran);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1246,7 +1246,7 @@ static int rdt_delay_linear_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->membw.delay_linear);
+	seq_printf(seq, "%u\n", r->ctrl.membw.delay_linear);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1366,7 +1366,7 @@ static int rdt_has_sparse_bitmasks_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->cache.arch_has_sparse_bitmasks);
+	seq_printf(seq, "%u\n", r->ctrl.cache.arch_has_sparse_bitmasks);
 
 	info_kn_unlock(of->kn);
 
@@ -1404,8 +1404,8 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 
 	/* Check for any overlap with regions used by hardware directly */
 	if (!exclusive) {
-		ctrl_b = r->cache.shareable_bits;
-		if (bitmap_intersects(&cbm, &ctrl_b, r->cache.cbm_len))
+		ctrl_b = r->ctrl.cache.shareable_bits;
+		if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.cache.cbm_len))
 			return true;
 	}
 
@@ -1415,7 +1415,7 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 		mode = rdtgroup_mode_by_closid(i);
 		if (closid_allocated(i) && i != closid &&
 		    mode != RDT_MODE_PSEUDO_LOCKSETUP) {
-			if (bitmap_intersects(&cbm, &ctrl_b, r->cache.cbm_len)) {
+			if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.cache.cbm_len)) {
 				if (exclusive) {
 					if (mode == RDT_MODE_EXCLUSIVE)
 						return true;
@@ -1494,7 +1494,7 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)
 			continue;
 		has_cache = true;
-		list_for_each_entry_rcu(d, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+		list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
 			ctrl = resctrl_arch_get_config(r, d, closid,
 						       f->conf_type);
 			if (rdtgroup_cbm_overlaps(f, d, ctrl, closid, false)) {
@@ -1613,10 +1613,10 @@ unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
 	if (WARN_ON_ONCE(r->ctrl_scope != RESCTRL_L2_CACHE && r->ctrl_scope != RESCTRL_L3_CACHE))
 		return size;
 
-	num_b = bitmap_weight(&cbm, r->cache.cbm_len);
+	num_b = bitmap_weight(&cbm, r->ctrl.cache.cbm_len);
 	ci = get_cpu_cacheinfo_level(cpumask_any(&d->hdr.cpu_mask), r->ctrl_scope);
 	if (ci)
-		size = ci->size / r->cache.cbm_len * num_b;
+		size = ci->size / r->ctrl.cache.cbm_len * num_b;
 
 	return size;
 }
@@ -1633,7 +1633,7 @@ bool is_mba_sc(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_MBA)
 		return false;
 
-	return r->membw.mba_sc;
+	return r->ctrl.membw.mba_sc;
 }
 
 /*
@@ -1684,7 +1684,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 		type = f->conf_type;
 		sep = false;
 		seq_printf(s, "%*s:", max_name_width, f->name);
-		list_for_each_entry_rcu(d, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+		list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
 			if (sep)
 				seq_putc(s, ';');
 			if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
@@ -2616,7 +2616,7 @@ static bool supports_mba_mbps(void)
 	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
 
 	return (resctrl_is_mbm_enabled() &&
-		r->alloc_capable && r->membw.delay_linear &&
+		r->alloc_capable && r->ctrl.membw.delay_linear &&
 		r->ctrl_scope == rmbm->mon_scope &&
 		!rmbm->mon.mbm_cntr_assignable);
 }
@@ -2636,11 +2636,11 @@ static int set_mba_sc(bool mba_sc)
 	if (!supports_mba_mbps() || mba_sc == is_mba_sc(r))
 		return -EINVAL;
 
-	r->membw.mba_sc = mba_sc;
+	r->ctrl.membw.mba_sc = mba_sc;
 
 	rdtgroup_default.mba_mbps_event = mba_mbps_default_event;
 
-	list_for_each_entry_rcu(d, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
 		for (i = 0; i < num_closid; i++)
 			d->mbps_val[i] = MBA_MAX_MBPS;
 	}
@@ -3697,11 +3697,11 @@ out_destroy:
  */
 static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r)
 {
-	unsigned int cbm_len = r->cache.cbm_len;
+	unsigned int cbm_len = r->ctrl.cache.cbm_len;
 	unsigned long first_bit, zero_bit;
 	unsigned long val;
 
-	if (!_val || r->cache.arch_has_sparse_bitmasks)
+	if (!_val || r->ctrl.cache.arch_has_sparse_bitmasks)
 		return _val;
 
 	val = _val;
@@ -3734,8 +3734,8 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 
 	cfg = &d->staged_config[t];
 	cfg->have_new_ctrl = false;
-	cfg->new_ctrl = r->cache.shareable_bits;
-	used_b = r->cache.shareable_bits;
+	cfg->new_ctrl = r->ctrl.cache.shareable_bits;
+	used_b = r->ctrl.cache.shareable_bits;
 	for (i = 0; i < closids_supported(); i++) {
 		if (closid_allocated(i) && i != closid) {
 			mode = rdtgroup_mode_by_closid(i);
@@ -3765,8 +3765,8 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 	}
 	if (d->plr && d->plr->cbm > 0)
 		used_b |= d->plr->cbm;
-	unused_b = used_b ^ (BIT_MASK(r->cache.cbm_len) - 1);
-	unused_b &= BIT_MASK(r->cache.cbm_len) - 1;
+	unused_b = used_b ^ (BIT_MASK(r->ctrl.cache.cbm_len) - 1);
+	unused_b &= BIT_MASK(r->ctrl.cache.cbm_len) - 1;
 	cfg->new_ctrl |= unused_b;
 	/*
 	 * Force the initial CBM to be valid, user can
@@ -3778,7 +3778,7 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 	 * bitmap_weight() does not access out-of-bound memory.
 	 */
 	tmp_cbm = cfg->new_ctrl;
-	if (bitmap_weight(&tmp_cbm, r->cache.cbm_len) < r->cache.min_cbm_bits) {
+	if (bitmap_weight(&tmp_cbm, r->ctrl.cache.cbm_len) < r->ctrl.cache.min_cbm_bits) {
 		rdt_last_cmd_printf("No space on %s:%d\n", f->name, d->hdr.id);
 		return -ENOSPC;
 	}
@@ -3802,7 +3802,7 @@ int rdtgroup_init_cat(struct rdt_resource_final *f, u32 closid)
 	struct rdt_ctrl_domain *d;
 	int ret;
 
-	list_for_each_entry_rcu(d, &f->res->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry_rcu(d, &f->res->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
 		ret = __init_one_rdt_domain(d, f, closid);
 		if (ret < 0)
 			return ret;
@@ -3817,7 +3817,7 @@ static void rdtgroup_init_mba(struct rdt_resource *r, u32 closid)
 	struct resctrl_staged_config *cfg;
 	struct rdt_ctrl_domain *d;
 
-	list_for_each_entry_rcu(d, &r->ctrl_domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
 		if (is_mba_sc(r)) {
 			d->mbps_val[closid] = MBA_MAX_MBPS;
 			continue;
@@ -4848,7 +4848,7 @@ static bool resctrl_online_domains_exist(void)
 	 * to return dummy 'not capable' resources.
 	 */
 	for_each_alloc_capable_rdt_resource(r) {
-		if (!list_empty(&r->ctrl_domains))
+		if (!list_empty(&r->ctrl.domains))
 			return true;
 	}
 
