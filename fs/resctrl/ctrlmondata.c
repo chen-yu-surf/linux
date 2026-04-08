@@ -84,13 +84,13 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 		return true;
 	}
 
-	if (bw < r->membw.min_bw || bw > r->membw.max_bw) {
+	if (bw < r->ctrl.membw.min_bw || bw > r->ctrl.membw.max_bw) {
 		rdt_last_cmd_printf("MB value %u out of range [%d,%d]\n",
-				    bw, r->membw.min_bw, r->membw.max_bw);
+				    bw, r->ctrl.membw.min_bw, r->ctrl.membw.max_bw);
 		return false;
 	}
 
-	*data = roundup(bw, (unsigned long)r->membw.bw_gran);
+	*data = roundup(bw, (unsigned long)r->ctrl.membw.bw_gran);
 	return true;
 }
 
@@ -134,8 +134,8 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
  */
 static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
 {
-	u32 supported_bits = BIT_MASK(r->cache.cbm_len) - 1;
-	unsigned int cbm_len = r->cache.cbm_len;
+	u32 supported_bits = BIT_MASK(r->ctrl.cache.cbm_len) - 1;
+	unsigned int cbm_len = r->ctrl.cache.cbm_len;
 	unsigned long first_bit, zero_bit, val;
 	int ret;
 
@@ -145,7 +145,7 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
 		return false;
 	}
 
-	if ((r->cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
+	if ((r->ctrl.cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
 		rdt_last_cmd_puts("Mask out of range\n");
 		return false;
 	}
@@ -154,15 +154,15 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
 	zero_bit = find_next_zero_bit(&val, cbm_len, first_bit);
 
 	/* Are non-contiguous bitmasks allowed? */
-	if (!r->cache.arch_has_sparse_bitmasks &&
+	if (!r->ctrl.cache.arch_has_sparse_bitmasks &&
 	    (find_next_bit(&val, cbm_len, zero_bit) < cbm_len)) {
 		rdt_last_cmd_printf("The mask %lx has non-consecutive 1-bits\n", val);
 		return false;
 	}
 
-	if ((zero_bit - first_bit) < r->cache.min_cbm_bits) {
+	if ((zero_bit - first_bit) < r->ctrl.cache.min_cbm_bits) {
 		rdt_last_cmd_printf("Need at least %d bits in the mask\n",
-				    r->cache.min_cbm_bits);
+				    r->ctrl.cache.min_cbm_bits);
 		return false;
 	}
 
@@ -252,7 +252,7 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	parse_ctrlval = resctrl_ctrl_priv_all[r->ctrl_type].parser;
+	parse_ctrlval = resctrl_ctrl_priv_all[r->ctrl.type].parser;
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP &&
 	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)) {
@@ -270,7 +270,7 @@ next:
 		return -EINVAL;
 	}
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
 		if (d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
@@ -410,7 +410,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 
 	if (resource_name)
 		seq_printf(s, "%*s:", max_name_width, resource_name);
-	list_for_each_entry(dom, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(dom, &r->ctrl.domains, hdr.list) {
 		if (sep)
 			seq_puts(s, ";");
 
@@ -420,7 +420,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,
 							   f->conf_type);
 
-		seq_printf(s, resctrl_ctrl_priv_all[r->ctrl_type].fmt_str,
+		seq_printf(s, resctrl_ctrl_priv_all[r->ctrl.type].fmt_str,
 			   dom->hdr.id, ctrl_val);
 		sep = true;
 	}
@@ -834,7 +834,7 @@ static int resctrl_io_alloc_init_cbm(struct rdt_resource_final *f, u32 closid)
 	/* Keep CDP_CODE and CDP_DATA of io_alloc CLOSID's CBM in sync. */
 	if (resctrl_arch_get_cdp_enabled(r->rid)) {
 		peer_type = resctrl_peer_type(f->conf_type);
-		list_for_each_entry(d, &f->res->ctrl_domains, hdr.list)
+		list_for_each_entry(d, &f->res->ctrl.domains, hdr.list)
 			memcpy(&d->staged_config[peer_type],
 			       &d->staged_config[f->conf_type],
 			       sizeof(d->staged_config[0]));
@@ -1000,7 +1000,7 @@ next:
 	}
 
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
 		if (update_all || d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.mode = RDT_MODE_SHAREABLE;

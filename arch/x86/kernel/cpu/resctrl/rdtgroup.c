@@ -153,7 +153,7 @@ static int set_cache_qos_cfg(int level, bool enable)
 
 	r_l = &rdt_resources_all[level].r_resctrl;
 	hw_res = resctrl_to_arch_res(r_l);
-	list_for_each_entry(d, &r_l->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &r_l->ctrl.domains, hdr.list) {
 		if (hw_res->has_per_cpu_cache_cfg)
 			/* Pick all the CPUs in the domain instance */
 			for_each_cpu(cpu, &d->hdr.cpu_mask)
@@ -248,10 +248,10 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 
 	/*
 	 * Disable resource control for this resource by setting all
-	 * CBMs in all ctrl_domains to the maximum mask value. Pick one CPU
+	 * CBMs in all control domains to the maximum mask value. Pick one CPU
 	 * from each domain to update the MSRs below.
 	 */
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
 		hw_dom = resctrl_to_arch_ctrl_dom(d);
 
 		for (i = 0; i < hw_res->num_closid; i++)

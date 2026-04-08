@@ -224,7 +224,7 @@ static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
  */
 static int pseudo_lock_region_init(struct pseudo_lock_region *plr)
 {
-	enum resctrl_scope scope = plr->f->res->ctrl_scope;
+	enum resctrl_scope scope = plr->f->res->ctrl.scope;
 	struct cacheinfo *ci;
 	int ret;
 
@@ -617,7 +617,7 @@ bool rdtgroup_cbm_overlaps_pseudo_locked(struct rdt_ctrl_domain *d, unsigned lon
 	unsigned long cbm_b;
 
 	if (d->plr) {
-		cbm_len = d->plr->f->res->cache.cbm_len;
+		cbm_len = d->plr->f->res->ctrl.cache.cbm_len;
 		cbm_b = d->plr->cbm;
 		if (bitmap_intersects(&cbm, &cbm_b, cbm_len))
 			return true;
@@ -656,7 +656,7 @@ bool rdtgroup_pseudo_locked_in_hierarchy(struct rdt_ctrl_domain *d)
 	 * associated with them.
 	 */
 	for_each_alloc_capable_rdt_resource(r) {
-		list_for_each_entry(d_i, &r->ctrl_domains, hdr.list) {
+		list_for_each_entry(d_i, &r->ctrl.domains, hdr.list) {
 			if (d_i->plr)
 				cpumask_or(cpu_with_psl, cpu_with_psl,
 					   &d_i->hdr.cpu_mask);

@@ -54,7 +54,7 @@ static void mba_wrmsr_intel(struct msr_param *m);
 static void cat_wrmsr(struct msr_param *m);
 static void mba_wrmsr_amd(struct msr_param *m);
 
-#define ctrl_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.ctrl_domains)
+#define ctrl_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.ctrl.domains)
 #define mon_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.mon_domains)
 
 struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
@@ -62,11 +62,13 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 	{
 		.r_resctrl = {
 			.name			= "L3",
-			.ctrl_scope		= RESCTRL_L3_CACHE,
 			.mon_scope		= RESCTRL_L3_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_L3),
 			.mon_domains		= mon_domain_init(RDT_RESOURCE_L3),
-			.ctrl_type		= RESCTRL_CTRL_BITMAP,
+			.ctrl	= {
+				.scope		= RESCTRL_L3_CACHE,
+				.domains	= ctrl_domain_init(RDT_RESOURCE_L3),
+				.type		= RESCTRL_CTRL_BITMAP,
+			},
 		},
 		.msr_base		= MSR_IA32_L3_CBM_BASE,
 		.msr_update		= cat_wrmsr,
@@ -75,9 +77,11 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 	{
 		.r_resctrl = {
 			.name			= "L2",
-			.ctrl_scope		= RESCTRL_L2_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_L2),
-			.ctrl_type		= RESCTRL_CTRL_BITMAP,
+			.ctrl	= {
+				.scope		= RESCTRL_L2_CACHE,
+				.domains	= ctrl_domain_init(RDT_RESOURCE_L2),
+				.type		= RESCTRL_CTRL_BITMAP,
+			},
 		},
 		.msr_base		= MSR_IA32_L2_CBM_BASE,
 		.msr_update		= cat_wrmsr,
@@ -86,18 +90,22 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 	{
 		.r_resctrl = {
 			.name			= "MB",
-			.ctrl_scope		= RESCTRL_L3_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_MBA),
-			.ctrl_type		= RESCTRL_CTRL_SCALAR,
+			.ctrl = {
+				.scope		= RESCTRL_L3_CACHE,
+				.domains	= ctrl_domain_init(RDT_RESOURCE_MBA),
+				.type		= RESCTRL_CTRL_SCALAR,
+			},
 		},
 	},
 	[RDT_RESOURCE_SMBA] =
 	{
 		.r_resctrl = {
 			.name			= "SMBA",
-			.ctrl_scope		= RESCTRL_L3_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_SMBA),
-			.ctrl_type		= RESCTRL_CTRL_SCALAR,
+			.ctrl = {
+				.scope		= RESCTRL_L3_CACHE,
+				.domains	= ctrl_domain_init(RDT_RESOURCE_SMBA),
+				.type		= RESCTRL_CTRL_SCALAR,
+			},
 		},
 	},
 	[RDT_RESOURCE_PERF_PKG] =
@@ -171,10 +179,10 @@ static inline void cache_alloc_hsw_probe(void)
 		return;
 
 	hw_res->num_closid = 4;
-	r->cache.cbm_len = 20;
-	r->cache.shareable_bits = 0xc0000;
-	r->cache.min_cbm_bits = 2;
-	r->cache.arch_has_sparse_bitmasks = false;
+	r->ctrl.cache.cbm_len = 20;
+	r->ctrl.cache.shareable_bits = 0xc0000;
+	r->ctrl.cache.min_cbm_bits = 2;
+	r->ctrl.cache.arch_has_sparse_bitmasks = false;
 	r->alloc_capable = true;
 
 	rdt_alloc_capable = true;
@@ -190,14 +198,14 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	cpuid_count(0x00000010, 3, &eax.full, &ebx, &ecx, &edx.full);
 	hw_res->num_closid = edx.split.cos_max + 1;
 	max_delay = eax.split.max_delay + 1;
-	r->membw.max_bw = MAX_MBA_BW;
+	r->ctrl.membw.max_bw = MAX_MBA_BW;
 
 	if (!(ecx & MBA_IS_LINEAR))
 		return false;
 	r->bw_delay_linear = true;
 
-	r->membw.min_bw = MAX_MBA_BW - max_delay;
-	r->membw.bw_gran = MAX_MBA_BW - max_delay;
+	r->ctrl.membw.min_bw = MAX_MBA_BW - max_delay;
+	r->ctrl.membw.bw_gran = MAX_MBA_BW - max_delay;
 
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->bw_throttle_mode = THREAD_THROTTLE_PER_THREAD;
@@ -222,11 +230,11 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 
 	cpuid_count(0x80000020, subleaf, &eax, &ebx, &ecx, &edx);
 	hw_res->num_closid = edx + 1;
-	if (BITS_PER_TYPE(r->membw.max_bw) <= eax) {
+	if (BITS_PER_TYPE(r->ctrl.membw.max_bw) <= eax) {
 		pr_warn("Unable to support hardware's maximum bandwidth\n");
 		return false;
 	}
-	r->membw.max_bw = BIT(eax);
+	r->ctrl.membw.max_bw = BIT(eax);
 
 	/* AMD does not use delay */
 	r->bw_delay_linear = false;
@@ -236,8 +244,8 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	 * the allocation like Intel does.
 	 */
 	r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-	r->membw.min_bw = 0;
-	r->membw.bw_gran = 1;
+	r->ctrl.membw.min_bw = 0;
+	r->ctrl.membw.bw_gran = 1;
 
 	r->alloc_capable = true;
 
@@ -254,11 +262,11 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 
 	cpuid_count(0x00000010, idx, &eax.full, &ebx, &ecx.full, &edx.full);
 	hw_res->num_closid = edx.split.cos_max + 1;
-	r->cache.cbm_len = eax.split.cbm_len + 1;
+	r->ctrl.cache.cbm_len = eax.split.cbm_len + 1;
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;
-	r->cache.shareable_bits = ebx & default_ctrl;
+	r->ctrl.cache.shareable_bits = ebx & default_ctrl;
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL)
-		r->cache.arch_has_sparse_bitmasks = ecx.split.noncont;
+		r->ctrl.cache.arch_has_sparse_bitmasks = ecx.split.noncont;
 	r->alloc_capable = true;
 }
 
@@ -450,7 +458,7 @@ static int get_domain_id_from_scope(int cpu, enum resctrl_scope scope)
 static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
-	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
+	int id = get_domain_id_from_scope(cpu, r->ctrl.scope);
 	struct rdt_hw_ctrl_domain *hw_dom;
 	struct list_head *add_pos = NULL;
 	struct rdt_domain_hdr *hdr;
@@ -461,11 +469,11 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
 
 	if (id < 0) {
 		pr_warn_once("Can't find control domain id for CPU:%d scope:%d for resource %s\n",
-			     cpu, r->ctrl_scope, r->name);
+			     cpu, r->ctrl.scope, r->name);
 		return;
 	}
 
-	hdr = resctrl_find_domain(&r->ctrl_domains, id, &add_pos);
+	hdr = resctrl_find_domain(&r->ctrl.domains, id, &add_pos);
 	if (hdr) {
 		if (!domain_header_is_valid(hdr, RESCTRL_CTRL_DOMAIN, r->rid))
 			return;
@@ -591,7 +599,7 @@ static void domain_add_cpu(int cpu, struct rdt_resource *r)
 
 static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r)
 {
-	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
+	int id = get_domain_id_from_scope(cpu, r->ctrl.scope);
 	struct rdt_hw_ctrl_domain *hw_dom;
 	struct rdt_domain_hdr *hdr;
 	struct rdt_ctrl_domain *d;
@@ -600,11 +608,11 @@ static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r)
 
 	if (id < 0) {
 		pr_warn_once("Can't find control domain id for CPU:%d scope:%d for resource %s\n",
-			     cpu, r->ctrl_scope, r->name);
+			     cpu, r->ctrl.scope, r->name);
 		return;
 	}
 
-	hdr = resctrl_find_domain(&r->ctrl_domains, id, NULL);
+	hdr = resctrl_find_domain(&r->ctrl.domains, id, NULL);
 	if (!hdr) {
 		pr_warn("Can't find control domain for id=%d for CPU %d for resource %s\n",
 			id, cpu, r->name);
@@ -1009,7 +1017,7 @@ static __init void rdt_init_res_defs_intel(void)
 		if (r->rid == RDT_RESOURCE_L3 ||
 		    r->rid == RDT_RESOURCE_L2) {
 			hw_res->has_per_cpu_cache_cfg = false;
-			r->cache.min_cbm_bits = 1;
+			r->ctrl.cache.min_cbm_bits = 1;
 		} else if (r->rid == RDT_RESOURCE_MBA) {
 			hw_res->msr_base = MSR_IA32_MBA_THRTL_BASE;
 			hw_res->msr_update = mba_wrmsr_intel;
@@ -1028,8 +1036,8 @@ static __init void rdt_init_res_defs_amd(void)
 		if (r->rid == RDT_RESOURCE_L3 ||
 		    r->rid == RDT_RESOURCE_L2) {
 			hw_res->has_per_cpu_cache_cfg = true;
-			r->cache.arch_has_sparse_bitmasks = true;
-			r->cache.min_cbm_bits = 0;
+			r->ctrl.cache.arch_has_sparse_bitmasks = true;
+			r->ctrl.cache.min_cbm_bits = 0;
 		} else if (r->rid == RDT_RESOURCE_MBA) {
 			hw_res->msr_base = MSR_IA32_MBA_BW_BASE;
 			hw_res->msr_update = mba_wrmsr_amd;

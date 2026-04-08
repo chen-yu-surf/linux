@@ -634,7 +634,7 @@ static struct rdt_ctrl_domain *get_ctrl_domain_from_cpu(int cpu,
 
 	lockdep_assert_cpus_held();
 
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
 		/* Find the domain that contains this CPU */
 		if (cpumask_test_cpu(cpu, &d->hdr.cpu_mask))
 			return d;
@@ -731,11 +731,11 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	 * 40% would go past the limit by multiplying current bandwidth by
 	 * "(30 + 10) / 30".
 	 */
-	if (cur_msr_val > r_mba->membw.min_bw && user_bw < cur_bw) {
-		new_msr_val = cur_msr_val - r_mba->membw.bw_gran;
+	if (cur_msr_val > r_mba->ctrl.membw.min_bw && user_bw < cur_bw) {
+		new_msr_val = cur_msr_val - r_mba->ctrl.membw.bw_gran;
 	} else if (cur_msr_val < MAX_MBA_BW &&
-		   (user_bw > (cur_bw * (cur_msr_val + r_mba->membw.min_bw) / cur_msr_val))) {
-		new_msr_val = cur_msr_val + r_mba->membw.bw_gran;
+		   (user_bw > (cur_bw * (cur_msr_val + r_mba->ctrl.membw.min_bw) / cur_msr_val))) {
+		new_msr_val = cur_msr_val + r_mba->ctrl.membw.bw_gran;
 	} else {
 		return;
 	}
