@@ -1225,20 +1225,22 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 	switch (r->rid) {
 	case RDT_RESOURCE_L2:
 	case RDT_RESOURCE_L3:
-		r->ctrl_type = RESCTRL_CTRL_BITMAP;
-		r->cache.arch_has_sparse_bitmasks = true;
+		r->ctrl.type = RESCTRL_CTRL_BITMAP;
+		r->ctrl.cache.arch_has_sparse_bitmasks = true;
 
-		r->cache.cbm_len = class->props.cpbm_wd;
+		r->ctrl.cache.cbm_len = class->props.cpbm_wd;
 		/* mpam_devices will reject empty bitmaps */
-		r->cache.min_cbm_bits = 1;
+		r->ctrl.cache.min_cbm_bits = 1;
 
 		if (r->rid == RDT_RESOURCE_L2) {
 			r->name = "L2";
-			r->ctrl_scope = RESCTRL_L2_CACHE;
+			r->alloc_scope = RESCTRL_L2_CACHE;
+			r->ctrl.scope = RESCTRL_L2_CACHE;
 			r->cdp_capable = true;
 		} else {
 			r->name = "L3";
-			r->ctrl_scope = RESCTRL_L3_CACHE;
+			r->alloc_scope = RESCTRL_L3_CACHE;
+			r->ctrl.scope = RESCTRL_L3_CACHE;
 			r->cdp_capable = true;
 		}
 
@@ -1248,20 +1250,21 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		 * we have configured the SMMU and GIC not to do this 'all the
 		 * bits' is the correct answer here.
 		 */
-		r->cache.shareable_bits = resctrl_get_default_ctrl(r);
+		r->ctrl.cache.shareable_bits = resctrl_get_default_ctrl(r);
 		r->alloc_capable = true;
 		break;
 	case RDT_RESOURCE_MBA:
-		r->ctrl_type = RESCTRL_CTRL_SCALAR;
-		r->ctrl_scope = RESCTRL_L3_CACHE;
+		r->ctrl.type = RESCTRL_CTRL_SCALAR;
+		r->ctrl.scope = RESCTRL_L3_CACHE;
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
 
-		r->membw.delay_linear = true;
-		r->membw.min_bw = get_mba_min(cprops);
-		r->membw.max_bw = MAX_MBA_BW;
-		r->membw.bw_gran = get_mba_granularity(cprops);
+		r->ctrl.membw.delay_linear = true;
+		r->ctrl.membw.min_bw = get_mba_min(cprops);
+		r->ctrl.membw.max_bw = MAX_MBA_BW;
+		r->ctrl.membw.bw_gran = get_mba_granularity(cprops);
 
 		r->name = "MB";
+		r->alloc_scope = RESCTRL_L3_CACHE;
 		r->alloc_capable = true;
 		break;
 	default:
@@ -1536,7 +1539,7 @@ int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
 	if (!mpam_is_enabled())
 		return -EINVAL;
 
-	list_for_each_entry_rcu(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list) {
 		for (enum resctrl_conf_type t = 0; t < CDP_NUM_TYPES; t++) {
 			struct resctrl_staged_config *cfg = &d->staged_config[t];
 
@@ -1656,7 +1659,7 @@ static int mpam_resctrl_setup_ctrl_domain(unsigned int cpu,
 	if (err)
 		return err;
 
-	mpam_resctrl_domain_insert(&r->ctrl_domains, &ctrl_d->hdr);
+	mpam_resctrl_domain_insert(&r->ctrl.domains, &ctrl_d->hdr);
 
 	return 0;
 }
@@ -1749,7 +1752,7 @@ mpam_resctrl_get_ctrl_domain_from_cpu(int cpu, struct mpam_resctrl_res *res)
 
 	lockdep_assert_cpus_held();
 
-	list_for_each_entry_rcu(dom, &r->ctrl_domains, resctrl_ctrl_dom.hdr.list) {
+	list_for_each_entry_rcu(dom, &r->ctrl.domains, resctrl_ctrl_dom.hdr.list) {
 		if (cpumask_test_cpu(cpu, &dom->ctrl_comp->affinity))
 			return dom;
 	}
@@ -1907,7 +1910,7 @@ int mpam_resctrl_setup(void)
 
 	cpus_read_lock();
 	for_each_mpam_resctrl_control(res, rid) {
-		INIT_LIST_HEAD_RCU(&res->resctrl_res.ctrl_domains);
+		INIT_LIST_HEAD_RCU(&res->resctrl_res.ctrl.domains);
 		INIT_LIST_HEAD_RCU(&res->resctrl_res.mon_domains);
 		res->resctrl_res.rid = rid;
 	}

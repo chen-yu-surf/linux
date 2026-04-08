@@ -265,6 +265,13 @@ enum resctrl_scope {
  * enum resctrl_ctrl_type - The control type
  * @RESCTRL_CTRL_BITMAP:	The control is a bitmap in hex.
  * @RESCTRL_CTRL_SCALAR:	The control is a decimal number.
+ *
+ * Used in struct resctrl_ctrl to identify the member struct that contains the
+ * properties of the control.
+ * Used by fs to associate control properties not found in struct resctrl_ctrl
+ * that should not be changed by architecture, for example the format string
+ * for displaying control values to user space and the parser of control values
+ * provided by user space.
  */
 enum resctrl_ctrl_type {
 	RESCTRL_CTRL_BITMAP,
@@ -294,20 +301,36 @@ struct resctrl_mon {
 };
 
 /**
+ * struct resctrl_ctrl - A resource control
+ * @domains:	RCU list of all control domains
+ * @scope:	Scope at which control allocates portions of the resource.
+ *		May be different from the scope of the resource.
+ * @type:	The control type that determines the properties of the control,
+ *		format string for displaying control values to user space, and
+ *		parser of control values provided by user space.
+ * @cache:	Cache allocation control properties.
+ * @membw:	Bandwidth control properties.
+ */
+struct resctrl_ctrl {
+	struct list_head	domains;
+	enum resctrl_scope	scope;
+	enum resctrl_ctrl_type	type;
+	union {
+		struct resctrl_cache	cache;
+		struct resctrl_membw	membw;
+	};
+};
+
+/**
  * struct rdt_resource - attributes of a resctrl resource
  * @rid:		The index of the resource
  * @alloc_capable:	Is allocation available on this machine
+ * @alloc_scope:	Scope at which allocation of this resource occurs.
+ *			This scope may be different from the scope of one
+ *			or more of its controls (resctrl_ctrl::scope).
  * @mon_capable:	Is monitor feature available on this machine
- * @ctrl_scope:		Scope of this resource for control functions
- * @ctrl_type:		The control type that determines the properties of the
- *			control, format string for displaying control values to
- *			user space, and parser of control values provided by
- *			user space.
  * @mon_scope:		Scope of this resource for monitor functions
- * @cache:		Cache allocation related data
- * @membw:		If the component has bandwidth controls, their properties.
  * @mon:		Monitoring related data.
- * @ctrl_domains:	RCU list of all control domains for this resource
  * @mon_domains:	RCU list of all monitor domains for this resource
  * @name:		Name to use in "schemata" file.
  * @cdp_capable:	Is the CDP feature available on this resource
@@ -315,23 +338,21 @@ struct resctrl_mon {
  *			different memory bandwidths
  * @cache_io_alloc_capable:True if portion of the cache can be configured
  *			   for I/O traffic.
+ * @ctrl:		The control of an alloc_capable resource.
  */
 struct rdt_resource {
 	enum resctrl_res_level		rid;
 	bool				alloc_capable;
+	enum resctrl_scope		alloc_scope;
 	bool				mon_capable;
-	enum resctrl_scope		ctrl_scope;
-	enum resctrl_ctrl_type		ctrl_type;
 	enum resctrl_scope		mon_scope;
-	struct resctrl_cache		cache;
-	struct resctrl_membw		membw;
 	struct resctrl_mon		mon;
-	struct list_head		ctrl_domains;
 	struct list_head		mon_domains;
 	char				*name;
 	bool				cdp_capable;
 	enum membw_throttle_mode	bw_throttle_mode;
 	bool				cache_io_alloc_capable;
+	struct resctrl_ctrl		ctrl;
 };
 
 /*
@@ -397,11 +418,11 @@ void resctrl_arch_sync_cpu_closid_rmid(void *info);
  */
 static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
 {
-	switch (r->ctrl_type) {
+	switch (r->ctrl.type) {
 	case RESCTRL_CTRL_BITMAP:
-		return BIT_MASK(r->cache.cbm_len) - 1;
+		return BIT_MASK(r->ctrl.cache.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
-		return r->membw.max_bw;
+		return r->ctrl.membw.max_bw;
 	}
 
 	return WARN_ON_ONCE(1);
