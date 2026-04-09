@@ -34,6 +34,33 @@ typedef int (ctrlval_parser_t)(struct rdt_parse_data *data,
 			       struct rdt_resource_final *f,
 			       struct rdt_ctrl_domain *d);
 
+static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
+		    struct rdt_ctrl_domain *d);
+static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
+		     struct rdt_ctrl_domain *d);
+
+/*
+ * resource control properties that are private to the filesystem.
+ * @fmt_str: How to display the domain ID and control value to user space.
+ * @parser:  How to parse the control value provided by user space.
+ * Keep private to resctrl fs to keep user interface consistent.
+ */
+struct resctrl_ctrl_priv {
+	const	char		*fmt_str;
+	ctrlval_parser_t	*parser;
+};
+
+static struct resctrl_ctrl_priv resctrl_ctrl_priv_all[] = {
+	[RESCTRL_CTRL_BITMAP] = {
+		.fmt_str	=	"%d=%x",
+		.parser		=	&parse_cbm,
+	},
+	[RESCTRL_CTRL_SCALAR] = {
+		.fmt_str	=	"%d=%u",
+		.parser		=	&parse_bw,
+	},
+};
+
 /*
  * Check whether MBA bandwidth percentage value is correct. The value is
  * checked against the minimum and max bandwidth values specified by the
@@ -225,17 +252,7 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	switch (r->ctrl_type) {
-	case RESCTRL_CTRL_BITMAP:
-		parse_ctrlval = &parse_cbm;
-		break;
-	case RESCTRL_CTRL_SCALAR:
-		parse_ctrlval = &parse_bw;
-		break;
-	}
-
-	if (WARN_ON_ONCE(!parse_ctrlval))
-		return -EINVAL;
+	parse_ctrlval = resctrl_ctrl_priv_all[r->ctrl_type].parser;
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP &&
 	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)) {
@@ -403,7 +420,8 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,
 							   f->conf_type);
 
-		seq_printf(s, f->fmt_str, dom->hdr.id, ctrl_val);
+		seq_printf(s, resctrl_ctrl_priv_all[r->ctrl_type].fmt_str,
+			   dom->hdr.id, ctrl_val);
 		sep = true;
 	}
 	seq_puts(s, "\n");

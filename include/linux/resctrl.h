@@ -346,7 +346,6 @@ struct rdt_resource *resctrl_arch_get_resource(enum resctrl_res_level l);
  * @list:	Member of rdt_resource_final_all.
  * @name:	The name to use in the "schemata" file and for the resource
  *		directories in info/.
- * @fmt_str:	Format string to show domain value.
  * @conf_type:	Whether this resource is specific to code/data.
  * @res:	The underlying resource structure exported by the architecture
  *		to describe the hardware.
@@ -357,7 +356,6 @@ struct rdt_resource *resctrl_arch_get_resource(enum resctrl_res_level l);
 struct rdt_resource_final {
 	struct list_head		list;
 	char				name[8];
-	const char			*fmt_str;
 	enum resctrl_conf_type		conf_type;
 	struct rdt_resource		*res;
 	u32				num_closid;
