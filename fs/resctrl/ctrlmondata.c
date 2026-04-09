@@ -299,16 +299,16 @@ next:
 	return -EINVAL;
 }
 
-static int rdtgroup_parse_resource(char *resname, char *tok,
-				   struct rdtgroup *rdtgrp)
+static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
+			       struct rdtgroup *rdtgrp)
 {
 	struct rdt_resource_final *f;
 
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
-		if (!strcmp(resname, f->name) && rdtgrp->closid < f->num_closid)
+		if (!strcmp(ctrlname, f->name) && rdtgrp->closid < f->num_closid)
 			return parse_line(tok, f, rdtgrp);
 	}
-	rdt_last_cmd_printf("Unknown or unsupported resource name '%s'\n", resname);
+	rdt_last_cmd_printf("Unknown or unsupported control '%s'\n", ctrlname);
 	return -EINVAL;
 }
 
@@ -318,7 +318,7 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	struct rdt_resource_final *f;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
-	char *tok, *resname;
+	char *tok, *ctrlname;
 	int ret = 0;
 
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
@@ -349,18 +349,18 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	rdt_staged_configs_clear();
 
 	while ((tok = strsep(&buf, "\n")) != NULL) {
-		resname = strim(strsep(&tok, ":"));
+		ctrlname = strim(strsep(&tok, ":"));
 		if (!tok) {
 			rdt_last_cmd_puts("Missing ':'\n");
 			ret = -EINVAL;
 			goto out_clear_staged;
 		}
 		if (tok[0] == '\0') {
-			rdt_last_cmd_printf("Missing '%s' value\n", resname);
+			rdt_last_cmd_printf("Missing '%s' value\n", ctrlname);
 			ret = -EINVAL;
 			goto out_clear_staged;
 		}
-		ret = rdtgroup_parse_resource(resname, tok, rdtgrp);
+		ret = rdtgroup_parse_ctrl(ctrlname, tok, rdtgrp);
 		if (ret)
 			goto out_clear_staged;
 	}
