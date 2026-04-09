@@ -196,7 +196,7 @@ static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
 	plr->line_size = 0;
 	kfree(plr->kmem);
 	plr->kmem = NULL;
-	plr->s = NULL;
+	plr->f = NULL;
 	if (plr->d)
 		plr->d->plr = NULL;
 	plr->d = NULL;
@@ -224,7 +224,7 @@ static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
  */
 static int pseudo_lock_region_init(struct pseudo_lock_region *plr)
 {
-	enum resctrl_scope scope = plr->s->res->ctrl_scope;
+	enum resctrl_scope scope = plr->f->res->ctrl_scope;
 	struct cacheinfo *ci;
 	int ret;
 
@@ -244,7 +244,7 @@ static int pseudo_lock_region_init(struct pseudo_lock_region *plr)
 	ci = get_cpu_cacheinfo_level(plr->cpu, scope);
 	if (ci) {
 		plr->line_size = ci->coherency_line_size;
-		plr->size = rdtgroup_cbm_to_size(plr->s->res, plr->d, plr->cbm);
+		plr->size = rdtgroup_cbm_to_size(plr->f->res, plr->d, plr->cbm);
 		return 0;
 	}
 
@@ -617,7 +617,7 @@ bool rdtgroup_cbm_overlaps_pseudo_locked(struct rdt_ctrl_domain *d, unsigned lon
 	unsigned long cbm_b;
 
 	if (d->plr) {
-		cbm_len = d->plr->s->res->cache.cbm_len;
+		cbm_len = d->plr->f->res->cache.cbm_len;
 		cbm_b = d->plr->cbm;
 		if (bitmap_intersects(&cbm, &cbm_b, cbm_len))
 			return true;
