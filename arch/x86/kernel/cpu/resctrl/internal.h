@@ -118,8 +118,8 @@ struct msr_param {
  * @num_closid:		Maximum number of closid this hardware can support,
  *			regardless of CDP. This is exposed via
  *			resctrl_arch_get_num_closid() to avoid confusion
- *			with struct resctrl_schema's property of the same name,
- *			which has been corrected for features like CDP.
+ *			with struct rdt_resource_final's property of the same
+ *			name, which has been corrected for features like CDP.
  * @msr_base:		Base MSR address for CBMs
  * @msr_update:		Function pointer to update QOS MSRs
  * @mon_scale:		cqm counter * mon_scale = occupancy in bytes
