@@ -2762,20 +2762,6 @@ static int final_resources_list_add(struct rdt_resource *r, enum resctrl_conf_ty
 	if (cl > max_name_width)
 		max_name_width = cl;
 
-	switch (r->ctrl_type) {
-	case RESCTRL_CTRL_BITMAP:
-		f->fmt_str = "%d=%x";
-		break;
-	case RESCTRL_CTRL_SCALAR:
-		f->fmt_str = "%d=%u";
-		break;
-	}
-
-	if (WARN_ON_ONCE(!f->fmt_str)) {
-		kfree(f);
-		return -EINVAL;
-	}
-
 	INIT_LIST_HEAD(&f->list);
 	list_add(&f->list, &rdt_resource_final_all);
 
