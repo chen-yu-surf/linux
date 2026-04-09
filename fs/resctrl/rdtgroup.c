@@ -40,8 +40,8 @@ struct rdtgroup rdtgroup_default;
 
 LIST_HEAD(rdt_all_groups);
 
-/* list of entries for the schemata file */
-LIST_HEAD(resctrl_schema_all);
+/* list of resources presented to user space */
+LIST_HEAD(rdt_resource_final_all);
 
 /*
  * List of struct mon_data containing private data of event files for use by
@@ -155,16 +155,16 @@ int closids_supported(void)
 
 static int closid_init(void)
 {
-	struct resctrl_schema *s;
+	struct rdt_resource_final *f;
 	u32 rdt_min_closid = ~0;
 
 	/* Monitor only platforms still call closid_init() */
-	if (list_empty(&resctrl_schema_all))
+	if (list_empty(&rdt_resource_final_all))
 		return 0;
 
 	/* Compute rdt_min_closid across all resources */
-	list_for_each_entry(s, &resctrl_schema_all, list)
-		rdt_min_closid = min(rdt_min_closid, s->num_closid);
+	list_for_each_entry(f, &rdt_resource_final_all, list)
+		rdt_min_closid = min(rdt_min_closid, f->num_closid);
 
 	closid_free_map = bitmap_alloc(rdt_min_closid, GFP_KERNEL);
 	if (!closid_free_map)
@@ -995,17 +995,17 @@ void *rdt_kn_parent_priv(struct kernfs_node *kn)
 static int rdt_num_closids_show(struct kernfs_open_file *of,
 				struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 
-	seq_printf(seq, "%u\n", s->num_closid);
+	seq_printf(seq, "%u\n", f->num_closid);
 	return 0;
 }
 
 static int rdt_default_ctrl_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	seq_printf(seq, "%x\n", resctrl_get_default_ctrl(r));
 	return 0;
@@ -1014,8 +1014,8 @@ static int rdt_default_ctrl_show(struct kernfs_open_file *of,
 static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	seq_printf(seq, "%u\n", r->cache.min_cbm_bits);
 	return 0;
@@ -1024,8 +1024,8 @@ static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 static int rdt_shareable_bits_show(struct kernfs_open_file *of,
 				   struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	seq_printf(seq, "%x\n", r->cache.shareable_bits);
 	return 0;
@@ -1048,14 +1048,14 @@ static int rdt_shareable_bits_show(struct kernfs_open_file *of,
 static int rdt_bit_usage_show(struct kernfs_open_file *of,
 			      struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	/*
 	 * Use unsigned long even though only 32 bits are used to ensure
 	 * test_bit() is used safely.
 	 */
 	unsigned long sw_shareable = 0, hw_shareable = 0;
 	unsigned long exclusive = 0, pseudo_locked = 0;
-	struct rdt_resource *r = s->res;
+	struct rdt_resource *r = f->res;
 	struct rdt_ctrl_domain *dom;
 	int i, hwb, swb, excl, psl;
 	enum rdtgrp_mode mode;
@@ -1077,7 +1077,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 			     i == resctrl_io_alloc_closid(r)))
 				continue;
 			ctrl_val = resctrl_arch_get_config(r, dom, i,
-							   s->conf_type);
+							   f->conf_type);
 			mode = rdtgroup_mode_by_closid(i);
 			switch (mode) {
 			case RDT_MODE_SHAREABLE:
@@ -1113,7 +1113,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 		if (resctrl_arch_get_io_alloc_enabled(r)) {
 			ctrl_val = resctrl_arch_get_config(r, dom,
 							   resctrl_io_alloc_closid(r),
-							   s->conf_type);
+							   f->conf_type);
 			hw_shareable |= ctrl_val;
 		}
 
@@ -1147,8 +1147,8 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 static int rdt_min_bw_show(struct kernfs_open_file *of,
 			   struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	seq_printf(seq, "%u\n", r->membw.min_bw);
 	return 0;
@@ -1185,8 +1185,8 @@ static int rdt_mon_features_show(struct kernfs_open_file *of,
 static int rdt_bw_gran_show(struct kernfs_open_file *of,
 			    struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	seq_printf(seq, "%u\n", r->membw.bw_gran);
 	return 0;
@@ -1195,8 +1195,8 @@ static int rdt_bw_gran_show(struct kernfs_open_file *of,
 static int rdt_delay_linear_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	seq_printf(seq, "%u\n", r->bw_delay_linear);
 	return 0;
@@ -1213,8 +1213,8 @@ static int max_threshold_occ_show(struct kernfs_open_file *of,
 static int rdt_thread_throttle_mode_show(struct kernfs_open_file *of,
 					 struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	switch (r->bw_throttle_mode) {
 	case THREAD_THROTTLE_PER_THREAD:
@@ -1295,8 +1295,8 @@ enum resctrl_conf_type resctrl_peer_type(enum resctrl_conf_type my_type)
 static int rdt_has_sparse_bitmasks_show(struct kernfs_open_file *of,
 					struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	seq_printf(seq, "%u\n", r->cache.arch_has_sparse_bitmasks);
 
@@ -1361,7 +1361,7 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 
 /**
  * rdtgroup_cbm_overlaps - Does CBM overlap with other use of hardware
- * @s: Schema for the resource to which domain instance @d belongs.
+ * @f: Final resource to which domain instance @d belongs.
  * @d: The domain instance for which @closid is being tested.
  * @cbm: Capacity bitmask being tested.
  * @closid: Intended closid for @cbm.
@@ -1379,13 +1379,13 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
  *
  * Return: true if CBM overlap detected, false if there is no overlap
  */
-bool rdtgroup_cbm_overlaps(struct resctrl_schema *s, struct rdt_ctrl_domain *d,
+bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain *d,
 			   unsigned long cbm, int closid, bool exclusive)
 {
-	enum resctrl_conf_type peer_type = resctrl_peer_type(s->conf_type);
-	struct rdt_resource *r = s->res;
+	enum resctrl_conf_type peer_type = resctrl_peer_type(f->conf_type);
+	struct rdt_resource *r = f->res;
 
-	if (__rdtgroup_cbm_overlaps(r, d, cbm, closid, s->conf_type,
+	if (__rdtgroup_cbm_overlaps(r, d, cbm, closid, f->conf_type,
 				    exclusive))
 		return true;
 
@@ -1409,9 +1409,9 @@ bool rdtgroup_cbm_overlaps(struct resctrl_schema *s, struct rdt_ctrl_domain *d,
  */
 static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 {
+	struct rdt_resource_final *f;
 	int closid = rdtgrp->closid;
 	struct rdt_ctrl_domain *d;
-	struct resctrl_schema *s;
 	struct rdt_resource *r;
 	bool has_cache = false;
 	u32 ctrl;
@@ -1419,15 +1419,15 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	list_for_each_entry(s, &resctrl_schema_all, list) {
-		r = s->res;
+	list_for_each_entry(f, &rdt_resource_final_all, list) {
+		r = f->res;
 		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)
 			continue;
 		has_cache = true;
 		list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
 			ctrl = resctrl_arch_get_config(r, d, closid,
-						       s->conf_type);
-			if (rdtgroup_cbm_overlaps(s, d, ctrl, closid, false)) {
+						       f->conf_type);
+			if (rdtgroup_cbm_overlaps(f, d, ctrl, closid, false)) {
 				rdt_last_cmd_puts("Schemata overlaps\n");
 				return false;
 			}
@@ -1575,7 +1575,7 @@ bool is_mba_sc(struct rdt_resource *r)
 static int rdtgroup_size_show(struct kernfs_open_file *of,
 			      struct seq_file *s, void *v)
 {
-	struct resctrl_schema *schema;
+	struct rdt_resource_final *f;
 	enum resctrl_conf_type type;
 	struct rdt_ctrl_domain *d;
 	struct rdtgroup *rdtgrp;
@@ -1598,8 +1598,8 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 			ret = -ENODEV;
 		} else {
 			seq_printf(s, "%*s:", max_name_width,
-				   rdtgrp->plr->s->name);
-			size = rdtgroup_cbm_to_size(rdtgrp->plr->s->res,
+				   rdtgrp->plr->f->name);
+			size = rdtgroup_cbm_to_size(rdtgrp->plr->f->res,
 						    rdtgrp->plr->d,
 						    rdtgrp->plr->cbm);
 			seq_printf(s, "%d=%u\n", rdtgrp->plr->d->hdr.id, size);
@@ -1609,11 +1609,11 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 
 	closid = rdtgrp->closid;
 
-	list_for_each_entry(schema, &resctrl_schema_all, list) {
-		r = schema->res;
-		type = schema->conf_type;
+	list_for_each_entry(f, &rdt_resource_final_all, list) {
+		r = f->res;
+		type = f->conf_type;
 		sep = false;
-		seq_printf(s, "%*s:", max_name_width, schema->name);
+		seq_printf(s, "%*s:", max_name_width, f->name);
 		list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
 			if (sep)
 				seq_putc(s, ';');
@@ -2431,7 +2431,7 @@ static unsigned long fflags_from_resource(struct rdt_resource *r)
 
 static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 {
-	struct resctrl_schema *s;
+	struct rdt_resource_final *f;
 	struct rdt_resource *r;
 	unsigned long fflags;
 	char name[32];
@@ -2447,10 +2447,10 @@ static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 		goto out_destroy;
 
 	/* loop over enabled controls, these are all alloc_capable */
-	list_for_each_entry(s, &resctrl_schema_all, list) {
-		r = s->res;
+	list_for_each_entry(f, &rdt_resource_final_all, list) {
+		r = f->res;
 		fflags = fflags_from_resource(r) | RFTYPE_CTRL_INFO;
-		ret = rdtgroup_mkdir_info_resdir(s, s->name, fflags);
+		ret = rdtgroup_mkdir_info_resdir(f, f->name, fflags);
 		if (ret)
 			goto out_destroy;
 	}
@@ -2715,22 +2715,22 @@ out_done:
 	return ret;
 }
 
-static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type)
+static int final_resources_list_add(struct rdt_resource *r, enum resctrl_conf_type type)
 {
-	struct resctrl_schema *s;
+	struct rdt_resource_final *f;
 	const char *suffix = "";
 	int ret, cl;
 
-	s = kzalloc_obj(*s);
-	if (!s)
+	f = kzalloc_obj(*f);
+	if (!f)
 		return -ENOMEM;
 
-	s->res = r;
-	s->num_closid = resctrl_arch_get_num_closid(r);
+	f->res = r;
+	f->num_closid = resctrl_arch_get_num_closid(r);
 	if (resctrl_arch_get_cdp_enabled(r->rid))
-		s->num_closid /= 2;
+		f->num_closid /= 2;
 
-	s->conf_type = type;
+	f->conf_type = type;
 	switch (type) {
 	case CDP_CODE:
 		suffix = "CODE";
@@ -2743,13 +2743,13 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 		break;
 	}
 
-	ret = snprintf(s->name, sizeof(s->name), "%s%s", r->name, suffix);
-	if (ret >= sizeof(s->name)) {
-		kfree(s);
+	ret = snprintf(f->name, sizeof(f->name), "%s%s", r->name, suffix);
+	if (ret >= sizeof(f->name)) {
+		kfree(f);
 		return -EINVAL;
 	}
 
-	cl = strlen(s->name);
+	cl = strlen(f->name);
 
 	/*
 	 * If CDP is supported by this resource, but not enabled,
@@ -2764,38 +2764,38 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 
 	switch (r->schema_fmt) {
 	case RESCTRL_SCHEMA_BITMAP:
-		s->fmt_str = "%d=%x";
+		f->fmt_str = "%d=%x";
 		break;
 	case RESCTRL_SCHEMA_RANGE:
-		s->fmt_str = "%d=%u";
+		f->fmt_str = "%d=%u";
 		break;
 	}
 
-	if (WARN_ON_ONCE(!s->fmt_str)) {
-		kfree(s);
+	if (WARN_ON_ONCE(!f->fmt_str)) {
+		kfree(f);
 		return -EINVAL;
 	}
 
-	INIT_LIST_HEAD(&s->list);
-	list_add(&s->list, &resctrl_schema_all);
+	INIT_LIST_HEAD(&f->list);
+	list_add(&f->list, &rdt_resource_final_all);
 
 	return 0;
 }
 
-static int schemata_list_create(void)
+static int final_resources_list_create(void)
 {
 	struct rdt_resource *r;
 	int ret = 0;
 
 	for_each_alloc_capable_rdt_resource(r) {
 		if (resctrl_arch_get_cdp_enabled(r->rid)) {
-			ret = schemata_list_add(r, CDP_CODE);
+			ret = final_resources_list_add(r, CDP_CODE);
 			if (ret)
 				break;
 
-			ret = schemata_list_add(r, CDP_DATA);
+			ret = final_resources_list_add(r, CDP_DATA);
 		} else {
-			ret = schemata_list_add(r, CDP_NONE);
+			ret = final_resources_list_add(r, CDP_NONE);
 		}
 
 		if (ret)
@@ -2805,13 +2805,13 @@ static int schemata_list_create(void)
 	return ret;
 }
 
-static void schemata_list_destroy(void)
+static void final_resources_list_destroy(void)
 {
-	struct resctrl_schema *s, *tmp;
+	struct rdt_resource_final *f, *tmp;
 
-	list_for_each_entry_safe(s, tmp, &resctrl_schema_all, list) {
-		list_del(&s->list);
-		kfree(s);
+	list_for_each_entry_safe(f, tmp, &rdt_resource_final_all, list) {
+		list_del(&f->list);
+		kfree(f);
 	}
 }
 
@@ -2847,13 +2847,13 @@ static int rdt_get_tree(struct fs_context *fc)
 	if (ret)
 		goto out_root;
 
-	ret = schemata_list_create();
+	ret = final_resources_list_create();
 	if (ret)
-		goto out_schemata_free;
+		goto out_final_resources_free;
 
 	ret = closid_init();
 	if (ret)
-		goto out_schemata_free;
+		goto out_final_resources_free;
 
 	if (resctrl_arch_mon_capable())
 		flags |= RFTYPE_MON;
@@ -2923,8 +2923,8 @@ out_info:
 	kernfs_remove(kn_info);
 out_closid_exit:
 	closid_exit();
-out_schemata_free:
-	schemata_list_destroy();
+out_final_resources_free:
+	final_resources_list_destroy();
 	rdt_disable_ctx();
 out_root:
 	rdtgroup_destroy_root();
@@ -3198,7 +3198,7 @@ static void resctrl_fs_teardown(void)
 	rdt_pseudo_lock_release();
 	rdtgroup_default.mode = RDT_MODE_SHAREABLE;
 	closid_exit();
-	schemata_list_destroy();
+	final_resources_list_destroy();
 	rdtgroup_destroy_root();
 }
 
@@ -3560,13 +3560,13 @@ static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r)
  * Set the RDT domain up to start off with all usable allocations. That is,
  * all shareable and unused bits. All-zero CBM is invalid.
  */
-static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct resctrl_schema *s,
+static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_final *f,
 				 u32 closid)
 {
-	enum resctrl_conf_type peer_type = resctrl_peer_type(s->conf_type);
-	enum resctrl_conf_type t = s->conf_type;
+	enum resctrl_conf_type peer_type = resctrl_peer_type(f->conf_type);
+	enum resctrl_conf_type t = f->conf_type;
 	struct resctrl_staged_config *cfg;
-	struct rdt_resource *r = s->res;
+	struct rdt_resource *r = f->res;
 	u32 used_b = 0, unused_b = 0;
 	unsigned long tmp_cbm;
 	enum rdtgrp_mode mode;
@@ -3598,7 +3598,7 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct resctrl_schem
 			else
 				peer_ctl = 0;
 			ctrl_val = resctrl_arch_get_config(r, d, i,
-							   s->conf_type);
+							   f->conf_type);
 			used_b |= ctrl_val | peer_ctl;
 			if (mode == RDT_MODE_SHAREABLE)
 				cfg->new_ctrl |= ctrl_val | peer_ctl;
@@ -3620,7 +3620,7 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct resctrl_schem
 	 */
 	tmp_cbm = cfg->new_ctrl;
 	if (bitmap_weight(&tmp_cbm, r->cache.cbm_len) < r->cache.min_cbm_bits) {
-		rdt_last_cmd_printf("No space on %s:%d\n", s->name, d->hdr.id);
+		rdt_last_cmd_printf("No space on %s:%d\n", f->name, d->hdr.id);
 		return -ENOSPC;
 	}
 	cfg->have_new_ctrl = true;
@@ -3638,13 +3638,13 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct resctrl_schem
  * If there are no more shareable bits available on any domain then
  * the entire allocation will fail.
  */
-int rdtgroup_init_cat(struct resctrl_schema *s, u32 closid)
+int rdtgroup_init_cat(struct rdt_resource_final *f, u32 closid)
 {
 	struct rdt_ctrl_domain *d;
 	int ret;
 
-	list_for_each_entry(d, &s->res->ctrl_domains, hdr.list) {
-		ret = __init_one_rdt_domain(d, s, closid);
+	list_for_each_entry(d, &f->res->ctrl_domains, hdr.list) {
+		ret = __init_one_rdt_domain(d, f, closid);
 		if (ret < 0)
 			return ret;
 	}
@@ -3673,21 +3673,21 @@ static void rdtgroup_init_mba(struct rdt_resource *r, u32 closid)
 /* Initialize the RDT group's allocations. */
 static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 {
-	struct resctrl_schema *s;
+	struct rdt_resource_final *f;
 	struct rdt_resource *r;
 	int ret = 0;
 
 	rdt_staged_configs_clear();
 
-	list_for_each_entry(s, &resctrl_schema_all, list) {
-		r = s->res;
+	list_for_each_entry(f, &rdt_resource_final_all, list) {
+		r = f->res;
 		if (r->rid == RDT_RESOURCE_MBA ||
 		    r->rid == RDT_RESOURCE_SMBA) {
 			rdtgroup_init_mba(r, rdtgrp->closid);
 			if (is_mba_sc(r))
 				continue;
 		} else {
-			ret = rdtgroup_init_cat(s, rdtgrp->closid);
+			ret = rdtgroup_init_cat(f, rdtgrp->closid);
 			if (ret < 0)
 				goto out;
 		}

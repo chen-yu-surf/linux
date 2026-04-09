@@ -31,7 +31,7 @@ struct rdt_parse_data {
 };
 
 typedef int (ctrlval_parser_t)(struct rdt_parse_data *data,
-			       struct resctrl_schema *s,
+			       struct rdt_resource_final *f,
 			       struct rdt_ctrl_domain *d);
 
 /*
@@ -67,15 +67,15 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 	return true;
 }
 
-static int parse_bw(struct rdt_parse_data *data, struct resctrl_schema *s,
+static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 		    struct rdt_ctrl_domain *d)
 {
 	struct resctrl_staged_config *cfg;
-	struct rdt_resource *r = s->res;
+	struct rdt_resource *r = f->res;
 	u32 closid = data->closid;
 	u32 bw_val;
 
-	cfg = &d->staged_config[s->conf_type];
+	cfg = &d->staged_config[f->conf_type];
 	if (cfg->have_new_ctrl) {
 		rdt_last_cmd_printf("Duplicate domain %d\n", d->hdr.id);
 		return -EINVAL;
@@ -147,16 +147,16 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
  * Read one cache bit mask (hex). Check that it is valid for the current
  * resource type.
  */
-static int parse_cbm(struct rdt_parse_data *data, struct resctrl_schema *s,
+static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
 		     struct rdt_ctrl_domain *d)
 {
 	enum rdtgrp_mode mode = data->mode;
 	struct resctrl_staged_config *cfg;
-	struct rdt_resource *r = s->res;
+	struct rdt_resource *r = f->res;
 	u32 closid = data->closid;
 	u32 cbm_val;
 
-	cfg = &d->staged_config[s->conf_type];
+	cfg = &d->staged_config[f->conf_type];
 	if (cfg->have_new_ctrl) {
 		rdt_last_cmd_printf("Duplicate domain %d\n", d->hdr.id);
 		return -EINVAL;
@@ -185,12 +185,12 @@ static int parse_cbm(struct rdt_parse_data *data, struct resctrl_schema *s,
 	 * The CBM may not overlap with the CBM of another closid if
 	 * either is exclusive.
 	 */
-	if (rdtgroup_cbm_overlaps(s, d, cbm_val, closid, true)) {
+	if (rdtgroup_cbm_overlaps(f, d, cbm_val, closid, true)) {
 		rdt_last_cmd_puts("Overlaps with exclusive group\n");
 		return -EINVAL;
 	}
 
-	if (rdtgroup_cbm_overlaps(s, d, cbm_val, closid, false)) {
+	if (rdtgroup_cbm_overlaps(f, d, cbm_val, closid, false)) {
 		if (mode == RDT_MODE_EXCLUSIVE ||
 		    mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 			rdt_last_cmd_puts("Overlaps with other group\n");
@@ -210,13 +210,13 @@ static int parse_cbm(struct rdt_parse_data *data, struct resctrl_schema *s,
  * separated by ";". The "id" is in decimal, and must match one of
  * the "id"s for this resource.
  */
-static int parse_line(char *line, struct resctrl_schema *s,
+static int parse_line(char *line, struct rdt_resource_final *f,
 		      struct rdtgroup *rdtgrp)
 {
-	enum resctrl_conf_type t = s->conf_type;
+	enum resctrl_conf_type t = f->conf_type;
 	ctrlval_parser_t *parse_ctrlval = NULL;
 	struct resctrl_staged_config *cfg;
-	struct rdt_resource *r = s->res;
+	struct rdt_resource *r = f->res;
 	struct rdt_parse_data data;
 	struct rdt_ctrl_domain *d;
 	char *dom = NULL, *id;
@@ -258,7 +258,7 @@ next:
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
 			data.mode = rdtgrp->mode;
-			if (parse_ctrlval(&data, s, d))
+			if (parse_ctrlval(&data, f, d))
 				return -EINVAL;
 			if (rdtgrp->mode ==  RDT_MODE_PSEUDO_LOCKSETUP) {
 				cfg = &d->staged_config[t];
@@ -270,7 +270,7 @@ next:
 				 * the required initialization for single
 				 * region and return.
 				 */
-				rdtgrp->plr->s = s;
+				rdtgrp->plr->f = f;
 				rdtgrp->plr->d = d;
 				rdtgrp->plr->cbm = cfg->new_ctrl;
 				d->plr = rdtgrp->plr;
@@ -285,11 +285,11 @@ next:
 static int rdtgroup_parse_resource(char *resname, char *tok,
 				   struct rdtgroup *rdtgrp)
 {
-	struct resctrl_schema *s;
+	struct rdt_resource_final *f;
 
-	list_for_each_entry(s, &resctrl_schema_all, list) {
-		if (!strcmp(resname, s->name) && rdtgrp->closid < s->num_closid)
-			return parse_line(tok, s, rdtgrp);
+	list_for_each_entry(f, &rdt_resource_final_all, list) {
+		if (!strcmp(resname, f->name) && rdtgrp->closid < f->num_closid)
+			return parse_line(tok, f, rdtgrp);
 	}
 	rdt_last_cmd_printf("Unknown or unsupported resource name '%s'\n", resname);
 	return -EINVAL;
@@ -298,7 +298,7 @@ static int rdtgroup_parse_resource(char *resname, char *tok,
 ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 				char *buf, size_t nbytes, loff_t off)
 {
-	struct resctrl_schema *s;
+	struct rdt_resource_final *f;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
 	char *tok, *resname;
@@ -348,8 +348,8 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 			goto out_clear_staged;
 	}
 
-	list_for_each_entry(s, &resctrl_schema_all, list) {
-		r = s->res;
+	list_for_each_entry(f, &rdt_resource_final_all, list) {
+		r = f->res;
 
 		/*
 		 * Writes to mba_sc resources update the software controller,
@@ -380,10 +380,10 @@ out_unlock:
 	return ret ?: nbytes;
 }
 
-static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
+static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 		      char *resource_name, int closid)
 {
-	struct rdt_resource *r = schema->res;
+	struct rdt_resource *r = f->res;
 	struct rdt_ctrl_domain *dom;
 	bool sep = false;
 	u32 ctrl_val;
@@ -401,9 +401,9 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 			ctrl_val = dom->mbps_val[closid];
 		else
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,
-							   schema->conf_type);
+							   f->conf_type);
 
-		seq_printf(s, schema->fmt_str, dom->hdr.id, ctrl_val);
+		seq_printf(s, f->fmt_str, dom->hdr.id, ctrl_val);
 		sep = true;
 	}
 	seq_puts(s, "\n");
@@ -412,7 +412,7 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 int rdtgroup_schemata_show(struct kernfs_open_file *of,
 			   struct seq_file *s, void *v)
 {
-	struct resctrl_schema *schema;
+	struct rdt_resource_final *f;
 	struct rdtgroup *rdtgrp;
 	int ret = 0;
 	u32 closid;
@@ -420,8 +420,8 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
 	if (rdtgrp) {
 		if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
-			list_for_each_entry(schema, &resctrl_schema_all, list) {
-				seq_printf(s, "%s:uninitialized\n", schema->name);
+			list_for_each_entry(f, &rdt_resource_final_all, list) {
+				seq_printf(s, "%s:uninitialized\n", f->name);
 			}
 		} else if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
 			if (!rdtgrp->plr->d) {
@@ -429,15 +429,15 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 				ret = -ENODEV;
 			} else {
 				seq_printf(s, "%s:%d=%x\n",
-					   rdtgrp->plr->s->res->name,
+					   rdtgrp->plr->f->res->name,
 					   rdtgrp->plr->d->hdr.id,
 					   rdtgrp->plr->cbm);
 			}
 		} else {
 			closid = rdtgrp->closid;
-			list_for_each_entry(schema, &resctrl_schema_all, list) {
-				if (closid < schema->num_closid)
-					show_doms(s, schema, schema->name, closid);
+			list_for_each_entry(f, &rdt_resource_final_all, list) {
+				if (closid < f->num_closid)
+					show_doms(s, f, f->name, closid);
 			}
 		}
 	} else {
@@ -767,8 +767,8 @@ out:
 
 int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 
 	mutex_lock(&rdtgroup_mutex);
 
@@ -800,25 +800,25 @@ static bool resctrl_io_alloc_closid_supported(u32 io_alloc_closid)
  * Initialize io_alloc CLOSID cache resource CBM with all usable (shared
  * and unused) cache portions.
  */
-static int resctrl_io_alloc_init_cbm(struct resctrl_schema *s, u32 closid)
+static int resctrl_io_alloc_init_cbm(struct rdt_resource_final *f, u32 closid)
 {
 	enum resctrl_conf_type peer_type;
-	struct rdt_resource *r = s->res;
+	struct rdt_resource *r = f->res;
 	struct rdt_ctrl_domain *d;
 	int ret;
 
 	rdt_staged_configs_clear();
 
-	ret = rdtgroup_init_cat(s, closid);
+	ret = rdtgroup_init_cat(f, closid);
 	if (ret < 0)
 		goto out;
 
 	/* Keep CDP_CODE and CDP_DATA of io_alloc CLOSID's CBM in sync. */
 	if (resctrl_arch_get_cdp_enabled(r->rid)) {
-		peer_type = resctrl_peer_type(s->conf_type);
-		list_for_each_entry(d, &s->res->ctrl_domains, hdr.list)
+		peer_type = resctrl_peer_type(f->conf_type);
+		list_for_each_entry(d, &f->res->ctrl_domains, hdr.list)
 			memcpy(&d->staged_config[peer_type],
-			       &d->staged_config[s->conf_type],
+			       &d->staged_config[f->conf_type],
 			       sizeof(d->staged_config[0]));
 	}
 
@@ -845,8 +845,8 @@ u32 resctrl_io_alloc_closid(struct rdt_resource *r)
 ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 			       size_t nbytes, loff_t off)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 	char const *grp_name;
 	u32 io_alloc_closid;
 	bool enable;
@@ -864,7 +864,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 	}
 
 	if (!r->cache_io_alloc_capable) {
-		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
+		rdt_last_cmd_printf("io_alloc is not supported on %s\n", f->name);
 		ret = -ENODEV;
 		goto out_unlock;
 	}
@@ -891,7 +891,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 			goto out_unlock;
 		}
 
-		ret = resctrl_io_alloc_init_cbm(s, io_alloc_closid);
+		ret = resctrl_io_alloc_init_cbm(f, io_alloc_closid);
 		if (ret) {
 			rdt_last_cmd_puts("Failed to initialize io_alloc allocations\n");
 			closid_free(io_alloc_closid);
@@ -916,8 +916,8 @@ out_unlock:
 
 int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq, void *v)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 	int ret = 0;
 
 	cpus_read_lock();
@@ -926,13 +926,13 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 	rdt_last_cmd_clear();
 
 	if (!r->cache_io_alloc_capable) {
-		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
+		rdt_last_cmd_printf("io_alloc is not supported on %s\n", f->name);
 		ret = -ENODEV;
 		goto out_unlock;
 	}
 
 	if (!resctrl_arch_get_io_alloc_enabled(r)) {
-		rdt_last_cmd_printf("io_alloc is not enabled on %s\n", s->name);
+		rdt_last_cmd_printf("io_alloc is not enabled on %s\n", f->name);
 		ret = -EINVAL;
 		goto out_unlock;
 	}
@@ -943,7 +943,7 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 	 * either CDP resource are identical and accurately represent the CBMs
 	 * used for I/O.
 	 */
-	show_doms(seq, s, NULL, resctrl_io_alloc_closid(r));
+	show_doms(seq, f, NULL, resctrl_io_alloc_closid(r));
 
 out_unlock:
 	mutex_unlock(&rdtgroup_mutex);
@@ -951,12 +951,12 @@ out_unlock:
 	return ret;
 }
 
-static int resctrl_io_alloc_parse_line(char *line, struct resctrl_schema *s,
+static int resctrl_io_alloc_parse_line(char *line, struct rdt_resource_final *f,
 				       u32 closid)
 {
 	enum resctrl_conf_type peer_type;
 	unsigned long dom_id = ULONG_MAX;
-	struct rdt_resource *r = s->res;
+	struct rdt_resource *r = f->res;
 	struct rdt_parse_data data;
 	struct rdt_ctrl_domain *d;
 	bool update_all = false;
@@ -987,16 +987,16 @@ next:
 			data.buf = dom;
 			data.mode = RDT_MODE_SHAREABLE;
 			data.closid = closid;
-			if (parse_cbm(&data, s, d))
+			if (parse_cbm(&data, f, d))
 				return -EINVAL;
 			/*
 			 * Keep io_alloc CLOSID's CBM of CDP_CODE and CDP_DATA
 			 * in sync.
 			 */
 			if (resctrl_arch_get_cdp_enabled(r->rid)) {
-				peer_type = resctrl_peer_type(s->conf_type);
+				peer_type = resctrl_peer_type(f->conf_type);
 				memcpy(&d->staged_config[peer_type],
-				       &d->staged_config[s->conf_type],
+				       &d->staged_config[f->conf_type],
 				       sizeof(d->staged_config[0]));
 			}
 			if (!update_all)
@@ -1014,8 +1014,8 @@ next:
 ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 				   size_t nbytes, loff_t off)
 {
-	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = f->res;
 	u32 io_alloc_closid;
 	int ret = 0;
 
@@ -1033,13 +1033,13 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 	buf[nbytes - 1] = '\0';
 
 	if (!r->cache_io_alloc_capable) {
-		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
+		rdt_last_cmd_printf("io_alloc is not supported on %s\n", f->name);
 		ret = -ENODEV;
 		goto out_unlock;
 	}
 
 	if (!resctrl_arch_get_io_alloc_enabled(r)) {
-		rdt_last_cmd_printf("io_alloc is not enabled on %s\n", s->name);
+		rdt_last_cmd_printf("io_alloc is not enabled on %s\n", f->name);
 		ret = -EINVAL;
 		goto out_unlock;
 	}
@@ -1047,7 +1047,7 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 	io_alloc_closid = resctrl_io_alloc_closid(r);
 
 	rdt_staged_configs_clear();
-	ret = resctrl_io_alloc_parse_line(buf, s, io_alloc_closid);
+	ret = resctrl_io_alloc_parse_line(buf, f, io_alloc_closid);
 	if (ret)
 		goto out_clear_configs;
 

@@ -149,7 +149,7 @@ struct rmid_read {
 	void			*arch_mon_ctx;
 };
 
-extern struct list_head resctrl_schema_all;
+extern struct list_head rdt_resource_final_all;
 
 extern bool resctrl_mounted;
 
@@ -355,7 +355,7 @@ ssize_t rdtgroup_mba_mbps_event_write(struct kernfs_open_file *of,
 int rdtgroup_mba_mbps_event_show(struct kernfs_open_file *of,
 				 struct seq_file *s, void *v);
 
-bool rdtgroup_cbm_overlaps(struct resctrl_schema *s, struct rdt_ctrl_domain *d,
+bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain *d,
 			   unsigned long cbm, int closid, bool exclusive);
 
 unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r, struct rdt_ctrl_domain *d,
@@ -454,7 +454,7 @@ ssize_t mbm_L3_assignments_write(struct kernfs_open_file *of, char *buf, size_t 
 				 loff_t off);
 int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, void *v);
 
-int rdtgroup_init_cat(struct resctrl_schema *s, u32 closid);
+int rdtgroup_init_cat(struct rdt_resource_final *f, u32 closid);
 
 enum resctrl_conf_type resctrl_peer_type(enum resctrl_conf_type my_type);
 

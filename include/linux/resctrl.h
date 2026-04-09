@@ -74,10 +74,11 @@ enum resctrl_conf_type {
 
 #define CDP_NUM_TYPES	(CDP_LAST + 1)
 
+struct rdt_resource_final;
+
 /*
  * struct pseudo_lock_region - pseudo-lock region information
- * @s:			Resctrl schema for the resource to which this
- *			pseudo-locked region belongs
+ * @f:			Resource to which this pseudo-locked region belongs
  * @closid:		The closid that this pseudo-locked region uses
  * @d:			RDT domain to which this pseudo-locked region
  *			belongs
@@ -98,19 +99,19 @@ enum resctrl_conf_type {
  * @pm_reqs:		Power management QoS requests related to this region
  */
 struct pseudo_lock_region {
-	struct resctrl_schema	*s;
-	u32			closid;
-	struct rdt_ctrl_domain	*d;
-	u32			cbm;
-	wait_queue_head_t	lock_thread_wq;
-	int			thread_done;
-	int			cpu;
-	unsigned int		line_size;
-	unsigned int		size;
-	void			*kmem;
-	unsigned int		minor;
-	struct dentry		*debugfs_dir;
-	struct list_head	pm_reqs;
+	struct rdt_resource_final	*f;
+	u32				closid;
+	struct rdt_ctrl_domain		*d;
+	u32				cbm;
+	wait_queue_head_t		lock_thread_wq;
+	int				thread_done;
+	int				cpu;
+	unsigned int			line_size;
+	unsigned int			size;
+	void				*kmem;
+	unsigned int			minor;
+	struct dentry			*debugfs_dir;
+	struct list_head		pm_reqs;
 };
 
 /**
@@ -251,8 +252,6 @@ struct resctrl_membw {
 	bool				mba_sc;
 };
 
-struct resctrl_schema;
-
 enum resctrl_scope {
 	RESCTRL_L2_CACHE = 2,
 	RESCTRL_L3_CACHE = 3,
@@ -340,19 +339,19 @@ struct rdt_resource {
 struct rdt_resource *resctrl_arch_get_resource(enum resctrl_res_level l);
 
 /**
- * struct resctrl_schema - configuration abilities of a resource presented to
- *			   user-space
- * @list:	Member of resctrl_schema_all.
- * @name:	The name to use in the "schemata" file.
+ * struct rdt_resource_final - Resource presented to user-space
+ * @list:	Member of rdt_resource_final_all.
+ * @name:	The name to use in the "schemata" file and for the resource
+ *		directories in info/.
  * @fmt_str:	Format string to show domain value.
- * @conf_type:	Whether this schema is specific to code/data.
- * @res:	The resource structure exported by the architecture to describe
- *		the hardware that is configured by this schema.
- * @num_closid:	The number of closid that can be used with this schema. When
+ * @conf_type:	Whether this resource is specific to code/data.
+ * @res:	The underlying resource structure exported by the architecture
+ *		to describe the hardware.
+ * @num_closid:	The number of closid that can be used with this resource. When
  *		features like CDP are enabled, this will be lower than the
  *		hardware supports for the resource.
  */
-struct resctrl_schema {
+struct rdt_resource_final {
 	struct list_head		list;
 	char				name[8];
 	const char			*fmt_str;
