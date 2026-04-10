@@ -2210,6 +2210,98 @@ static struct rftype res_common_files[] = {
 	},
 };
 
+static int resctrl_ctrl_scope_show(struct kernfs_open_file *of,
+				   struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	switch (ctrl->scope) {
+	case RESCTRL_L3_CACHE:
+		seq_puts(seq, "L3\n");
+		return 0;
+	case RESCTRL_L2_CACHE:
+		seq_puts(seq, "L2\n");
+		return 0;
+	default:
+		/* resctrl does not yet support any other control scope */
+		seq_puts(seq, "Unsupported control scope\n");
+		return 0;
+	}
+
+	return 0;
+}
+
+static int resctrl_ctrl_type_show(struct kernfs_open_file *of,
+				  struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	switch (ctrl->type) {
+	case RESCTRL_CTRL_SCALAR:
+		seq_puts(seq, "scalar\n");
+		return 0;
+	case RESCTRL_CTRL_BITMAP:
+		seq_puts(seq, "bitmap\n");
+		return 0;
+	}
+
+	/* resctrl does not yet support any other type */
+	WARN_ON_ONCE(1);
+
+	return 0;
+}
+
+static int resctrl_ctrl_min_show(struct kernfs_open_file *of,
+				 struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%u\n", ctrl->membw.min_bw);
+
+	return 0;
+}
+
+static int resctrl_ctrl_max_show(struct kernfs_open_file *of,
+				 struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%u\n", ctrl->membw.max_bw);
+
+	return 0;
+}
+
+static struct rftype ctrl_files[] = {
+	{
+		.name		= "scope",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_scope_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR) | BIT(RESCTRL_CTRL_BITMAP),
+	},
+	{
+		.name		= "type",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_type_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR) | BIT(RESCTRL_CTRL_BITMAP),
+	},
+	{
+		.name		= "min",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_min_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+	{
+		.name		= "max",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_max_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+};
+
 static int rdtgroup_add_files(struct kernfs_node *kn, unsigned long fflags)
 {
 	struct rftype *rfts, *rft;
