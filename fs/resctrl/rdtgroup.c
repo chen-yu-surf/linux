@@ -2314,7 +2314,7 @@ static const char * const resctrl_scalar_flag[] = {
 	[RESCTRL_SCALAR_FLAG_LINEAR]	= "linear",
 };
 
-static __maybe_unused const char *resctrl_scalar_flag_str(enum resctrl_scalar_flag flag)
+static const char *resctrl_scalar_flag_str(enum resctrl_scalar_flag flag)
 {
 	if (flag < RESCTRL_SCALAR_FLAG_LINEAR || flag > RESCTRL_SCALAR_FLAG_LAST) {
 		pr_warn("Unknown scalar control flag\n");
@@ -2327,7 +2327,7 @@ static const char * const resctrl_bitmap_flag[] = {
 	[RESCTRL_BITMAP_FLAG_SPARSE]	= "sparse",
 };
 
-static __maybe_unused const char *resctrl_bitmap_flag_str(enum resctrl_bitmap_flag flag)
+static const char *resctrl_bitmap_flag_str(enum resctrl_bitmap_flag flag)
 {
 	if (flag < RESCTRL_BITMAP_FLAG_SPARSE || flag > RESCTRL_BITMAP_FLAG_LAST) {
 		pr_warn("Unknown bitmap control flag\n");
@@ -2335,6 +2335,82 @@ static __maybe_unused const char *resctrl_bitmap_flag_str(enum resctrl_bitmap_fl
 	}
 	return resctrl_bitmap_flag[flag];
 }
+
+static int resctrl_ctrl_type_show(struct kernfs_open_file *of,
+				  struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	switch (ctrl->type) {
+	case RESCTRL_CTRL_SCALAR: {
+		enum resctrl_scalar_flag flag;
+
+		seq_puts(seq, "scalar");
+		for_each_set_bit(flag, ctrl->scalar.flags, RESCTRL_SCALAR_NUM_FLAGS)
+			seq_printf(seq, " %s", resctrl_scalar_flag_str(flag));
+		seq_putc(seq, '\n');
+		return 0;
+	}
+	case RESCTRL_CTRL_BITMAP: {
+		enum resctrl_bitmap_flag flag;
+
+		seq_puts(seq, "bitmap");
+		for_each_set_bit(flag, ctrl->bitmap.flags, RESCTRL_BITMAP_NUM_FLAGS)
+			seq_printf(seq, " %s", resctrl_bitmap_flag_str(flag));
+		seq_putc(seq, '\n');
+		return 0;
+	}
+	}
+
+	/* resctrl does not yet support any other type */
+	WARN_ON_ONCE(1);
+
+	return 0;
+}
+
+static int resctrl_ctrl_min_show(struct kernfs_open_file *of,
+				 struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%u\n", ctrl->scalar.min);
+
+	return 0;
+}
+
+static int resctrl_ctrl_max_show(struct kernfs_open_file *of,
+				 struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%u\n", ctrl->scalar.max);
+
+	return 0;
+}
+
+static struct rftype ctrl_files[] __maybe_unused = {
+	{
+		.name		= "type",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_type_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR) | BIT(RESCTRL_CTRL_BITMAP),
+	},
+	{
+		.name		= "min",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_min_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+	{
+		.name		= "max",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_max_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+};
 
 static int rdtgroup_add_files(struct kernfs_node *kn, unsigned long fflags)
 {
