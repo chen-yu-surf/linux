@@ -2445,8 +2445,8 @@ static int resctrl_mkdir_event_configs(struct rdt_resource *r, struct kernfs_nod
 	return 0;
 }
 
-static int rdtgroup_mkdir_info_resdir(void *priv, char *name,
-				      unsigned long fflags)
+static struct kernfs_node *rdtgroup_mkdir_info_resdir(void *priv, char *name,
+						      unsigned long fflags)
 {
 	struct kernfs_node *kn_subdir;
 	struct rdt_resource *r;
@@ -2455,22 +2455,22 @@ static int rdtgroup_mkdir_info_resdir(void *priv, char *name,
 	kn_subdir = kernfs_create_dir(kn_info, name,
 				      kn_info->mode, priv);
 	if (IS_ERR(kn_subdir))
-		return PTR_ERR(kn_subdir);
+		return kn_subdir;
 
 	ret = rdtgroup_kn_set_ugid(kn_subdir);
 	if (ret)
-		return ret;
+		return ERR_PTR(ret);
 
 	ret = rdtgroup_add_files(kn_subdir, fflags);
 	if (ret)
-		return ret;
+		return ERR_PTR(ret);
 
 	if ((fflags & RFTYPE_MON_INFO) == RFTYPE_MON_INFO) {
 		r = priv;
 		if (r->mon.mbm_cntr_assignable) {
 			ret = resctrl_mkdir_event_configs(r, kn_subdir);
 			if (ret)
-				return ret;
+				return ERR_PTR(ret);
 			/*
 			 * Hide BMEC related files if mbm_event mode
 			 * is enabled.
@@ -2482,7 +2482,7 @@ static int rdtgroup_mkdir_info_resdir(void *priv, char *name,
 
 	kernfs_activate(kn_subdir);
 
-	return ret;
+	return kn_subdir;
 }
 
 static unsigned long fflags_from_resource(struct rdt_resource *r)
@@ -2504,6 +2504,7 @@ static unsigned long fflags_from_resource(struct rdt_resource *r)
 static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 {
 	struct rdt_resource_final *f;
+	struct kernfs_node *kn_res;
 	struct rdt_resource *r;
 	unsigned long fflags;
 	char name[32];
@@ -2522,17 +2523,21 @@ static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
 		fflags = fflags_from_resource(r) | RFTYPE_CTRL_INFO;
-		ret = rdtgroup_mkdir_info_resdir(f, f->name, fflags);
-		if (ret)
+		kn_res = rdtgroup_mkdir_info_resdir(f, f->name, fflags);
+		if (IS_ERR(kn_res)) {
+			ret = PTR_ERR(kn_res);
 			goto out_destroy;
+		}
 	}
 
 	for_each_mon_capable_rdt_resource(r) {
 		fflags = fflags_from_resource(r) | RFTYPE_MON_INFO;
 		sprintf(name, "%s_MON", r->name);
-		ret = rdtgroup_mkdir_info_resdir(r, name, fflags);
-		if (ret)
+		kn_res = rdtgroup_mkdir_info_resdir(r, name, fflags);
+		if (IS_ERR(kn_res)) {
+			ret = PTR_ERR(kn_res);
 			goto out_destroy;
+		}
 	}
 
 	ret = rdtgroup_kn_set_ugid(kn_info);
