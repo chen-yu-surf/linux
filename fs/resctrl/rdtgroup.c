@@ -3693,6 +3693,7 @@ out_destroy:
  * cbm_ensure_valid - Enforce validity on provided CBM
  * @_val:	Candidate CBM
  * @r:		RDT resource to which the CBM belongs
+ * @ctrl:	Properties of the bitmap control CBM should be tested against.
  *
  * The provided CBM represents all cache portions available for use. This
  * may be represented by a bitmap that does not consist of contiguous ones
@@ -3706,13 +3707,14 @@ out_destroy:
  *
  * Return: A CBM that is valid for resource @r.
  */
-static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r)
+static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r,
+			    struct resctrl_ctrl *ctrl)
 {
-	unsigned int cbm_len = r->ctrl.bitmap.cbm_len;
+	unsigned int cbm_len = ctrl->bitmap.cbm_len;
 	unsigned long first_bit, zero_bit;
 	unsigned long val;
 
-	if (!_val || r->ctrl.bitmap.arch_has_sparse_bitmasks)
+	if (!_val || ctrl->bitmap.arch_has_sparse_bitmasks)
 		return _val;
 
 	val = _val;
@@ -3731,7 +3733,7 @@ static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r)
  * all shareable and unused bits. All-zero CBM is invalid.
  */
 static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_final *f,
-				 u32 closid)
+				 u32 closid, struct resctrl_ctrl *ctrl)
 {
 	enum resctrl_conf_type peer_type = resctrl_peer_type(f->conf_type);
 	enum resctrl_conf_type t = f->conf_type;
@@ -3745,8 +3747,8 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 
 	cfg = &d->staged_config[t];
 	cfg->have_new_ctrl = false;
-	cfg->new_ctrl = r->ctrl.bitmap.shareable_bits;
-	used_b = r->ctrl.bitmap.shareable_bits;
+	cfg->new_ctrl = ctrl->bitmap.shareable_bits;
+	used_b = ctrl->bitmap.shareable_bits;
 	for (i = 0; i < closids_supported(); i++) {
 		if (closid_allocated(i) && i != closid) {
 			mode = rdtgroup_mode_by_closid(i);
@@ -3776,20 +3778,20 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 	}
 	if (d->plr && d->plr->cbm > 0)
 		used_b |= d->plr->cbm;
-	unused_b = used_b ^ (BIT_MASK(r->ctrl.bitmap.cbm_len) - 1);
-	unused_b &= BIT_MASK(r->ctrl.bitmap.cbm_len) - 1;
+	unused_b = used_b ^ (BIT_MASK(ctrl->bitmap.cbm_len) - 1);
+	unused_b &= BIT_MASK(ctrl->bitmap.cbm_len) - 1;
 	cfg->new_ctrl |= unused_b;
 	/*
 	 * Force the initial CBM to be valid, user can
 	 * modify the CBM based on system availability.
 	 */
-	cfg->new_ctrl = cbm_ensure_valid(cfg->new_ctrl, r);
+	cfg->new_ctrl = cbm_ensure_valid(cfg->new_ctrl, r, ctrl);
 	/*
 	 * Assign the u32 CBM to an unsigned long to ensure that
 	 * bitmap_weight() does not access out-of-bound memory.
 	 */
 	tmp_cbm = cfg->new_ctrl;
-	if (bitmap_weight(&tmp_cbm, r->ctrl.bitmap.cbm_len) < r->ctrl.bitmap.min_cbm_bits) {
+	if (bitmap_weight(&tmp_cbm, ctrl->bitmap.cbm_len) < ctrl->bitmap.min_cbm_bits) {
 		rdt_last_cmd_printf("No space on %s:%d\n", f->name, d->hdr.id);
 		return -ENOSPC;
 	}
@@ -3799,22 +3801,22 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 }
 
 /*
- * Initialize cache resources with default values.
+ * Initialize bitmap control with default values.
  *
- * A new RDT group is being created on an allocation capable (CAT)
- * supporting system. Set this group up to start off with all usable
- * allocations.
+ * A new RDT group is being created on an allocation capable system.
+ * Set this group up to start off with all usable allocations.
  *
  * If there are no more shareable bits available on any domain then
  * the entire allocation will fail.
  */
-int rdtgroup_init_cat(struct rdt_resource_final *f, u32 closid)
+int rdtgroup_init_bitmap(struct rdt_resource_final *f, struct resctrl_ctrl *ctrl,
+			 u32 closid)
 {
 	struct rdt_ctrl_domain *d;
 	int ret;
 
-	list_for_each_entry_rcu(d, &f->res->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
-		ret = __init_one_rdt_domain(d, f, closid);
+	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
+		ret = __init_one_rdt_domain(d, f, closid, ctrl);
 		if (ret < 0)
 			return ret;
 	}
@@ -3844,6 +3846,7 @@ static void rdtgroup_init_mba(struct rdt_resource *r, u32 closid)
 static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 {
 	struct rdt_resource_final *f;
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 	int ret = 0;
 
@@ -3857,7 +3860,13 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 			if (is_mba_sc(r))
 				continue;
 		} else {
-			ret = rdtgroup_init_cat(f, rdtgrp->closid);
+			ctrl = resctrl_get_cache_ctrl(r);
+			if (!ctrl) {
+				rdt_last_cmd_puts("No cache control available\n");
+				ret = -EINVAL;
+				goto out;
+			}
+			ret = rdtgroup_init_bitmap(f, ctrl, rdtgrp->closid);
 			if (ret < 0)
 				goto out;
 		}
