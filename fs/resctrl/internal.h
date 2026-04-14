@@ -472,6 +472,7 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 u32 resctrl_io_alloc_closid(struct rdt_resource *r);
 
 int resctrl_prefix_width_adjust(struct resctrl_ctrl *ctrl);
+struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r);
 
 #ifdef CONFIG_RESCTRL_FS_PSEUDO_LOCK
 int rdtgroup_locksetup_enter(struct rdtgroup *rdtgrp);
