@@ -3522,6 +3522,7 @@ out_destroy:
  * cbm_ensure_valid - Enforce validity on provided CBM
  * @_val:	Candidate CBM
  * @r:		RDT resource to which the CBM belongs
+ * @ctrl:	Properties of the bitmap control CBM should be tested against.
  *
  * The provided CBM represents all cache portions available for use. This
  * may be represented by a bitmap that does not consist of contiguous ones
@@ -3535,13 +3536,14 @@ out_destroy:
  *
  * Return: A CBM that is valid for resource @r.
  */
-static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r)
+static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r,
+			    struct resctrl_ctrl *ctrl)
 {
-	unsigned int cbm_len = r->ctrl.cache.cbm_len;
+	unsigned int cbm_len = ctrl->cache.cbm_len;
 	unsigned long first_bit, zero_bit;
 	unsigned long val;
 
-	if (!_val || r->ctrl.cache.arch_has_sparse_bitmasks)
+	if (!_val || ctrl->cache.arch_has_sparse_bitmasks)
 		return _val;
 
 	val = _val;
@@ -3560,7 +3562,7 @@ static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r)
  * all shareable and unused bits. All-zero CBM is invalid.
  */
 static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_final *f,
-				 u32 closid)
+				 u32 closid, struct resctrl_ctrl *ctrl)
 {
 	enum resctrl_conf_type peer_type = resctrl_peer_type(f->conf_type);
 	enum resctrl_conf_type t = f->conf_type;
@@ -3574,8 +3576,8 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 
 	cfg = &d->staged_config[t];
 	cfg->have_new_ctrl = false;
-	cfg->new_ctrl = r->ctrl.cache.shareable_bits;
-	used_b = r->ctrl.cache.shareable_bits;
+	cfg->new_ctrl = ctrl->cache.shareable_bits;
+	used_b = ctrl->cache.shareable_bits;
 	for (i = 0; i < closids_supported(); i++) {
 		if (closid_allocated(i) && i != closid) {
 			mode = rdtgroup_mode_by_closid(i);
@@ -3605,20 +3607,20 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 	}
 	if (d->plr && d->plr->cbm > 0)
 		used_b |= d->plr->cbm;
-	unused_b = used_b ^ (BIT_MASK(r->ctrl.cache.cbm_len) - 1);
-	unused_b &= BIT_MASK(r->ctrl.cache.cbm_len) - 1;
+	unused_b = used_b ^ (BIT_MASK(ctrl->cache.cbm_len) - 1);
+	unused_b &= BIT_MASK(ctrl->cache.cbm_len) - 1;
 	cfg->new_ctrl |= unused_b;
 	/*
 	 * Force the initial CBM to be valid, user can
 	 * modify the CBM based on system availability.
 	 */
-	cfg->new_ctrl = cbm_ensure_valid(cfg->new_ctrl, r);
+	cfg->new_ctrl = cbm_ensure_valid(cfg->new_ctrl, r, ctrl);
 	/*
 	 * Assign the u32 CBM to an unsigned long to ensure that
 	 * bitmap_weight() does not access out-of-bound memory.
 	 */
 	tmp_cbm = cfg->new_ctrl;
-	if (bitmap_weight(&tmp_cbm, r->ctrl.cache.cbm_len) < r->ctrl.cache.min_cbm_bits) {
+	if (bitmap_weight(&tmp_cbm, ctrl->cache.cbm_len) < ctrl->cache.min_cbm_bits) {
 		rdt_last_cmd_printf("No space on %s:%d\n", f->name, d->hdr.id);
 		return -ENOSPC;
 	}
@@ -3639,11 +3641,18 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
  */
 int rdtgroup_init_cat(struct rdt_resource_final *f, u32 closid)
 {
+	struct resctrl_ctrl *ctrl;
 	struct rdt_ctrl_domain *d;
 	int ret;
 
-	list_for_each_entry(d, &f->res->ctrl.domains, hdr.list) {
-		ret = __init_one_rdt_domain(d, f, closid);
+	ctrl = resctrl_get_cache_ctrl(f->res);
+	if (!ctrl) {
+		pr_warn("Unable to find control for cache resource.\n");
+		return -EINVAL;
+	}
+
+	list_for_each_entry(d, &ctrl->domains, hdr.list) {
+		ret = __init_one_rdt_domain(d, f, closid, ctrl);
 		if (ret < 0)
 			return ret;
 	}
