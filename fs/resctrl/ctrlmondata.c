@@ -312,7 +312,7 @@ static const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
 	return resctrl_ctrl_name[name];
 }
 
-static struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
+struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
 	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
 		return &r->ctrl;

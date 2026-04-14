@@ -1165,8 +1165,13 @@ static int rdt_min_bw_show(struct kernfs_open_file *of,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 
-	seq_printf(seq, "%u\n", r->ctrl.membw.min_bw);
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
+		return 0;
+
+	seq_printf(seq, "%u\n", ctrl->membw.min_bw);
 	return 0;
 }
 
@@ -1203,8 +1208,13 @@ static int rdt_bw_gran_show(struct kernfs_open_file *of,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 
-	seq_printf(seq, "%u\n", r->ctrl.membw.bw_gran);
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
+		return 0;
+
+	seq_printf(seq, "%u\n", ctrl->membw.bw_gran);
 	return 0;
 }
 
