@@ -1197,14 +1197,20 @@ static int rdt_min_bw_show(struct kernfs_open_file *of,
 			   struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.scalar.min);
-	info_kn_unlock(of->kn);
 
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
+		goto out_unlock;
+
+	seq_printf(seq, "%u\n", ctrl->scalar.min);
+out_unlock:
+	info_kn_unlock(of->kn);
 	return 0;
 }
 
@@ -1248,14 +1254,21 @@ static int rdt_bw_gran_show(struct kernfs_open_file *of,
 			    struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.scalar.gran);
-	info_kn_unlock(of->kn);
 
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
+		goto out_unlock;
+
+	seq_printf(seq, "%u\n", ctrl->scalar.gran);
+
+out_unlock:
+	info_kn_unlock(of->kn);
 	return 0;
 }
 
@@ -1263,14 +1276,21 @@ static int rdt_delay_linear_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.scalar.linear);
-	info_kn_unlock(of->kn);
 
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
+		goto out_unlock;
+
+	seq_printf(seq, "%u\n", ctrl->scalar.linear);
+
+out_unlock:
+	info_kn_unlock(of->kn);
 	return 0;
 }
 
