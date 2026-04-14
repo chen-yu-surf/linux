@@ -1016,8 +1016,13 @@ static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 
-	seq_printf(seq, "%u\n", r->ctrl.cache.min_cbm_bits);
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		return 0;
+
+	seq_printf(seq, "%u\n", ctrl->cache.min_cbm_bits);
 	return 0;
 }
 
@@ -1026,8 +1031,13 @@ static int rdt_shareable_bits_show(struct kernfs_open_file *of,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 
-	seq_printf(seq, "%x\n", r->ctrl.cache.shareable_bits);
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		return 0;
+
+	seq_printf(seq, "%x\n", ctrl->cache.shareable_bits);
 	return 0;
 }
 
@@ -1058,16 +1068,22 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 	struct rdt_resource *r = f->res;
 	struct rdt_ctrl_domain *dom;
 	int i, hwb, swb, excl, psl;
+	struct resctrl_ctrl *ctrl;
 	enum rdtgrp_mode mode;
 	bool sep = false;
 	u32 ctrl_val;
 
 	cpus_read_lock();
 	mutex_lock(&rdtgroup_mutex);
-	list_for_each_entry(dom, &r->ctrl.domains, hdr.list) {
+
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		return 0;
+
+	list_for_each_entry(dom, &ctrl->domains, hdr.list) {
 		if (sep)
 			seq_putc(seq, ';');
-		hw_shareable = r->ctrl.cache.shareable_bits;
+		hw_shareable = ctrl->cache.shareable_bits;
 		sw_shareable = 0;
 		exclusive = 0;
 		seq_printf(seq, "%d=", dom->hdr.id);
@@ -1117,7 +1133,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 			hw_shareable |= ctrl_val;
 		}
 
-		for (i = r->ctrl.cache.cbm_len - 1; i >= 0; i--) {
+		for (i = ctrl->cache.cbm_len - 1; i >= 0; i--) {
 			pseudo_locked = dom->plr ? dom->plr->cbm : 0;
 			hwb = test_bit(i, &hw_shareable);
 			swb = test_bit(i, &sw_shareable);
@@ -1297,8 +1313,13 @@ static int rdt_has_sparse_bitmasks_show(struct kernfs_open_file *of,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 
-	seq_printf(seq, "%u\n", r->ctrl.cache.arch_has_sparse_bitmasks);
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		return 0;
+
+	seq_printf(seq, "%u\n", ctrl->cache.arch_has_sparse_bitmasks);
 
 	return 0;
 }
