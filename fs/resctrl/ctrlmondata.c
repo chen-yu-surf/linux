@@ -325,7 +325,7 @@ int resctrl_prefix_width_adjust(struct resctrl_ctrl *ctrl)
 	return len;
 }
 
-static struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
+struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
 	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
 		return &r->ctrl;
