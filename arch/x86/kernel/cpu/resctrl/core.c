@@ -266,8 +266,17 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	r->ctrl.bitmap.cbm_len = eax.split.cbm_len + 1;
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;
 	r->ctrl.bitmap.shareable_bits = ebx & default_ctrl;
-	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL)
+	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL) {
 		r->ctrl.bitmap.arch_has_sparse_bitmasks = ecx.split.noncont;
+		r->ctrl.bitmap.min_cbm_bits = 1;
+	} else if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
+		   boot_cpu_data.x86_vendor == X86_VENDOR_HYGON) {
+		r->ctrl.bitmap.arch_has_sparse_bitmasks = true;
+		r->ctrl.bitmap.min_cbm_bits = 0;
+	} else {
+		return;
+	}
+
 	r->alloc_capable = true;
 }
 
@@ -1005,7 +1014,6 @@ static __init void rdt_init_res_defs_intel(void)
 		if (r->rid == RDT_RESOURCE_L3 ||
 		    r->rid == RDT_RESOURCE_L2) {
 			hw_res->has_per_cpu_cache_cfg = false;
-			r->ctrl.bitmap.min_cbm_bits = 1;
 		} else if (r->rid == RDT_RESOURCE_MBA) {
 			hw_res->msr_base = MSR_IA32_MBA_THRTL_BASE;
 			hw_res->msr_update = mba_wrmsr_intel;
@@ -1024,8 +1032,6 @@ static __init void rdt_init_res_defs_amd(void)
 		if (r->rid == RDT_RESOURCE_L3 ||
 		    r->rid == RDT_RESOURCE_L2) {
 			hw_res->has_per_cpu_cache_cfg = true;
-			r->ctrl.bitmap.arch_has_sparse_bitmasks = true;
-			r->ctrl.bitmap.min_cbm_bits = 0;
 		} else if (r->rid == RDT_RESOURCE_MBA) {
 			hw_res->msr_base = MSR_IA32_MBA_BW_BASE;
 			hw_res->msr_update = mba_wrmsr_amd;
