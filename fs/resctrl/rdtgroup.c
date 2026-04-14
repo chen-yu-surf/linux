@@ -1032,14 +1032,21 @@ static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.bitmap.min_cbm_bits);
-	info_kn_unlock(of->kn);
 
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		goto out_unlock;
+
+	seq_printf(seq, "%u\n", ctrl->bitmap.min_cbm_bits);
+
+out_unlock:
+	info_kn_unlock(of->kn);
 	return 0;
 }
 
@@ -1047,14 +1054,21 @@ static int rdt_shareable_bits_show(struct kernfs_open_file *of,
 				   struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%x\n", r->ctrl.bitmap.shareable_bits);
-	info_kn_unlock(of->kn);
 
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		goto out_unlock;
+
+	seq_printf(seq, "%x\n", ctrl->bitmap.shareable_bits);
+
+out_unlock:
+	info_kn_unlock(of->kn);
 	return 0;
 }
 
@@ -1084,6 +1098,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 	unsigned long exclusive = 0, pseudo_locked = 0;
 	struct rdt_ctrl_domain *dom;
 	int i, hwb, swb, excl, psl;
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 	enum rdtgrp_mode mode;
 	bool sep = false;
@@ -1092,10 +1107,15 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	list_for_each_entry_rcu(dom, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
+
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		goto out_unlock;
+
+	list_for_each_entry_rcu(dom, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 		if (sep)
 			seq_putc(seq, ';');
-		hw_shareable = r->ctrl.bitmap.shareable_bits;
+		hw_shareable = ctrl->bitmap.shareable_bits;
 		sw_shareable = 0;
 		exclusive = 0;
 		seq_printf(seq, "%d=", dom->hdr.id);
@@ -1145,7 +1165,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 			hw_shareable |= ctrl_val;
 		}
 
-		for (i = r->ctrl.bitmap.cbm_len - 1; i >= 0; i--) {
+		for (i = ctrl->bitmap.cbm_len - 1; i >= 0; i--) {
 			pseudo_locked = dom->plr ? dom->plr->cbm : 0;
 			hwb = test_bit(i, &hw_shareable);
 			swb = test_bit(i, &sw_shareable);
@@ -1167,6 +1187,8 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 		sep = true;
 	}
 	seq_putc(seq, '\n');
+
+out_unlock:
 	info_kn_unlock(of->kn);
 	return 0;
 }
@@ -1361,15 +1383,21 @@ static int rdt_has_sparse_bitmasks_show(struct kernfs_open_file *of,
 					struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
+
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.bitmap.arch_has_sparse_bitmasks);
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl)
+		goto out_unlock;
 
+	seq_printf(seq, "%u\n", ctrl->bitmap.arch_has_sparse_bitmasks);
+
+out_unlock:
 	info_kn_unlock(of->kn);
-
 	return 0;
 }
 
