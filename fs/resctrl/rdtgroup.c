@@ -1606,6 +1606,7 @@ out:
 unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
 				  struct rdt_ctrl_domain *d, unsigned long cbm)
 {
+	struct resctrl_ctrl *ctrl;
 	unsigned int size = 0;
 	struct cacheinfo *ci;
 	int num_b;
@@ -1613,10 +1614,16 @@ unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
 	if (WARN_ON_ONCE(r->ctrl_scope != RESCTRL_L2_CACHE && r->ctrl_scope != RESCTRL_L3_CACHE))
 		return size;
 
-	num_b = bitmap_weight(&cbm, r->ctrl.bitmap.cbm_len);
+	ctrl = resctrl_get_cache_ctrl(r);
+	if (!ctrl) {
+		pr_warn("Unable to find default control for cache resource\n");
+		return 0;
+	}
+
+	num_b = bitmap_weight(&cbm, ctrl->bitmap.cbm_len);
 	ci = get_cpu_cacheinfo_level(cpumask_any(&d->hdr.cpu_mask), r->ctrl_scope);
 	if (ci)
-		size = ci->size / r->ctrl.bitmap.cbm_len * num_b;
+		size = ci->size / ctrl->bitmap.cbm_len * num_b;
 
 	return size;
 }
