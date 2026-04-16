@@ -242,16 +242,56 @@ enum membw_throttle_mode {
 };
 
 /**
+ * enum resctrl_ctrl_unit - Units of scalar controls
+ * @RESCTRL_CTRL_UNIT_ALL:	The special unit of a proportional schema. In
+ *				this case, the resource is a finite, physical
+ *				thing such as a cache or maxed-out data
+ *				throughput of a memory controller. The entire
+ *				physical resource is available for allocation,
+ *				and the control value indicates what proportion
+ *				of it is allocated.
+ * @RESCTRL_CTRL_UNIT_GBPS:	GBps base unit of an absolute schema.
+ */
+enum resctrl_ctrl_unit {
+	RESCTRL_CTRL_UNIT_ALL,
+	RESCTRL_CTRL_UNIT_GBPS,
+};
+
+/**
  * struct resctrl_membw - Memory bandwidth allocation related data
  * @min_bw:		Minimum memory bandwidth percentage user can request
  * @max_bw:		Maximum memory bandwidth value, used as the reset value
  * @bw_gran:		Granularity at which the memory bandwidth is allocated
+ * @resolution:		If the control is proportional (for example, a
+ *			percentage) this is the number of divisions that
+ *			resource can be divided into. Otherwise, since this
+ *			control is scalar, this is the divisor applied to
+ *			control value.
+ * @tolerance:		0 if the control is exact, "n" if the final control
+ *			value C is within C - n <= C <= C + n, -1 if the
+ *			tolerance is unknown. Supports scenarios where hardware
+ *			values do not map directly to user provided control
+ *			values. When reading the control value back user
+ *			may thus see a @tolerance difference from the
+ *			control value they wrote.
+ * @scale:		"scale-up" multiplier applied to "unit".
+ * @unit:		Base unit of quantity measured by control value.
+ *			"all" for a proportional schema. Base unit of an
+ *			absolute control, for example "GBps".
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
+ *
+ * With a control value "C" written to the schemata file, min_bw <= C <= max_bw,
+ * the amount of resource allocated by this control is:
+ * 		C * scale / resolution * unit
  */
 struct resctrl_membw {
 	u32				min_bw;
 	u32				max_bw;
 	u32				bw_gran;
+	u32				resolution;
+	int				tolerance;
+	u32				scale;
+	enum resctrl_ctrl_unit		unit;
 	bool				mba_sc;
 };
 
