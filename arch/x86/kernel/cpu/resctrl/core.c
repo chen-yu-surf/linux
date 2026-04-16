@@ -218,6 +218,10 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	else
 		r->bw_throttle_mode = THREAD_THROTTLE_MAX;
 
+	hw_ctrl->r_ctrl.membw.resolution = 100;
+	hw_ctrl->r_ctrl.membw.tolerance = 5;
+	hw_ctrl->r_ctrl.membw.scale = 1;
+	hw_ctrl->r_ctrl.membw.unit = RESCTRL_CTRL_UNIT_ALL;
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
@@ -266,6 +270,10 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
 	hw_ctrl->r_ctrl.membw.min_bw = 0;
 	hw_ctrl->r_ctrl.membw.bw_gran = 1;
+	hw_ctrl->r_ctrl.membw.resolution = 8;
+	hw_ctrl->r_ctrl.membw.tolerance = 0;
+	hw_ctrl->r_ctrl.membw.scale = 1;
+	hw_ctrl->r_ctrl.membw.unit = RESCTRL_CTRL_UNIT_GBPS;
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
