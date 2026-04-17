@@ -19,8 +19,9 @@
 
 #include "internal.h"
 
-int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
-			    u32 closid, enum resctrl_conf_type t, u32 cfg_val)
+int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+			    struct rdt_ctrl_domain *d, u32 closid,
+			    enum resctrl_conf_type t, u32 cfg_val)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);

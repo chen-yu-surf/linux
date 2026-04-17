@@ -747,7 +747,7 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 		return;
 	}
 
-	resctrl_arch_update_one(r_mba, dom_mba, closid, CDP_NONE, new_msr_val);
+	resctrl_arch_update_one(r_mba, ctrl, dom_mba, closid, CDP_NONE, new_msr_val);
 }
 
 static void mbm_update_one_event(struct rdt_resource *r, struct rdt_l3_mon_domain *d,
