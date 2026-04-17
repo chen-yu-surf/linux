@@ -560,8 +560,9 @@ u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r, struct resctrl_ctrl
  * Update the ctrl_val and apply this config right now.
  * Must be called on one of the domain's CPUs.
  */
-int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
-			    u32 closid, enum resctrl_conf_type t, u32 cfg_val);
+int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+			    struct rdt_ctrl_domain *d, u32 closid,
+			    enum resctrl_conf_type t, u32 cfg_val);
 
 u32 resctrl_arch_get_config(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 			    u32 closid, enum resctrl_conf_type type);
