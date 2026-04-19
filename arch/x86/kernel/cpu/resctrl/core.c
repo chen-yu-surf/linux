@@ -54,7 +54,6 @@ static void mba_wrmsr_intel(struct msr_param *m);
 static void cat_wrmsr(struct msr_param *m);
 static void mba_wrmsr_amd(struct msr_param *m);
 
-#define ctrl_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.ctrl_domains)
 #define mon_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.mon_domains)
 
 struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
@@ -64,9 +63,7 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 			.name			= "L3",
 			.ctrl_scope		= RESCTRL_L3_CACHE,
 			.mon_scope		= RESCTRL_L3_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_L3),
 			.mon_domains		= mon_domain_init(RDT_RESOURCE_L3),
-			.schema_fmt		= RESCTRL_SCHEMA_BITMAP,
 		},
 		.msr_base		= MSR_IA32_L3_CBM_BASE,
 		.msr_update		= cat_wrmsr,
@@ -76,8 +73,6 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 		.r_resctrl = {
 			.name			= "L2",
 			.ctrl_scope		= RESCTRL_L2_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_L2),
-			.schema_fmt		= RESCTRL_SCHEMA_BITMAP,
 		},
 		.msr_base		= MSR_IA32_L2_CBM_BASE,
 		.msr_update		= cat_wrmsr,
@@ -87,8 +82,6 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 		.r_resctrl = {
 			.name			= "MB",
 			.ctrl_scope		= RESCTRL_L3_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_MBA),
-			.schema_fmt		= RESCTRL_SCHEMA_RANGE,
 		},
 	},
 	[RDT_RESOURCE_SMBA] =
@@ -96,8 +89,6 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 		.r_resctrl = {
 			.name			= "SMBA",
 			.ctrl_scope		= RESCTRL_L3_CACHE,
-			.ctrl_domains		= ctrl_domain_init(RDT_RESOURCE_SMBA),
-			.schema_fmt		= RESCTRL_SCHEMA_RANGE,
 		},
 	},
 	[RDT_RESOURCE_PERF_PKG] =
@@ -207,21 +198,36 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	union cpuid_0x10_3_eax eax;
 	union cpuid_0x10_x_edx edx;
 	u32 ebx, ecx, max_delay;
+	struct rdt_ctrl *c;
 
+	/* legacy MBA */
+	c = kzalloc(sizeof(*c), GFP_KERNEL);
+	if (!c)
+		return false;
+
+	c->type = RDTCTRL_TYPE_SCALAR;
 	cpuid_count(0x00000010, 3, &eax.full, &ebx, &ecx, &edx.full);
 	hw_res->num_closid = edx.split.cos_max + 1;
 	max_delay = eax.split.max_delay + 1;
-	r->membw.max_bw = MAX_MBA_BW;
-	r->membw.arch_needs_linear = true;
+	c->max = c->membw.max_bw = MAX_MBA_BW;
+	c->membw.arch_needs_linear = true;
 	if (ecx & MBA_IS_LINEAR) {
-		r->membw.delay_linear = true;
-		r->membw.min_bw = MAX_MBA_BW - max_delay;
-		r->membw.bw_gran = MAX_MBA_BW - max_delay;
+		set_bit(CTRL_LINEAR, c->flags);
+		c->min = MAX_MBA_BW - max_delay;
+		c->tolerance = MAX_MBA_BW - max_delay;
+		c->membw.delay_linear = true;
+		c->membw.min_bw = MAX_MBA_BW - max_delay;
+		c->membw.bw_gran = MAX_MBA_BW - max_delay;
 	} else {
 		if (!rdt_get_mb_table(r))
 			return false;
-		r->membw.arch_needs_linear = false;
+		c->membw.arch_needs_linear = false;
+		clear_bit(CTRL_LINEAR, c->flags);
 	}
+	/* legacy MBA's controller name is NULL */
+	c->name = NULL;
+	list_add(&c->entry, &r->ctrls);
+	/* TBD: region-aware MBA controller initialization */
 
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->membw.throttle_mode = THREAD_THROTTLE_PER_THREAD;
@@ -237,28 +243,38 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	u32 eax, ebx, ecx, edx, subleaf;
-
+	struct rdt_ctrl *c;
 	/*
 	 * Query CPUID_Fn80000020_EDX_x01 for MBA and
 	 * CPUID_Fn80000020_EDX_x02 for SMBA
 	 */
+	c = kzalloc(sizeof(*c), GFP_KERNEL);
+	if (!c)
+		return false;
+
+	c->type = RDTCTRL_TYPE_SCALAR;
 	subleaf = (r->rid == RDT_RESOURCE_SMBA) ? 2 :  1;
 
 	cpuid_count(0x80000020, subleaf, &eax, &ebx, &ecx, &edx);
 	hw_res->num_closid = edx + 1;
-	r->membw.max_bw = 1 << eax;
-
+	c->membw.max_bw = 1 << eax;
 	/* AMD does not use delay */
-	r->membw.delay_linear = false;
-	r->membw.arch_needs_linear = false;
-
+	c->membw.delay_linear = false;
+	c->membw.arch_needs_linear = false;
+	c->max = 1 << eax;
+	set_bit(CTRL_LINEAR, c->flags);
+	/* legacy MBA's controller name is NULL */
+	c->name = NULL;
+	list_add(&c->entry, &r->ctrls);
 	/*
 	 * AMD does not use memory delay throttle model to control
 	 * the allocation like Intel does.
 	 */
-	r->membw.throttle_mode = THREAD_THROTTLE_UNDEFINED;
-	r->membw.min_bw = 0;
-	r->membw.bw_gran = 1;
+	c->membw.throttle_mode = THREAD_THROTTLE_UNDEFINED;
+	c->membw.min_bw = 0;
+	c->membw.bw_gran = 1;
+	c->min = 0;
+	c->tolerance = 1;
 
 	r->alloc_capable = true;
 
@@ -272,14 +288,20 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	union cpuid_0x10_x_ecx ecx;
 	union cpuid_0x10_x_edx edx;
 	u32 ebx, default_ctrl;
+	struct rdt_ctrl *c;
 
+	c = kzalloc(sizeof(*c), GFP_KERNEL);
+	if (!c)
+		return;
+
+	c->type = RDTCTRL_TYPE_BM;
 	cpuid_count(0x00000010, idx, &eax.full, &ebx, &ecx.full, &edx.full);
 	hw_res->num_closid = edx.split.cos_max + 1;
-	r->cache.cbm_len = eax.split.cbm_len + 1;
+	c->cache.cbm_len = eax.split.cbm_len + 1;
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;
-	r->cache.shareable_bits = ebx & default_ctrl;
+	c->cache.shareable_bits = ebx & default_ctrl;
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL)
-		r->cache.arch_has_sparse_bitmasks = ecx.split.noncont;
+		c->cache.arch_has_sparse_bitmasks = ecx.split.noncont;
 	r->alloc_capable = true;
 }
 
@@ -367,7 +389,8 @@ void rdt_ctrl_update(void *arg)
 	hw_res->msr_update(m);
 }
 
-static void setup_default_ctrlval(struct rdt_resource *r, u32 *dc)
+static void setup_default_ctrlval(struct rdt_resource *r, u32 *dc,
+								  struct rdt_ctrl *c)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	int i;
@@ -378,7 +401,7 @@ static void setup_default_ctrlval(struct rdt_resource *r, u32 *dc)
 	 * For Memory Allocation: Set b/w requested to 100%
 	 */
 	for (i = 0; i < hw_res->num_closid; i++, dc++)
-		*dc = resctrl_get_default_ctrl(r);
+		*dc = resctrl_get_default_ctrl(c);
 }
 
 static void ctrl_domain_free(struct rdt_hw_ctrl_domain *hw_dom)
@@ -396,7 +419,8 @@ static void l3_mon_domain_free(struct rdt_hw_l3_mon_domain *hw_dom)
 	kfree(hw_dom);
 }
 
-static int domain_setup_ctrlval(struct rdt_resource *r, struct rdt_ctrl_domain *d)
+static int domain_setup_ctrlval(struct rdt_resource *r, struct rdt_ctrl_domain *d,
+								struct rdt_ctrl *c)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
@@ -409,7 +433,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct rdt_ctrl_domain *
 		return -ENOMEM;
 
 	hw_dom->ctrl_val = dc;
-	setup_default_ctrlval(r, dc);
+	setup_default_ctrlval(r, dc, c);
 
 	m.res = r;
 	m.dom = d;
@@ -468,24 +492,17 @@ static int get_domain_id_from_scope(int cpu, enum resctrl_scope scope)
 	return -EINVAL;
 }
 
-static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
+/* add domains for a specific rdt_ctrl controller */
+static void _domain_add_cpu_ctrl(int cpu, int id, struct rdt_ctrl *c,
+								 struct rdt_resource *r)
 {
-	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
 	struct rdt_hw_ctrl_domain *hw_dom;
 	struct list_head *add_pos = NULL;
 	struct rdt_domain_hdr *hdr;
 	struct rdt_ctrl_domain *d;
 	int err;
 
-	lockdep_assert_held(&domain_list_lock);
-
-	if (id < 0) {
-		pr_warn_once("Can't find control domain id for CPU:%d scope:%d for resource %s\n",
-			     cpu, r->ctrl_scope, r->name);
-		return;
-	}
-
-	hdr = resctrl_find_domain(&r->ctrl_domains, id, &add_pos);
+	hdr = resctrl_find_domain(&c->ctrl_domains, id, &add_pos);
 	if (hdr) {
 		if (!domain_header_is_valid(hdr, RESCTRL_CTRL_DOMAIN, r->rid))
 			return;
@@ -509,7 +526,7 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
 
 	rdt_domain_reconfigure_cdp(r);
 
-	if (domain_setup_ctrlval(r, d)) {
+	if (domain_setup_ctrlval(r, d, c)) {
 		ctrl_domain_free(hw_dom);
 		return;
 	}
@@ -521,6 +538,23 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
 		list_del_rcu(&d->hdr.list);
 		synchronize_rcu();
 		ctrl_domain_free(hw_dom);
+	}
+}
+static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
+{
+	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
+	struct rdt_ctrl *c;
+
+	lockdep_assert_held(&domain_list_lock);
+
+	if (id < 0) {
+		pr_warn_once("Can't find control domain id for CPU:%d scope:%d for resource %s\n",
+			     cpu, r->ctrl_scope, r->name);
+		return;
+	}
+
+	for_each_resource_controller(c, r) {
+		_domain_add_cpu_ctrl(cpu, id, c, r);
 	}
 }
 
@@ -609,22 +643,14 @@ static void domain_add_cpu(int cpu, struct rdt_resource *r)
 		domain_add_cpu_mon(cpu, r);
 }
 
-static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r)
+static void _domain_remove_cpu_ctrl(int cpu, int id, struct rdt_ctrl *c,
+									struct rdt_resource *r)
 {
-	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
 	struct rdt_hw_ctrl_domain *hw_dom;
 	struct rdt_domain_hdr *hdr;
 	struct rdt_ctrl_domain *d;
 
-	lockdep_assert_held(&domain_list_lock);
-
-	if (id < 0) {
-		pr_warn_once("Can't find control domain id for CPU:%d scope:%d for resource %s\n",
-			     cpu, r->ctrl_scope, r->name);
-		return;
-	}
-
-	hdr = resctrl_find_domain(&r->ctrl_domains, id, NULL);
+	hdr = resctrl_find_domain(&c->ctrl_domains, id, NULL);
 	if (!hdr) {
 		pr_warn("Can't find control domain for id=%d for CPU %d for resource %s\n",
 			id, cpu, r->name);
@@ -652,6 +678,24 @@ static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r)
 	if (d->plr)
 		d->plr->d = NULL;
 	ctrl_domain_free(hw_dom);
+}
+
+static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r)
+{
+	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
+	struct rdt_ctrl *c;
+
+	lockdep_assert_held(&domain_list_lock);
+
+	if (id < 0) {
+		pr_warn_once("Can't find control domain id for CPU:%d scope:%d for resource %s\n",
+			     cpu, r->ctrl_scope, r->name);
+		return;
+	}
+
+	for_each_resource_controller(c, r) {
+		_domain_remove_cpu_ctrl(cpu, id, c, r);
+	}
 }
 
 static void domain_remove_cpu_mon(int cpu, struct rdt_resource *r)
@@ -1119,8 +1163,10 @@ static int __init resctrl_arch_late_init(void)
 	int state, ret, i;
 
 	/* for_each_rdt_resource() requires all rid to be initialised. */
-	for (i = 0; i < RDT_NUM_RESOURCES; i++)
+	for (i = 0; i < RDT_NUM_RESOURCES; i++) {
 		rdt_resources_all[i].r_resctrl.rid = i;
+		INIT_LIST_HEAD(&rdt_resources_all[i].r_resctrl.ctrls);
+	}
 
 	/*
 	 * Initialize functions(or definitions) that are different

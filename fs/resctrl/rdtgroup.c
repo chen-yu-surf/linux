@@ -113,12 +113,15 @@ void rdt_staged_configs_clear(void)
 {
 	struct rdt_ctrl_domain *dom;
 	struct rdt_resource *r;
+	struct rdt_ctrl *c;
 
 	lockdep_assert_held(&rdtgroup_mutex);
 
 	for_each_alloc_capable_rdt_resource(r) {
-		list_for_each_entry(dom, &r->ctrl_domains, hdr.list)
-			memset(dom->staged_config, 0, sizeof(dom->staged_config));
+		list_for_each_entry(c, &r->ctrls, entry) {
+			list_for_each_entry(dom, &c->ctrl_domains, hdr.list)
+				memset(dom->staged_config, 0, sizeof(dom->staged_config));
+		}
 	}
 }
 
@@ -1004,9 +1007,9 @@ static int rdt_default_ctrl_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_ctrl *c = s->ctrl;
 
-	seq_printf(seq, "%x\n", resctrl_get_default_ctrl(r));
+	seq_printf(seq, "%x\n", resctrl_get_default_ctrl(c));
 	return 0;
 }
 
@@ -1014,9 +1017,9 @@ static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
-	struct rdt_resource *r = s->res;
+	struct rdt_ctrl *c = s->ctrl;
 
-	seq_printf(seq, "%u\n", r->cache.min_cbm_bits);
+	seq_printf(seq, "%u\n", c->cache.min_cbm_bits);
 	return 0;
 }
 
@@ -1055,6 +1058,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 	unsigned long sw_shareable = 0, hw_shareable = 0;
 	unsigned long exclusive = 0, pseudo_locked = 0;
 	struct rdt_resource *r = s->res;
+	struct rdt_ctrl *c = s->ctrl;
 	struct rdt_ctrl_domain *dom;
 	int i, hwb, swb, excl, psl;
 	enum rdtgrp_mode mode;
@@ -1063,10 +1067,10 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 
 	cpus_read_lock();
 	mutex_lock(&rdtgroup_mutex);
-	list_for_each_entry(dom, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(dom, &c->ctrl_domains, hdr.list) {
 		if (sep)
 			seq_putc(seq, ';');
-		hw_shareable = r->cache.shareable_bits;
+		hw_shareable = c->cache.shareable_bits;
 		sw_shareable = 0;
 		exclusive = 0;
 		seq_printf(seq, "%d=", dom->hdr.id);
@@ -1404,6 +1408,7 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 	struct rdt_ctrl_domain *d;
 	struct resctrl_schema *s;
 	struct rdt_resource *r;
+	struct rdt_ctrl *c;
 	bool has_cache = false;
 	u32 ctrl;
 
@@ -1415,7 +1420,8 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)
 			continue;
 		has_cache = true;
-		list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+		c = s->ctrl;
+		list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
 			ctrl = resctrl_arch_get_config(r, d, closid,
 						       s->conf_type);
 			if (rdtgroup_cbm_overlaps(s, d, ctrl, closid, false)) {
@@ -1542,6 +1548,8 @@ unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
 
 bool is_mba_sc(struct rdt_resource *r)
 {
+	struct rdt_ctrl *c;
+
 	if (!r)
 		r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
 
@@ -1552,7 +1560,11 @@ bool is_mba_sc(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_MBA)
 		return false;
 
-	return r->membw.mba_sc;
+	/*FIXME: check all MBA controllers? */
+	for_each_resource_controller(c, r)
+			return c->membw.mba_sc;
+
+	return false;
 }
 
 /*
@@ -1569,6 +1581,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 	struct rdt_ctrl_domain *d;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
+	struct rdt_ctrl *c;
 	unsigned int size;
 	int ret = 0;
 	u32 closid;
@@ -1604,7 +1617,8 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 		type = schema->conf_type;
 		sep = false;
 		seq_printf(s, "%*s:", max_name_width, schema->name);
-		list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+		c = schema->ctrl;
+		list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
 			if (sep)
 				seq_putc(s, ';');
 			if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
@@ -2534,19 +2548,21 @@ static int set_mba_sc(bool mba_sc)
 	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
 	u32 num_closid = resctrl_arch_get_num_closid(r);
 	struct rdt_ctrl_domain *d;
+	struct rdt_ctrl *c;
 	unsigned long fflags;
 	int i;
 
 	if (!supports_mba_mbps() || mba_sc == is_mba_sc(r))
 		return -EINVAL;
 
-	r->membw.mba_sc = mba_sc;
-
 	rdtgroup_default.mba_mbps_event = mba_mbps_default_event;
 
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
-		for (i = 0; i < num_closid; i++)
-			d->mbps_val[i] = MBA_MAX_MBPS;
+	for_each_resource_controller(c, r) {
+		c->membw.mba_sc = mba_sc;
+		list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
+			for (i = 0; i < num_closid; i++)
+				d->mbps_val[i] = MBA_MAX_MBPS;
+		}
 	}
 
 	fflags = mba_sc ? RFTYPE_CTRL_BASE | RFTYPE_MON_BASE : 0;
@@ -2682,7 +2698,47 @@ out_done:
 	return ret;
 }
 
-static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type)
+/*
+ * Set the name for this schema according to resource's and
+ * controler's name, return the length of the new name.
+ */
+static int set_schemata_name(struct rdt_resource *r,
+							struct resctrl_schema *s,
+							struct rdt_ctrl *c,
+							const char *suffix)
+{
+	int ret;
+
+	/*
+	 * suffix:
+	 * For CDP control, it's "CODE" or "DATA".
+	 * For non-CDP control, it's "".
+	 * rdt_ctrl->name:
+	 * For legacy control, the controller name is NULL
+	 * For region-aware: min_region0, max_region0,
+	 * opt_region0, min_region1, max_region1, opt_region1, etc.
+	 * platform specific, set by __get_mem_config_intel() or
+	 * __rdt_get_mem_config_amd()
+	 *
+	 * So for schemata name, it could be:
+	 * L3CODE, L3DATA, mb_min_region0, mb_max_region0, mb_opt_region0,
+	 * mb_min_region1, mb_max_region1, mb_opt_region1, etc.
+	 */
+	if (c->name)
+		ret = snprintf(s->name, sizeof(s->name), "%s%s_%s", r->name, suffix, c->name);
+	else
+		ret = snprintf(s->name, sizeof(s->name), "%s%s", r->name, suffix);
+
+	if (ret >= sizeof(s->name))
+		return -EINVAL;
+
+	s->ctrl = c;
+
+	return ret;
+}
+
+static int schemata_list_add(struct rdt_resource *r, struct rdt_ctrl *c,
+							 enum resctrl_conf_type type)
 {
 	struct resctrl_schema *s;
 	const char *suffix = "";
@@ -2709,15 +2765,13 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 		suffix = "";
 		break;
 	}
-
-	ret = snprintf(s->name, sizeof(s->name), "%s%s", r->name, suffix);
-	if (ret >= sizeof(s->name)) {
+	ret = set_schemata_name(r, s, c, suffix);
+	if (ret) {
 		kfree(s);
-		return -EINVAL;
+		return ret;
 	}
 
 	cl = strlen(s->name);
-
 	/*
 	 * If CDP is supported by this resource, but not enabled,
 	 * include the suffix. This ensures the tabular format of the
@@ -2729,7 +2783,7 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 	if (cl > max_name_width)
 		max_name_width = cl;
 
-	switch (r->schema_fmt) {
+	switch (c->schema_fmt) {
 	case RESCTRL_SCHEMA_BITMAP:
 		s->fmt_str = "%d=%x";
 		break;
@@ -2749,6 +2803,22 @@ static int schemata_list_add(struct rdt_resource *r, enum resctrl_conf_type type
 	return 0;
 }
 
+static int resource_add_schematas(struct rdt_resource *r,
+								  enum rdt_ctrl_type type)
+{
+	struct rdt_ctrl *c;
+
+	/* Add schemata for each resource controller */
+	for_each_resource_controller(c, r) {
+		int ret = schemata_list_add(r, c, type);
+
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 static int schemata_list_create(void)
 {
 	struct rdt_resource *r;
@@ -2756,13 +2826,12 @@ static int schemata_list_create(void)
 
 	for_each_alloc_capable_rdt_resource(r) {
 		if (resctrl_arch_get_cdp_enabled(r->rid)) {
-			ret = schemata_list_add(r, CDP_CODE);
+			ret = resource_add_schematas(r, CDP_CODE);
 			if (ret)
 				break;
-
-			ret = schemata_list_add(r, CDP_DATA);
+			ret = resource_add_schematas(r, CDP_DATA);
 		} else {
-			ret = schemata_list_add(r, CDP_NONE);
+			ret = resource_add_schematas(r, CDP_NONE);
 		}
 
 		if (ret)
@@ -3610,7 +3679,7 @@ int rdtgroup_init_cat(struct resctrl_schema *s, u32 closid)
 	struct rdt_ctrl_domain *d;
 	int ret;
 
-	list_for_each_entry(d, &s->res->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &s->ctrl->ctrl_domains, hdr.list) {
 		ret = __init_one_rdt_domain(d, s, closid);
 		if (ret < 0)
 			return ret;
@@ -3623,17 +3692,21 @@ int rdtgroup_init_cat(struct resctrl_schema *s, u32 closid)
 static void rdtgroup_init_mba(struct rdt_resource *r, u32 closid)
 {
 	struct resctrl_staged_config *cfg;
+	struct rdt_ctrl *c;
 	struct rdt_ctrl_domain *d;
 
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
-		if (is_mba_sc(r)) {
-			d->mbps_val[closid] = MBA_MAX_MBPS;
-			continue;
-		}
+	for_each_resource_controller(c, r) {
+		list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
+		
+			if (is_mba_sc(r)) {
+				d->mbps_val[closid] = MBA_MAX_MBPS;
+				continue;
+			}
 
-		cfg = &d->staged_config[CDP_NONE];
-		cfg->new_ctrl = resctrl_get_default_ctrl(r);
-		cfg->have_new_ctrl = true;
+			cfg = &d->staged_config[CDP_NONE];
+			cfg->new_ctrl = resctrl_get_default_ctrl(c);
+			cfg->have_new_ctrl = true;
+		}
 	}
 }
 
@@ -4609,14 +4682,17 @@ cleanup_mountpoint:
 static bool resctrl_online_domains_exist(void)
 {
 	struct rdt_resource *r;
+	struct rdt_ctrl *c;
 
 	/*
 	 * Only walk capable resources to allow resctrl_arch_get_resource()
 	 * to return dummy 'not capable' resources.
 	 */
 	for_each_alloc_capable_rdt_resource(r) {
-		if (!list_empty(&r->ctrl_domains))
-			return true;
+		for_each_resource_controller(c, r) {
+			if (!list_empty(&c->ctrl_domains))
+				return true;
+		}
 	}
 
 	for_each_mon_capable_rdt_resource(r) {

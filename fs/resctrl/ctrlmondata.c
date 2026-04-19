@@ -40,7 +40,8 @@ typedef int (ctrlval_parser_t)(struct rdt_parse_data *data,
  * hardware. The allocated bandwidth percentage is rounded to the next
  * control step available on the hardware.
  */
-static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
+static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r,
+						struct rdt_ctrl *c)
 {
 	int ret;
 	u32 bw;
@@ -48,7 +49,7 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 	/*
 	 * Only linear delay values is supported for current Intel SKUs.
 	 */
-	if (!r->membw.delay_linear && r->membw.arch_needs_linear) {
+	if (!c->membw.delay_linear && c->membw.arch_needs_linear) {
 		rdt_last_cmd_puts("No support for non-linear MB domains\n");
 		return false;
 	}
@@ -65,13 +66,13 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 		return true;
 	}
 
-	if (bw < r->membw.min_bw || bw > r->membw.max_bw) {
+	if (bw < c->membw.min_bw || bw > c->membw.max_bw) {
 		rdt_last_cmd_printf("MB value %u out of range [%d,%d]\n",
-				    bw, r->membw.min_bw, r->membw.max_bw);
+				    bw, c->membw.min_bw, c->membw.max_bw);
 		return false;
 	}
 
-	*data = roundup(bw, (unsigned long)r->membw.bw_gran);
+	*data = roundup(bw, (unsigned long)c->membw.bw_gran);
 	return true;
 }
 
@@ -80,6 +81,7 @@ static int parse_bw(struct rdt_parse_data *data, struct resctrl_schema *s,
 {
 	struct resctrl_staged_config *cfg;
 	struct rdt_resource *r = s->res;
+	struct rdt_ctrl *c = s->ctrl;
 	u32 closid = data->closid;
 	u32 bw_val;
 
@@ -89,7 +91,7 @@ static int parse_bw(struct rdt_parse_data *data, struct resctrl_schema *s,
 		return -EINVAL;
 	}
 
-	if (!bw_validate(data->buf, &bw_val, r))
+	if (!bw_validate(data->buf, &bw_val, r, c))
 		return -EINVAL;
 
 	if (is_mba_sc(r)) {
@@ -227,17 +229,21 @@ static int parse_line(char *line, struct resctrl_schema *s,
 	struct rdt_resource *r = s->res;
 	struct rdt_parse_data data;
 	struct rdt_ctrl_domain *d;
+	struct rdt_ctrl *c = s->ctrl;
 	char *dom = NULL, *id;
 	unsigned long dom_id;
+	int type;
 
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	switch (r->schema_fmt) {
-	case RESCTRL_SCHEMA_BITMAP:
+	type = c->type;
+
+	switch (type) {
+	case RDTCTRL_TYPE_BM:
 		parse_ctrlval = &parse_cbm;
 		break;
-	case RESCTRL_SCHEMA_RANGE:
+	case RDTCTRL_TYPE_SCALAR:
 		parse_ctrlval = &parse_bw;
 		break;
 	}
@@ -261,7 +267,7 @@ next:
 		return -EINVAL;
 	}
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
 		if (d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
@@ -290,16 +296,16 @@ next:
 	return -EINVAL;
 }
 
-static int rdtgroup_parse_resource(char *resname, char *tok,
+static int rdtgroup_parse_schemata(char *name, char *tok,
 				   struct rdtgroup *rdtgrp)
 {
 	struct resctrl_schema *s;
 
 	list_for_each_entry(s, &resctrl_schema_all, list) {
-		if (!strcmp(resname, s->name) && rdtgrp->closid < s->num_closid)
+		if (!strcmp(name, s->name) && rdtgrp->closid < s->num_closid)
 			return parse_line(tok, s, rdtgrp);
 	}
-	rdt_last_cmd_printf("Unknown or unsupported resource name '%s'\n", resname);
+	rdt_last_cmd_printf("Unknown or unsupported schemata name %s\n", name);
 	return -EINVAL;
 }
 
@@ -309,7 +315,7 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	struct resctrl_schema *s;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
-	char *tok, *resname;
+	char *tok, *name;
 	int ret = 0;
 
 	/* Valid input requires a trailing newline */
@@ -337,18 +343,18 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	rdt_staged_configs_clear();
 
 	while ((tok = strsep(&buf, "\n")) != NULL) {
-		resname = strim(strsep(&tok, ":"));
+		name = strim(strsep(&tok, ":"));
 		if (!tok) {
 			rdt_last_cmd_puts("Missing ':'\n");
 			ret = -EINVAL;
 			goto out;
 		}
 		if (tok[0] == '\0') {
-			rdt_last_cmd_printf("Missing '%s' value\n", resname);
+			rdt_last_cmd_printf("Missing '%s' value\n", name);
 			ret = -EINVAL;
 			goto out;
 		}
-		ret = rdtgroup_parse_resource(resname, tok, rdtgrp);
+		ret = rdtgroup_parse_schemata(name, tok, rdtgrp);
 		if (ret)
 			goto out;
 	}
@@ -388,6 +394,7 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 		      char *resource_name, int closid)
 {
 	struct rdt_resource *r = schema->res;
+	struct rdt_ctrl *c = schema->ctrl;
 	struct rdt_ctrl_domain *dom;
 	bool sep = false;
 	u32 ctrl_val;
@@ -397,7 +404,8 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 
 	if (resource_name)
 		seq_printf(s, "%*s:", max_name_width, resource_name);
-	list_for_each_entry(dom, &r->ctrl_domains, hdr.list) {
+
+	list_for_each_entry(dom, &c->ctrl_domains, hdr.list) {
 		if (sep)
 			seq_puts(s, ";");
 
@@ -405,7 +413,7 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 			ctrl_val = dom->mbps_val[closid];
 		else
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,
-							   schema->conf_type);
+											schema->conf_type);
 
 		seq_printf(s, schema->fmt_str, dom->hdr.id, ctrl_val);
 		sep = true;
@@ -817,7 +825,7 @@ static int resctrl_io_alloc_init_cbm(struct resctrl_schema *s, u32 closid)
 	/* Keep CDP_CODE and CDP_DATA of io_alloc CLOSID's CBM in sync. */
 	if (resctrl_arch_get_cdp_enabled(r->rid)) {
 		peer_type = resctrl_peer_type(s->conf_type);
-		list_for_each_entry(d, &s->res->ctrl_domains, hdr.list)
+		list_for_each_entry(d, &s->ctrl->ctrl_domains, hdr.list)
 			memcpy(&d->staged_config[peer_type],
 			       &d->staged_config[s->conf_type],
 			       sizeof(d->staged_config[0]));
@@ -957,6 +965,7 @@ static int resctrl_io_alloc_parse_line(char *line,  struct rdt_resource *r,
 	unsigned long dom_id = ULONG_MAX;
 	struct rdt_parse_data data;
 	struct rdt_ctrl_domain *d;
+	struct rdt_ctrl *c = s->ctrl;
 	bool update_all = false;
 	char *dom = NULL, *id;
 
@@ -980,7 +989,7 @@ next:
 	}
 
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
 		if (update_all || d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.mode = RDT_MODE_SHAREABLE;

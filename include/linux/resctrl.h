@@ -48,6 +48,9 @@ int proc_resctrl_show(struct seq_file *m,
 	for_each_rdt_resource((r))					      \
 		if ((r)->mon_capable)
 
+#define for_each_resource_controller(c, r)			\
+	list_for_each_entry((c), &(r)->ctrls, entry)
+
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
@@ -302,6 +305,44 @@ struct resctrl_mon {
 	bool			mbm_assign_on_mkdir;
 };
 
+enum rdt_ctrl_type {
+	RDTCTRL_TYPE_BM,
+	RDTCTRL_TYPE_SCALAR,
+};
+
+enum rdt_ctrl_flag {
+	CTRL_LINEAR,
+	CTRL_SPARSE,
+	CTRL_NUM_FLAGS,
+};
+
+/*
+ * resource controller, each rdt_resource might have
+ * multiple controllers. 
+ */
+struct rdt_ctrl {
+	/* hooker into the rdt_resource */
+	struct list_head entry;
+	/* list of rdt_ctrl_domain, AKA, CPUs */
+	struct list_head ctrl_domains;
+	struct rdt_ctrl *peer; /* pointer to the other CDP controller, NULL if CDP is not supported */
+	char *name;
+	enum resctrl_scope scope;
+	u32 min;
+	u32 max;
+	u32 tolerance;
+	enum rdt_ctrl_type type; /* scalar or bitmap */
+	enum resctrl_schema_fmt	schema_fmt; /* TBD: replace type above */
+	DECLARE_BITMAP(flags, CTRL_NUM_FLAGS);
+	union controller
+	{
+		/* scalar */
+		struct resctrl_membw membw;
+		/* bitmap */
+		struct resctrl_cache cache;
+	};
+};
+
 /**
  * struct rdt_resource - attributes of a resctrl resource
  * @rid:		The index of the resource
@@ -327,10 +368,9 @@ struct rdt_resource {
 	struct resctrl_cache	cache;
 	struct resctrl_membw	membw;
 	struct resctrl_mon	mon;
-	struct list_head	ctrl_domains;
+	struct list_head	ctrls;
 	struct list_head	mon_domains;
 	char			*name;
-	enum resctrl_schema_fmt	schema_fmt;
 	bool			cdp_capable;
 };
 
@@ -360,6 +400,7 @@ struct resctrl_schema {
 	const char			*fmt_str;
 	enum resctrl_conf_type		conf_type;
 	struct rdt_resource		*res;
+	struct rdt_ctrl			*ctrl;
 	u32				num_closid;
 };
 
@@ -395,15 +436,15 @@ void resctrl_arch_sync_cpu_closid_rmid(void *info);
 /**
  * resctrl_get_default_ctrl() - Return the default control value for this
  *                              resource.
- * @r:		The resource whose default control type is queried.
+ * @c:		The control structure whose default control type is queried.
  */
-static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
+static inline u32 resctrl_get_default_ctrl(struct rdt_ctrl *c)
 {
-	switch (r->schema_fmt) {
+	switch (c->schema_fmt) {
 	case RESCTRL_SCHEMA_BITMAP:
-		return BIT_MASK(r->cache.cbm_len) - 1;
+		return BIT_MASK(c->cache.cbm_len) - 1;
 	case RESCTRL_SCHEMA_RANGE:
-		return r->membw.max_bw;
+		return c->membw.max_bw;
 	}
 
 	return WARN_ON_ONCE(1);
