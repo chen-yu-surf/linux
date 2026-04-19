@@ -48,6 +48,9 @@ int proc_resctrl_show(struct seq_file *m,
 	for_each_rdt_resource((r))					      \
 		if ((r)->mon_capable)
 
+#define for_each_resource_controller(c, r)			\
+	list_for_each_entry((c), &(r)->ctrls, entry)
+
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
@@ -162,6 +165,7 @@ static inline bool domain_header_is_valid(struct rdt_domain_hdr *hdr,
 struct rdt_ctrl_domain {
 	struct rdt_domain_hdr		hdr;
 	struct pseudo_lock_region	*plr;
+	struct resctrl_ctrl		*ctrl;
 	struct resctrl_staged_config	staged_config[CDP_NUM_TYPES];
 	u32				*mbps_val;
 };
@@ -275,16 +279,6 @@ enum resctrl_scope {
 };
 
 /**
- * enum resctrl_schema_fmt - The format user-space provides for a schema.
- * @RESCTRL_SCHEMA_BITMAP:	The schema is a bitmap in hex.
- * @RESCTRL_SCHEMA_RANGE:	The schema is a decimal number.
- */
-enum resctrl_schema_fmt {
-	RESCTRL_SCHEMA_BITMAP,
-	RESCTRL_SCHEMA_RANGE,
-};
-
-/**
  * struct resctrl_mon - Monitoring related data of a resctrl resource.
  * @num_rmid:		Number of RMIDs available.
  * @mbm_cfg_mask:	Memory transactions that can be tracked when bandwidth
@@ -300,6 +294,42 @@ struct resctrl_mon {
 	int			num_mbm_cntrs;
 	bool			mbm_cntr_assignable;
 	bool			mbm_assign_on_mkdir;
+};
+
+enum resctrl_ctrl_type {
+	RESCTRL_TYPE_BM,
+	RESCTRL_TYPE_SCALAR,
+};
+
+enum resctrl_ctrl_flag {
+	CTRL_LINEAR,
+	CTRL_SPARSE,
+	CTRL_NUM_FLAGS,
+};
+
+/*
+ * resource controller, each rdt_resource might have
+ * multiple controllers.
+ */
+struct resctrl_ctrl {
+	/* hooker into the rdt_resource */
+	struct list_head entry;
+	/* list of rdt_ctrl_domain, AKA, CPUs */
+	struct list_head ctrl_domains;
+	enum resctrl_scope scope;
+	char *name;
+	u32 min;
+	u32 max;
+	u32 tolerance;
+	enum resctrl_ctrl_type type; /* scalar or bitmap */
+	DECLARE_BITMAP(flags, CTRL_NUM_FLAGS);
+	union controller
+	{
+		/* scalar */
+		struct resctrl_membw membw;
+		/* bitmap */
+		struct resctrl_cache cache;
+	};
 };
 
 /**
@@ -324,13 +354,10 @@ struct rdt_resource {
 	bool			mon_capable;
 	enum resctrl_scope	ctrl_scope;
 	enum resctrl_scope	mon_scope;
-	struct resctrl_cache	cache;
-	struct resctrl_membw	membw;
 	struct resctrl_mon	mon;
-	struct list_head	ctrl_domains;
+	struct list_head	ctrls;
 	struct list_head	mon_domains;
 	char			*name;
-	enum resctrl_schema_fmt	schema_fmt;
 	bool			cdp_capable;
 };
 
@@ -360,6 +387,7 @@ struct resctrl_schema {
 	const char			*fmt_str;
 	enum resctrl_conf_type		conf_type;
 	struct rdt_resource		*res;
+	struct resctrl_ctrl			*ctrl;
 	u32				num_closid;
 };
 
@@ -395,15 +423,15 @@ void resctrl_arch_sync_cpu_closid_rmid(void *info);
 /**
  * resctrl_get_default_ctrl() - Return the default control value for this
  *                              resource.
- * @r:		The resource whose default control type is queried.
+ * @c:		The control structure whose default control type is queried.
  */
-static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
+static inline u32 resctrl_get_default_ctrl(struct resctrl_ctrl *c)
 {
-	switch (r->schema_fmt) {
-	case RESCTRL_SCHEMA_BITMAP:
-		return BIT_MASK(r->cache.cbm_len) - 1;
-	case RESCTRL_SCHEMA_RANGE:
-		return r->membw.max_bw;
+	switch (c->type) {
+	case RESCTRL_TYPE_BM:
+		return BIT_MASK(c->cache.cbm_len) - 1;
+	case RESCTRL_TYPE_SCALAR:
+		return c->membw.max_bw;
 	}
 
 	return WARN_ON_ONCE(1);

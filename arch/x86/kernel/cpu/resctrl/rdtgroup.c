@@ -135,6 +135,7 @@ static int set_cache_qos_cfg(int level, bool enable)
 	struct rdt_ctrl_domain *d;
 	struct rdt_resource *r_l;
 	cpumask_var_t cpu_mask;
+	struct resctrl_ctrl *c;
 	int cpu;
 
 	/* Walking r->domains, ensure it can't race with cpuhp */
@@ -151,14 +152,16 @@ static int set_cache_qos_cfg(int level, bool enable)
 		return -ENOMEM;
 
 	r_l = &rdt_resources_all[level].r_resctrl;
-	list_for_each_entry(d, &r_l->ctrl_domains, hdr.list) {
-		if (r_l->cache.arch_has_per_cpu_cfg)
-			/* Pick all the CPUs in the domain instance */
-			for_each_cpu(cpu, &d->hdr.cpu_mask)
-				cpumask_set_cpu(cpu, cpu_mask);
-		else
-			/* Pick one CPU from each domain instance to update MSR */
-			cpumask_set_cpu(cpumask_any(&d->hdr.cpu_mask), cpu_mask);
+	for_each_resource_controller(c, r_l) {
+		list_for_each_entry(d, &r_l->ctrl_domains, hdr.list) {
+			if (r_l->cache.arch_has_per_cpu_cfg)
+				/* Pick all the CPUs in the domain instance */
+				for_each_cpu(cpu, &d->hdr.cpu_mask)
+					cpumask_set_cpu(cpu, cpu_mask);
+			else
+				/* Pick one CPU from each domain instance to update MSR */
+				cpumask_set_cpu(cpumask_any(&d->hdr.cpu_mask), cpu_mask);
+		}
 	}
 
 	/* Update QOS_CFG MSR on all the CPUs in cpu_mask */
@@ -235,13 +238,14 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 	struct rdt_hw_ctrl_domain *hw_dom;
 	struct msr_param msr_param;
 	struct rdt_ctrl_domain *d;
+	struct resctrl_ctrl *c;
 	int i;
 
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	msr_param.res = r;
 	msr_param.low = 0;
+	msr_param.res = r;
 	msr_param.high = hw_res->num_closid;
 
 	/*
@@ -249,14 +253,15 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 	 * CBMs in all ctrl_domains to the maximum mask value. Pick one CPU
 	 * from each domain to update the MSRs below.
 	 */
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
-		hw_dom = resctrl_to_arch_ctrl_dom(d);
+	for_each_resource_controller(c, r) {
+		list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
+			hw_dom = resctrl_to_arch_ctrl_dom(d);
 
-		for (i = 0; i < hw_res->num_closid; i++)
-			hw_dom->ctrl_val[i] = resctrl_get_default_ctrl(r);
-		msr_param.dom = d;
-		smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &msr_param, 1);
+			for (i = 0; i < hw_res->num_closid; i++)
+				hw_dom->ctrl_val[i] = resctrl_get_default_ctrl(c);
+			msr_param.dom = d;
+			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &msr_param, 1);
+		}
 	}
-
 	return;
 }

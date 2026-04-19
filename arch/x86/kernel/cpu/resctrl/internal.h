@@ -108,6 +108,7 @@ struct rdt_perf_pkg_mon_domain {
 struct msr_param {
 	struct rdt_resource	*res;
 	struct rdt_ctrl_domain	*dom;
+	struct resctrl_ctrl *ctrl;
 	u32			low;
 	u32			high;
 };

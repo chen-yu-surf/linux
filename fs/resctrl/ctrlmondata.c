@@ -40,7 +40,8 @@ typedef int (ctrlval_parser_t)(struct rdt_parse_data *data,
  * hardware. The allocated bandwidth percentage is rounded to the next
  * control step available on the hardware.
  */
-static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
+static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r,
+			struct resctrl_ctrl *c)
 {
 	int ret;
 	u32 bw;
@@ -48,7 +49,7 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 	/*
 	 * Only linear delay values is supported for current Intel SKUs.
 	 */
-	if (!r->membw.delay_linear && r->membw.arch_needs_linear) {
+	if (!c->membw.delay_linear && c->membw.arch_needs_linear) {
 		rdt_last_cmd_puts("No support for non-linear MB domains\n");
 		return false;
 	}
@@ -65,13 +66,13 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 		return true;
 	}
 
-	if (bw < r->membw.min_bw || bw > r->membw.max_bw) {
+	if (bw < c->membw.min_bw || bw > c->membw.max_bw) {
 		rdt_last_cmd_printf("MB value %u out of range [%d,%d]\n",
-				    bw, r->membw.min_bw, r->membw.max_bw);
+				    bw, c->membw.min_bw, c->membw.max_bw);
 		return false;
 	}
 
-	*data = roundup(bw, (unsigned long)r->membw.bw_gran);
+	*data = roundup(bw, (unsigned long)c->membw.bw_gran);
 	return true;
 }
 
@@ -80,6 +81,7 @@ static int parse_bw(struct rdt_parse_data *data, struct resctrl_schema *s,
 {
 	struct resctrl_staged_config *cfg;
 	struct rdt_resource *r = s->res;
+	struct resctrl_ctrl *c = s->ctrl;
 	u32 closid = data->closid;
 	u32 bw_val;
 
@@ -89,7 +91,7 @@ static int parse_bw(struct rdt_parse_data *data, struct resctrl_schema *s,
 		return -EINVAL;
 	}
 
-	if (!bw_validate(data->buf, &bw_val, r))
+	if (!bw_validate(data->buf, &bw_val, r, c))
 		return -EINVAL;
 
 	if (is_mba_sc(r)) {
@@ -113,10 +115,11 @@ static int parse_bw(struct rdt_parse_data *data, struct resctrl_schema *s,
  * requires at least two bits set.
  * AMD allows non-contiguous bitmasks.
  */
-static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
+static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r,
+			 struct resctrl_ctrl *c)
 {
-	u32 supported_bits = BIT_MASK(r->cache.cbm_len) - 1;
-	unsigned int cbm_len = r->cache.cbm_len;
+	u32 supported_bits = BIT_MASK(c->cache.cbm_len) - 1;
+	unsigned int cbm_len = c->cache.cbm_len;
 	unsigned long first_bit, zero_bit, val;
 	int ret;
 
@@ -126,7 +129,7 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
 		return false;
 	}
 
-	if ((r->cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
+	if ((c->cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
 		rdt_last_cmd_puts("Mask out of range\n");
 		return false;
 	}
@@ -135,15 +138,15 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
 	zero_bit = find_next_zero_bit(&val, cbm_len, first_bit);
 
 	/* Are non-contiguous bitmasks allowed? */
-	if (!r->cache.arch_has_sparse_bitmasks &&
+	if (!c->cache.arch_has_sparse_bitmasks &&
 	    (find_next_bit(&val, cbm_len, zero_bit) < cbm_len)) {
 		rdt_last_cmd_printf("The mask %lx has non-consecutive 1-bits\n", val);
 		return false;
 	}
 
-	if ((zero_bit - first_bit) < r->cache.min_cbm_bits) {
+	if ((zero_bit - first_bit) < c->cache.min_cbm_bits) {
 		rdt_last_cmd_printf("Need at least %d bits in the mask\n",
-				    r->cache.min_cbm_bits);
+				    c->cache.min_cbm_bits);
 		return false;
 	}
 
@@ -161,6 +164,7 @@ static int parse_cbm(struct rdt_parse_data *data, struct resctrl_schema *s,
 	enum rdtgrp_mode mode = data->mode;
 	struct resctrl_staged_config *cfg;
 	struct rdt_resource *r = s->res;
+	struct resctrl_ctrl *c = s->ctrl;
 	u32 closid = data->closid;
 	u32 cbm_val;
 
@@ -180,7 +184,7 @@ static int parse_cbm(struct rdt_parse_data *data, struct resctrl_schema *s,
 		return -EINVAL;
 	}
 
-	if (!cbm_validate(data->buf, &cbm_val, r))
+	if (!cbm_validate(data->buf, &cbm_val, r, c))
 		return -EINVAL;
 
 	if ((mode == RDT_MODE_EXCLUSIVE || mode == RDT_MODE_SHAREABLE) &&
@@ -227,17 +231,21 @@ static int parse_line(char *line, struct resctrl_schema *s,
 	struct rdt_resource *r = s->res;
 	struct rdt_parse_data data;
 	struct rdt_ctrl_domain *d;
+	struct resctrl_ctrl *c = s->ctrl;
 	char *dom = NULL, *id;
 	unsigned long dom_id;
+	int type;
 
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	switch (r->schema_fmt) {
-	case RESCTRL_SCHEMA_BITMAP:
+	type = c->type;
+
+	switch (type) {
+	case RESCTRL_TYPE_BM:
 		parse_ctrlval = &parse_cbm;
 		break;
-	case RESCTRL_SCHEMA_RANGE:
+	case RESCTRL_TYPE_SCALAR:
 		parse_ctrlval = &parse_bw;
 		break;
 	}
@@ -261,7 +269,7 @@ next:
 		return -EINVAL;
 	}
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
 		if (d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
@@ -290,16 +298,16 @@ next:
 	return -EINVAL;
 }
 
-static int rdtgroup_parse_resource(char *resname, char *tok,
+static int rdtgroup_parse_schemata(char *name, char *tok,
 				   struct rdtgroup *rdtgrp)
 {
 	struct resctrl_schema *s;
 
 	list_for_each_entry(s, &resctrl_schema_all, list) {
-		if (!strcmp(resname, s->name) && rdtgrp->closid < s->num_closid)
+		if (!strcmp(name, s->name) && rdtgrp->closid < s->num_closid)
 			return parse_line(tok, s, rdtgrp);
 	}
-	rdt_last_cmd_printf("Unknown or unsupported resource name '%s'\n", resname);
+	rdt_last_cmd_printf("Unknown or unsupported schemata name %s\n", name);
 	return -EINVAL;
 }
 
@@ -309,7 +317,7 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	struct resctrl_schema *s;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
-	char *tok, *resname;
+	char *tok, *name;
 	int ret = 0;
 
 	/* Valid input requires a trailing newline */
@@ -337,18 +345,18 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	rdt_staged_configs_clear();
 
 	while ((tok = strsep(&buf, "\n")) != NULL) {
-		resname = strim(strsep(&tok, ":"));
+		name = strim(strsep(&tok, ":"));
 		if (!tok) {
 			rdt_last_cmd_puts("Missing ':'\n");
 			ret = -EINVAL;
 			goto out;
 		}
 		if (tok[0] == '\0') {
-			rdt_last_cmd_printf("Missing '%s' value\n", resname);
+			rdt_last_cmd_printf("Missing '%s' value\n", name);
 			ret = -EINVAL;
 			goto out;
 		}
-		ret = rdtgroup_parse_resource(resname, tok, rdtgrp);
+		ret = rdtgroup_parse_schemata(name, tok, rdtgrp);
 		if (ret)
 			goto out;
 	}
@@ -388,6 +396,7 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 		      char *resource_name, int closid)
 {
 	struct rdt_resource *r = schema->res;
+	struct resctrl_ctrl *c = schema->ctrl;
 	struct rdt_ctrl_domain *dom;
 	bool sep = false;
 	u32 ctrl_val;
@@ -397,7 +406,8 @@ static void show_doms(struct seq_file *s, struct resctrl_schema *schema,
 
 	if (resource_name)
 		seq_printf(s, "%*s:", max_name_width, resource_name);
-	list_for_each_entry(dom, &r->ctrl_domains, hdr.list) {
+
+	list_for_each_entry(dom, &c->ctrl_domains, hdr.list) {
 		if (sep)
 			seq_puts(s, ";");
 
@@ -770,10 +780,11 @@ int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, voi
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = s->res;
+	struct resctrl_ctrl *c = s->ctrl;
 
 	mutex_lock(&rdtgroup_mutex);
 
-	if (r->cache.io_alloc_capable) {
+	if (c->cache.io_alloc_capable) {
 		if (resctrl_arch_get_io_alloc_enabled(r))
 			seq_puts(seq, "enabled\n");
 		else
@@ -817,7 +828,7 @@ static int resctrl_io_alloc_init_cbm(struct resctrl_schema *s, u32 closid)
 	/* Keep CDP_CODE and CDP_DATA of io_alloc CLOSID's CBM in sync. */
 	if (resctrl_arch_get_cdp_enabled(r->rid)) {
 		peer_type = resctrl_peer_type(s->conf_type);
-		list_for_each_entry(d, &s->res->ctrl_domains, hdr.list)
+		list_for_each_entry(d, &s->ctrl->ctrl_domains, hdr.list)
 			memcpy(&d->staged_config[peer_type],
 			       &d->staged_config[s->conf_type],
 			       sizeof(d->staged_config[0]));
@@ -848,6 +859,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = s->res;
+	struct resctrl_ctrl *c = s->ctrl;
 	char const *grp_name;
 	u32 io_alloc_closid;
 	bool enable;
@@ -862,7 +874,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 
 	rdt_last_cmd_clear();
 
-	if (!r->cache.io_alloc_capable) {
+	if (!c->cache.io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
 		ret = -ENODEV;
 		goto out_unlock;
@@ -917,6 +929,7 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = s->res;
+	struct resctrl_ctrl *c = s->ctrl;
 	int ret = 0;
 
 	cpus_read_lock();
@@ -924,7 +937,7 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 
 	rdt_last_cmd_clear();
 
-	if (!r->cache.io_alloc_capable) {
+	if (!c->cache.io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
 		ret = -ENODEV;
 		goto out_unlock;
@@ -957,6 +970,7 @@ static int resctrl_io_alloc_parse_line(char *line,  struct rdt_resource *r,
 	unsigned long dom_id = ULONG_MAX;
 	struct rdt_parse_data data;
 	struct rdt_ctrl_domain *d;
+	struct resctrl_ctrl *c = s->ctrl;
 	bool update_all = false;
 	char *dom = NULL, *id;
 
@@ -980,7 +994,7 @@ next:
 	}
 
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+	list_for_each_entry(d, &c->ctrl_domains, hdr.list) {
 		if (update_all || d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.mode = RDT_MODE_SHAREABLE;
@@ -1014,6 +1028,7 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 {
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = s->res;
+	struct resctrl_ctrl *c = s->ctrl;
 	u32 io_alloc_closid;
 	int ret = 0;
 
@@ -1027,7 +1042,7 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 	mutex_lock(&rdtgroup_mutex);
 	rdt_last_cmd_clear();
 
-	if (!r->cache.io_alloc_capable) {
+	if (!c->cache.io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
 		ret = -ENODEV;
 		goto out_unlock;
