@@ -28,7 +28,8 @@ struct sbm_root {
 
 struct sbm_leaf {
 	enum sbm_type	type;
-	unsigned long	bitmap;
+	unsigned int	nbits;
+	unsigned long	bitmap[];
 } ____cacheline_aligned;
 
 struct sbm {
@@ -48,7 +49,7 @@ extern int sbm_find_next_bit(struct sbm *sbm, int start);
 		leaf = root->leafs[nr];			\
 	}						\
 	int bit = idx & arch_sbm_mask;			\
-	func(bit, &leaf->bitmap);			\
+	func(bit, leaf->bitmap);			\
 })
 
 static inline void sbm_cpu_set(struct sbm *sbm, int cpu)

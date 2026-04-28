@@ -4,6 +4,8 @@
 struct sbm *sbm_alloc(void)
 {
 	unsigned int nr = arch_sbm_leafs;
+	unsigned int nbits = 1U << arch_sbm_shift;
+	unsigned int nlongs = BITS_TO_LONGS(nbits);
 	struct sbm_root *root = kzalloc_flex(*root, leafs, nr);
 	struct sbm_leaf *leaf;
 	if (!root)
@@ -12,10 +14,12 @@ struct sbm *sbm_alloc(void)
 	root->type = st_root;
 
 	for (int i = 0; i < nr; i++) {
-		leaf = kzalloc_obj(*leaf);
+		leaf = kzalloc(struct_size(leaf, bitmap, nlongs),
+			       GFP_KERNEL);
 		if (!leaf)
 			goto fail;
 		leaf->type = st_leaf;
+		leaf->nbits = nbits;
 		root->leafs[i] = leaf;
 	}
 
@@ -40,18 +44,20 @@ int sbm_find_next_bit(struct sbm *sbm, int start)
 	struct sbm_root *root = (void *)sbm;
 	int nr = start >> arch_sbm_shift;
 	int bit = start & arch_sbm_mask;
-	unsigned long tmp, mask = (~0UL) << bit;
+	unsigned int found;
+
 	if (sbm->type == st_root) {
-		for (; nr < arch_sbm_leafs; nr++, mask = ~0UL) {
+		do {
 			leaf = root->leafs[nr];
-			tmp = leaf->bitmap & mask;
-			if (tmp)
-				break;
-		}
+			found = find_next_bit(leaf->bitmap, leaf->nbits, bit);
+			if (found < leaf->nbits)
+				return (nr << arch_sbm_shift) | found;
+			bit = 0;
+		} while (++nr < arch_sbm_leafs);
 	} else {
-		tmp = leaf->bitmap & mask;
+		found = find_next_bit(leaf->bitmap, leaf->nbits, bit);
+		if (found < leaf->nbits)
+			return found;
 	}
-	if (!tmp)
-		return -1;
-	return (nr << arch_sbm_shift) | __ffs(tmp);
+	return -1;
 }
