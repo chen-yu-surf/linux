@@ -48,6 +48,12 @@ DECLARE_BITMAP(phys_cpu_present_map, MAX_LOCAL_APIC) __read_mostly;
 
 /* Used for CPU number allocation and parallel CPU bringup */
 u32 cpuid_to_apicid[] __ro_after_init = { [0 ... NR_CPUS - 1] = BAD_APICID, };
+u32 apicid_to_cpuid[MAX_LOCAL_APIC] = { 0 };
+
+u32 arch_sbm_leafs	__ro_after_init;
+u32 arch_sbm_shift	__ro_after_init;
+u32 arch_sbm_mask	__ro_after_init;
+u32 arch_sbm_bits	__ro_after_init;
 
 /* Bitmaps to mark registered APICs at each topology domain */
 static struct { DECLARE_BITMAP(map, MAX_LOCAL_APIC); } apic_maps[TOPO_MAX_DOMAIN] __ro_after_init;
@@ -234,6 +240,7 @@ static __init void topo_register_apic(u32 apic_id, u32 acpi_id, bool present)
 			cpu = topo_get_cpunr(apic_id);
 
 		cpuid_to_apicid[cpu] = apic_id;
+		apicid_to_cpuid[apic_id] = cpu;
 		topo_set_cpuids(cpu, apic_id, acpi_id);
 	} else {
 		topo_info.nr_disabled_cpus++;
@@ -537,7 +544,9 @@ void __init topology_init_possible_cpus(void)
 					      MAX_LOCAL_APIC, apicid);
 		if (apicid >= MAX_LOCAL_APIC)
 			break;
-		cpuid_to_apicid[topo_info.nr_assigned_cpus++] = apicid;
+		cpu = topo_info.nr_assigned_cpus++;
+		cpuid_to_apicid[cpu] = apicid;
+		apicid_to_cpuid[apicid] = cpu;
 	}
 
 	for (cpu = 0; cpu < allowed; cpu++) {
@@ -551,6 +560,17 @@ void __init topology_init_possible_cpus(void)
 		cpu_mark_primary_thread(cpu, apicid);
 		set_cpu_present(cpu, test_bit(apicid, phys_cpu_present_map));
 	}
+
+	apicid = 0;
+	for_each_possible_cpu(cpu)
+		apicid = max(apicid, cpuid_to_apicid[cpu]);
+
+	arch_sbm_shift = x86_topo_system.dom_shifts[TOPO_DIE_DOMAIN] - 1;
+	arch_sbm_leafs = 1 + (apicid >> arch_sbm_shift);
+	arch_sbm_mask = (1 << arch_sbm_shift) - 1;
+	arch_sbm_bits = arch_sbm_shift;
+
+	pr_info("SBM: shift(%d) leafs(%d) APIC(%x)\n", arch_sbm_shift, arch_sbm_leafs, apicid);
 }
 
 /*
