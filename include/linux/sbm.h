@@ -36,7 +36,7 @@ struct sbm {
 };
 
 extern struct sbm *sbm_alloc(void);
-extern unsigned int sbm_find_next_bit(struct sbm *sbm, int start);
+extern int sbm_find_next_bit(struct sbm *sbm, int start);
 
 #define __sbm_op(sbm, func)				\
 ({							\

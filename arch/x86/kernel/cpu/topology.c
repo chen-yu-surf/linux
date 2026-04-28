@@ -565,7 +565,7 @@ void __init topology_init_possible_cpus(void)
 	for_each_possible_cpu(cpu)
 		apicid = max(apicid, cpuid_to_apicid[cpu]);
 
-	arch_sbm_shift = x86_topo_system.dom_shifts[TOPO_DIE_DOMAIN] - 1;
+	arch_sbm_shift = x86_topo_system.dom_shifts[TOPO_DIE_DOMAIN - 1];
 	arch_sbm_leafs = 1 + (apicid >> arch_sbm_shift);
 	arch_sbm_mask = (1 << arch_sbm_shift) - 1;
 	arch_sbm_bits = arch_sbm_shift;

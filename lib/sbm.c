@@ -34,7 +34,7 @@ fail:
 	return NULL;
 }
 
-unsigned int sbm_find_next_bit(struct sbm *sbm, int start)
+int sbm_find_next_bit(struct sbm *sbm, int start)
 {
 	struct sbm_leaf *leaf = (void *)sbm;
 	struct sbm_root *root = (void *)sbm;
@@ -45,8 +45,8 @@ unsigned int sbm_find_next_bit(struct sbm *sbm, int start)
 		for (; nr < arch_sbm_leafs; nr++, mask = ~0UL) {
 			leaf = root->leafs[nr];
 			tmp = leaf->bitmap & mask;
-			if (!tmp)
-				continue;
+			if (tmp)
+				break;
 		}
 	} else {
 		tmp = leaf->bitmap & mask;
