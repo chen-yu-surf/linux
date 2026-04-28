@@ -8567,6 +8567,8 @@ void __init sched_init_smp(void)
 
 	sched_init_dl_servers();
 
+	init_sched_fair_class_smp();
+
 	sched_smp_initialized = true;
 }
 

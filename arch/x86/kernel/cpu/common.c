@@ -28,6 +28,7 @@
 #include <linux/stackprotector.h>
 #include <linux/utsname.h>
 #include <linux/efi.h>
+#include <linux/sbm.h>
 
 #include <asm/alternative.h>
 #include <asm/cmdline.h>
@@ -2560,6 +2561,12 @@ void __init arch_cpu_finalize_init(void)
 	struct cpuinfo_x86 *c = this_cpu_ptr(&cpu_info);
 
 	identify_boot_cpu();
+
+	arch_sbm_leafs = 1 + (arch_sbm_max_apicid >> arch_sbm_shift);
+	arch_sbm_mask  = (1 << arch_sbm_shift) - 1;
+	arch_sbm_bits  = arch_sbm_shift;
+	pr_info("SBM: shift(%d) leafs(%d) APIC(%x)\n",
+		arch_sbm_shift, arch_sbm_leafs, arch_sbm_max_apicid);
 
 	select_idle_routine();
 

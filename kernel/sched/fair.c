@@ -14033,6 +14033,12 @@ __init void init_sched_fair_class(void)
 #ifdef CONFIG_NO_HZ_COMMON
 	nohz.next_balance = jiffies;
 	nohz.next_blocked = jiffies;
+#endif
+}
+
+void __init init_sched_fair_class_smp(void)
+{
+#ifdef CONFIG_NO_HZ_COMMON
 	nohz.sbm = sbm_alloc();
 #endif
 }

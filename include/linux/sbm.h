@@ -11,6 +11,7 @@ extern unsigned int arch_sbm_leafs;
 extern unsigned int arch_sbm_shift;
 extern unsigned int arch_sbm_mask;
 extern unsigned int arch_sbm_bits;
+extern unsigned int arch_sbm_max_apicid;
 
 extern unsigned int arch_sbm_cpu_to_idx(unsigned int cpu);
 extern unsigned int arch_sbm_idx_to_cpu(unsigned int idx);

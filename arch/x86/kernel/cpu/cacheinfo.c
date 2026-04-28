@@ -21,6 +21,8 @@
 #include <asm/smp.h>
 #include <asm/tlbflush.h>
 
+#include <linux/sbm.h>
+
 #include "cpu.h"
 
 /* Shared last level cache maps */
@@ -317,12 +319,16 @@ void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, u16 die_id)
 	if (c->x86 < 0x17) {
 		/* Pre-Zen: LLC is at the node level */
 		c->topo.llc_id = die_id;
+		if (c == &boot_cpu_data)
+			arch_sbm_shift = topology_get_domain_shift(TOPO_DIE_DOMAIN);
 	} else if (c->x86 == 0x17 && c->x86_model <= 0x1F) {
 		/*
 		 * Family 17h up to 1F models: LLC is at the core
 		 * complex level.  Core complex ID is ApicId[3].
 		 */
 		c->topo.llc_id = c->topo.apicid >> 3;
+		if (c == &boot_cpu_data)
+			arch_sbm_shift = 3;
 	} else {
 		/*
 		 * Newer families: LLC ID is calculated from the number
@@ -331,8 +337,11 @@ void cacheinfo_amd_init_llc_id(struct cpuinfo_x86 *c, u16 die_id)
 		u32 llc_index = find_num_cache_leaves(c) - 1;
 		struct _cpuid4_info id4 = {};
 
-		if (!amd_fill_cpuid4_info(llc_index, &id4))
+		if (!amd_fill_cpuid4_info(llc_index, &id4)) {
 			c->topo.llc_id = get_cache_id(c->topo.apicid, &id4);
+			if (c == &boot_cpu_data)
+				arch_sbm_shift = get_count_order(1 + id4.eax.split.num_threads_sharing);
+		}
 	}
 }
 
@@ -346,6 +355,8 @@ void cacheinfo_hygon_init_llc_id(struct cpuinfo_x86 *c)
 	 * at the core complex level.  Core complex ID is ApicId[3].
 	 */
 	c->topo.llc_id = c->topo.apicid >> 3;
+	if (c == &boot_cpu_data)
+		arch_sbm_shift = 3;
 }
 
 void init_amd_cacheinfo(struct cpuinfo_x86 *c)
@@ -425,6 +436,7 @@ static bool intel_cacheinfo_0x4(struct cpuinfo_x86 *c)
 	struct cpu_cacheinfo *ci = get_cpu_cacheinfo(c->cpu_index);
 	unsigned int l2_id = BAD_APICID, l3_id = BAD_APICID;
 	unsigned int l1d = 0, l1i = 0, l2 = 0, l3 = 0;
+	unsigned int llc_nthreads = 0;
 
 	if (c->cpuid_level < 4)
 		return false;
@@ -461,6 +473,7 @@ static bool intel_cacheinfo_0x4(struct cpuinfo_x86 *c)
 		case 3:
 			l3 = id4.size / 1024;
 			l3_id = calc_cache_topo_id(c, &id4);
+			llc_nthreads = 1 + id4.eax.split.num_threads_sharing;
 			break;
 		default:
 			break;
@@ -469,6 +482,11 @@ static bool intel_cacheinfo_0x4(struct cpuinfo_x86 *c)
 
 	c->topo.l2c_id = l2_id;
 	c->topo.llc_id = (l3_id == BAD_APICID) ? l2_id : l3_id;
+
+	/* Save LLC shift for SBM (boot CPU only) */
+	if (c == &boot_cpu_data && llc_nthreads)
+		arch_sbm_shift = get_count_order(llc_nthreads);
+
 	intel_cacheinfo_done(c, l3, l2, l1i, l1d);
 	return true;
 }
