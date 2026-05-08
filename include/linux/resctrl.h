@@ -260,13 +260,13 @@ enum resctrl_scope {
 };
 
 /**
- * enum resctrl_schema_fmt - The format user-space provides for a schema.
- * @RESCTRL_SCHEMA_BITMAP:	The schema is a bitmap in hex.
- * @RESCTRL_SCHEMA_RANGE:	The schema is a decimal number.
+ * enum resctrl_ctrl_type - The control type
+ * @RESCTRL_CTRL_BITMAP:	The control is a bitmap in hex.
+ * @RESCTRL_CTRL_SCALAR:	The control is a decimal number.
  */
-enum resctrl_schema_fmt {
-	RESCTRL_SCHEMA_BITMAP,
-	RESCTRL_SCHEMA_RANGE,
+enum resctrl_ctrl_type {
+	RESCTRL_CTRL_BITMAP,
+	RESCTRL_CTRL_SCALAR,
 };
 
 /**
@@ -297,6 +297,10 @@ struct resctrl_mon {
  * @alloc_capable:	Is allocation available on this machine
  * @mon_capable:	Is monitor feature available on this machine
  * @ctrl_scope:		Scope of this resource for control functions
+ * @ctrl_type:		The control type that determines the properties of the
+ *			control, format string for displaying control values to
+ *			user space, and parser of control values provided by
+ *			user space.
  * @mon_scope:		Scope of this resource for monitor functions
  * @cache:		Cache allocation related data
  * @membw:		If the component has bandwidth controls, their properties.
@@ -304,7 +308,6 @@ struct resctrl_mon {
  * @ctrl_domains:	RCU list of all control domains for this resource
  * @mon_domains:	RCU list of all monitor domains for this resource
  * @name:		Name to use in "schemata" file.
- * @schema_fmt:		Which format string and parser is used for this schema.
  * @cdp_capable:	Is the CDP feature available on this resource
  * @bw_delay_linear:	True if memory bandwidth delay is in linear scale
  * @bw_throttle_mode:	Bandwidth throttling mode when threads request
@@ -317,6 +320,7 @@ struct rdt_resource {
 	bool				alloc_capable;
 	bool				mon_capable;
 	enum resctrl_scope		ctrl_scope;
+	enum resctrl_ctrl_type		ctrl_type;
 	enum resctrl_scope		mon_scope;
 	struct resctrl_cache		cache;
 	struct resctrl_membw		membw;
@@ -324,7 +328,6 @@ struct rdt_resource {
 	struct list_head		ctrl_domains;
 	struct list_head		mon_domains;
 	char				*name;
-	enum resctrl_schema_fmt		schema_fmt;
 	bool				cdp_capable;
 	bool				bw_delay_linear;
 	enum membw_throttle_mode	bw_throttle_mode;
@@ -396,10 +399,10 @@ void resctrl_arch_sync_cpu_closid_rmid(void *info);
  */
 static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
 {
-	switch (r->schema_fmt) {
-	case RESCTRL_SCHEMA_BITMAP:
+	switch (r->ctrl_type) {
+	case RESCTRL_CTRL_BITMAP:
 		return BIT_MASK(r->cache.cbm_len) - 1;
-	case RESCTRL_SCHEMA_RANGE:
+	case RESCTRL_CTRL_SCALAR:
 		return r->membw.max_bw;
 	}
 
