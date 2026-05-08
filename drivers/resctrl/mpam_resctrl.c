@@ -1000,7 +1000,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 	switch (r->rid) {
 	case RDT_RESOURCE_L2:
 	case RDT_RESOURCE_L3:
-		r->schema_fmt = RESCTRL_SCHEMA_BITMAP;
+		r->ctrl_type = RESCTRL_CTRL_BITMAP;
 		r->cache.arch_has_sparse_bitmasks = true;
 
 		r->cache.cbm_len = class->props.cpbm_wd;
@@ -1027,7 +1027,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		r->alloc_capable = true;
 		break;
 	case RDT_RESOURCE_MBA:
-		r->schema_fmt = RESCTRL_SCHEMA_RANGE;
+		r->ctrl_type = RESCTRL_CTRL_SCALAR;
 		r->ctrl_scope = RESCTRL_L3_CACHE;
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
 
