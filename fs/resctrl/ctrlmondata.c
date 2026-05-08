@@ -225,11 +225,11 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	switch (r->schema_fmt) {
-	case RESCTRL_SCHEMA_BITMAP:
+	switch (r->ctrl_type) {
+	case RESCTRL_CTRL_BITMAP:
 		parse_ctrlval = &parse_cbm;
 		break;
-	case RESCTRL_SCHEMA_RANGE:
+	case RESCTRL_CTRL_SCALAR:
 		parse_ctrlval = &parse_bw;
 		break;
 	}
