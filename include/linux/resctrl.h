@@ -243,8 +243,6 @@ enum membw_throttle_mode {
  * @max_bw:		Maximum memory bandwidth value, used as the reset value
  * @bw_gran:		Granularity at which the memory bandwidth is allocated
  * @delay_linear:	True if memory B/W delay is in linear scale
- * @throttle_mode:	Bandwidth throttling mode when threads request
- *			different memory bandwidths
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
  */
 struct resctrl_membw {
@@ -252,7 +250,6 @@ struct resctrl_membw {
 	u32				max_bw;
 	u32				bw_gran;
 	u32				delay_linear;
-	enum membw_throttle_mode	throttle_mode;
 	bool				mba_sc;
 };
 
@@ -312,24 +309,27 @@ struct resctrl_mon {
  * @name:		Name to use in "schemata" file.
  * @schema_fmt:		Which format string and parser is used for this schema.
  * @cdp_capable:	Is the CDP feature available on this resource
+ * @bw_throttle_mode:	Bandwidth throttling mode when threads request
+ *			different memory bandwidths
  * @cache_io_alloc_capable:True if portion of the cache can be configured
  *			   for I/O traffic.
  */
 struct rdt_resource {
-	enum resctrl_res_level	rid;
-	bool			alloc_capable;
-	bool			mon_capable;
-	enum resctrl_scope	ctrl_scope;
-	enum resctrl_scope	mon_scope;
-	struct resctrl_cache	cache;
-	struct resctrl_membw	membw;
-	struct resctrl_mon	mon;
-	struct list_head	ctrl_domains;
-	struct list_head	mon_domains;
-	char			*name;
-	enum resctrl_schema_fmt	schema_fmt;
-	bool			cdp_capable;
-	bool			cache_io_alloc_capable;
+	enum resctrl_res_level		rid;
+	bool				alloc_capable;
+	bool				mon_capable;
+	enum resctrl_scope		ctrl_scope;
+	enum resctrl_scope		mon_scope;
+	struct resctrl_cache		cache;
+	struct resctrl_membw		membw;
+	struct resctrl_mon		mon;
+	struct list_head		ctrl_domains;
+	struct list_head		mon_domains;
+	char				*name;
+	enum resctrl_schema_fmt		schema_fmt;
+	bool				cdp_capable;
+	enum membw_throttle_mode	bw_throttle_mode;
+	bool				cache_io_alloc_capable;
 };
 
 /*
