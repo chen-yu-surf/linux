@@ -123,7 +123,7 @@ int resctrl_arch_io_alloc_enable(struct rdt_resource *r, bool enable)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 
-	if (hw_res->r_resctrl.cache.io_alloc_capable &&
+	if (hw_res->r_resctrl.cache_io_alloc_capable &&
 	    hw_res->sdciae_enabled != enable) {
 		_resctrl_sdciae_enable(r, enable);
 		hw_res->sdciae_enabled = enable;

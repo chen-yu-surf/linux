@@ -772,7 +772,7 @@ int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, voi
 
 	mutex_lock(&rdtgroup_mutex);
 
-	if (r->cache.io_alloc_capable) {
+	if (r->cache_io_alloc_capable) {
 		if (resctrl_arch_get_io_alloc_enabled(r))
 			seq_puts(seq, "enabled\n");
 		else
@@ -863,7 +863,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 		goto out_unlock;
 	}
 
-	if (!r->cache.io_alloc_capable) {
+	if (!r->cache_io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
 		ret = -ENODEV;
 		goto out_unlock;
@@ -925,7 +925,7 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 
 	rdt_last_cmd_clear();
 
-	if (!r->cache.io_alloc_capable) {
+	if (!r->cache_io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
 		ret = -ENODEV;
 		goto out_unlock;
@@ -1032,7 +1032,7 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 
 	buf[nbytes - 1] = '\0';
 
-	if (!r->cache.io_alloc_capable) {
+	if (!r->cache_io_alloc_capable) {
 		rdt_last_cmd_printf("io_alloc is not supported on %s\n", s->name);
 		ret = -ENODEV;
 		goto out_unlock;
