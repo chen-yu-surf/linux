@@ -1025,7 +1025,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		r->schema_fmt = RESCTRL_SCHEMA_RANGE;
 		r->ctrl_scope = RESCTRL_L3_CACHE;
 
-		r->membw.delay_linear = true;
+		r->bw_delay_linear = true;
 		r->membw.throttle_mode = THREAD_THROTTLE_UNDEFINED;
 		r->membw.min_bw = get_mba_min(cprops);
 		r->membw.max_bw = MAX_MBA_BW;

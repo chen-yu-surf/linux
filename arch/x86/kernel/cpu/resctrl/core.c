@@ -194,7 +194,7 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 
 	if (!(ecx & MBA_IS_LINEAR))
 		return false;
-	r->membw.delay_linear = true;
+	r->bw_delay_linear = true;
 
 	r->membw.min_bw = MAX_MBA_BW - max_delay;
 	r->membw.bw_gran = MAX_MBA_BW - max_delay;
@@ -229,7 +229,7 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	r->membw.max_bw = BIT(eax);
 
 	/* AMD does not use delay */
-	r->membw.delay_linear = false;
+	r->bw_delay_linear = false;
 
 	/*
 	 * AMD does not use memory delay throttle model to control
@@ -304,7 +304,7 @@ static void mba_wrmsr_amd(struct msr_param *m)
  */
 static u32 delay_bw_map(unsigned long bw, struct rdt_resource *r)
 {
-	if (r->membw.delay_linear)
+	if (r->bw_delay_linear)
 		return MAX_MBA_BW - bw;
 
 	pr_warn_once("Non Linear delay-bw map not supported but queried\n");

@@ -245,7 +245,6 @@ enum membw_throttle_mode {
  * @min_bw:		Minimum memory bandwidth percentage user can request
  * @max_bw:		Maximum memory bandwidth value, used as the reset value
  * @bw_gran:		Granularity at which the memory bandwidth is allocated
- * @delay_linear:	True if memory B/W delay is in linear scale
  * @throttle_mode:	Bandwidth throttling mode when threads request
  *			different memory bandwidths
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
@@ -254,7 +253,6 @@ struct resctrl_membw {
 	u32				min_bw;
 	u32				max_bw;
 	u32				bw_gran;
-	u32				delay_linear;
 	enum membw_throttle_mode	throttle_mode;
 	bool				mba_sc;
 };
@@ -315,6 +313,7 @@ struct resctrl_mon {
  * @name:		Name to use in "schemata" file.
  * @schema_fmt:		Which format string and parser is used for this schema.
  * @cdp_capable:	Is the CDP feature available on this resource
+ * @bw_delay_linear:	True if memory bandwidth delay is in linear scale
  */
 struct rdt_resource {
 	enum resctrl_res_level	rid;
@@ -330,6 +329,7 @@ struct rdt_resource {
 	char			*name;
 	enum resctrl_schema_fmt	schema_fmt;
 	bool			cdp_capable;
+	bool			bw_delay_linear;
 };
 
 /*
