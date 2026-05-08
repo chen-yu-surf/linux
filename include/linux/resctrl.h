@@ -215,15 +215,12 @@ struct rdt_l3_mon_domain {
  * @shareable_bits:	Bitmask of shareable resource with other
  *			executing entities
  * @arch_has_sparse_bitmasks:	True if a bitmask like f00f is valid.
- * @io_alloc_capable:	True if portion of the cache can be configured
- *			for I/O traffic.
  */
 struct resctrl_cache {
 	unsigned int	cbm_len;
 	unsigned int	min_cbm_bits;
 	unsigned int	shareable_bits;
 	bool		arch_has_sparse_bitmasks;
-	bool		io_alloc_capable;
 };
 
 /**
@@ -315,6 +312,8 @@ struct resctrl_mon {
  * @name:		Name to use in "schemata" file.
  * @schema_fmt:		Which format string and parser is used for this schema.
  * @cdp_capable:	Is the CDP feature available on this resource
+ * @cache_io_alloc_capable:True if portion of the cache can be configured
+ *			   for I/O traffic.
  */
 struct rdt_resource {
 	enum resctrl_res_level	rid;
@@ -330,6 +329,7 @@ struct rdt_resource {
 	char			*name;
 	enum resctrl_schema_fmt	schema_fmt;
 	bool			cdp_capable;
+	bool			cache_io_alloc_capable;
 };
 
 /*
