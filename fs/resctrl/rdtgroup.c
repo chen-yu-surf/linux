@@ -1216,7 +1216,7 @@ static int rdt_thread_throttle_mode_show(struct kernfs_open_file *of,
 	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = s->res;
 
-	switch (r->membw.throttle_mode) {
+	switch (r->bw_throttle_mode) {
 	case THREAD_THROTTLE_PER_THREAD:
 		seq_puts(seq, "per-thread\n");
 		return 0;
@@ -2192,13 +2192,13 @@ static void thread_throttle_mode_init(void)
 
 	r_mba = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
 	if (r_mba->alloc_capable &&
-	    r_mba->membw.throttle_mode != THREAD_THROTTLE_UNDEFINED)
-		throttle_mode = r_mba->membw.throttle_mode;
+	    r_mba->bw_throttle_mode != THREAD_THROTTLE_UNDEFINED)
+		throttle_mode = r_mba->bw_throttle_mode;
 
 	r_smba = resctrl_arch_get_resource(RDT_RESOURCE_SMBA);
 	if (r_smba->alloc_capable &&
-	    r_smba->membw.throttle_mode != THREAD_THROTTLE_UNDEFINED)
-		throttle_mode = r_smba->membw.throttle_mode;
+	    r_smba->bw_throttle_mode != THREAD_THROTTLE_UNDEFINED)
+		throttle_mode = r_smba->bw_throttle_mode;
 
 	if (throttle_mode == THREAD_THROTTLE_UNDEFINED)
 		return;
