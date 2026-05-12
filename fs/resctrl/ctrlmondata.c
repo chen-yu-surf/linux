@@ -254,10 +254,15 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 
 	parse_ctrlval = resctrl_ctrl_priv_all[r->ctrl.type].parser;
 
-	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP &&
-	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)) {
-		rdt_last_cmd_puts("Cannot pseudo-lock MBA resource\n");
-		return -EINVAL;
+	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
+		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA) {
+			rdt_last_cmd_puts("Cannot pseudo-lock MBA resource\n");
+			return -EINVAL;
+		}
+		if (&r->ctrl != resctrl_get_pseudo_lock_ctrl(r)) {
+			rdt_last_cmd_puts("Cannot pseudo-lock using control\n");
+			return -EINVAL;
+		}
 	}
 
 next:
