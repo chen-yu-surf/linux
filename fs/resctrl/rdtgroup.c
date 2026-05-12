@@ -1459,7 +1459,7 @@ bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain 
 				    exclusive))
 		return true;
 
-	if (!resctrl_arch_get_cdp_enabled(r->rid))
+	if (!resctrl_arch_get_cdp_enabled(r))
 		return false;
 	return  __rdtgroup_cbm_overlaps(r, d, cbm, closid, peer_type, exclusive);
 }
@@ -2807,8 +2807,11 @@ static int mkdir_mondata_all(struct kernfs_node *parent_kn,
 
 static void rdt_disable_ctx(void)
 {
-	resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L3, false);
-	resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L2, false);
+	struct rdt_resource *l3 = resctrl_arch_get_resource(RDT_RESOURCE_L3);
+	struct rdt_resource *l2 = resctrl_arch_get_resource(RDT_RESOURCE_L2);
+
+	resctrl_arch_set_cdp_enabled(l3, false);
+	resctrl_arch_set_cdp_enabled(l2, false);
 	set_mba_sc(false);
 
 	resctrl_debug = false;
@@ -2816,16 +2819,18 @@ static void rdt_disable_ctx(void)
 
 static int rdt_enable_ctx(struct rdt_fs_context *ctx)
 {
+	struct rdt_resource *l3 = resctrl_arch_get_resource(RDT_RESOURCE_L3);
+	struct rdt_resource *l2 = resctrl_arch_get_resource(RDT_RESOURCE_L2);
 	int ret = 0;
 
 	if (ctx->enable_cdpl2) {
-		ret = resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L2, true);
+		ret = resctrl_arch_set_cdp_enabled(l2, true);
 		if (ret)
 			goto out_done;
 	}
 
 	if (ctx->enable_cdpl3) {
-		ret = resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L3, true);
+		ret = resctrl_arch_set_cdp_enabled(l3, true);
 		if (ret)
 			goto out_cdpl2;
 	}
@@ -2842,9 +2847,9 @@ static int rdt_enable_ctx(struct rdt_fs_context *ctx)
 	return 0;
 
 out_cdpl3:
-	resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L3, false);
+	resctrl_arch_set_cdp_enabled(l3, false);
 out_cdpl2:
-	resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L2, false);
+	resctrl_arch_set_cdp_enabled(l2, false);
 out_done:
 	return ret;
 }
@@ -2861,7 +2866,7 @@ static int final_resources_list_add(struct rdt_resource *r, enum resctrl_conf_ty
 
 	f->res = r;
 	f->num_closid = resctrl_arch_get_num_closid(r);
-	if (resctrl_arch_get_cdp_enabled(r->rid))
+	if (resctrl_arch_get_cdp_enabled(r))
 		f->num_closid /= 2;
 
 	f->conf_type = type;
@@ -2890,7 +2895,7 @@ static int final_resources_list_add(struct rdt_resource *r, enum resctrl_conf_ty
 	 * include the suffix. This ensures the tabular format of the
 	 * schemata file does not change between mounts of the filesystem.
 	 */
-	if (r->cdp_capable && !resctrl_arch_get_cdp_enabled(r->rid))
+	if (r->cdp_capable && !resctrl_arch_get_cdp_enabled(r))
 		cl += 4;
 
 	if (cl > max_name_width)
@@ -2908,7 +2913,7 @@ static int final_resources_list_create(void)
 	int ret = 0;
 
 	for_each_alloc_capable_rdt_resource(r) {
-		if (resctrl_arch_get_cdp_enabled(r->rid)) {
+		if (resctrl_arch_get_cdp_enabled(r)) {
 			ret = final_resources_list_add(r, CDP_CODE);
 			if (ret)
 				break;
@@ -3751,7 +3756,7 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 			 * usage to ensure there is no overlap
 			 * with an exclusive group.
 			 */
-			if (resctrl_arch_get_cdp_enabled(r->rid))
+			if (resctrl_arch_get_cdp_enabled(r))
 				peer_ctl = resctrl_arch_get_config(r, d, i,
 								   peer_type);
 			else
@@ -4421,10 +4426,10 @@ out:
 
 static int rdtgroup_show_options(struct seq_file *seq, struct kernfs_root *kf)
 {
-	if (resctrl_arch_get_cdp_enabled(RDT_RESOURCE_L3))
+	if (resctrl_arch_get_cdp_enabled(resctrl_arch_get_resource(RDT_RESOURCE_L3)))
 		seq_puts(seq, ",cdp");
 
-	if (resctrl_arch_get_cdp_enabled(RDT_RESOURCE_L2))
+	if (resctrl_arch_get_cdp_enabled(resctrl_arch_get_resource(RDT_RESOURCE_L2)))
 		seq_puts(seq, ",cdpl2");
 
 	if (is_mba_sc(resctrl_arch_get_resource(RDT_RESOURCE_MBA)))
