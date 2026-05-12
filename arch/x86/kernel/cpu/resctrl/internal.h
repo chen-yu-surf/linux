@@ -125,6 +125,8 @@ struct msr_param {
  * @mon_scale:		cqm counter * mon_scale = occupancy in bytes
  * @mbm_width:		Monitor width, to detect and correct for overflow.
  * @cdp_enabled:	CDP state of this resource
+ * @has_per_cpu_cache_cfg:	True if QOS_CFG register for this cache resource
+ *				has CPU scope
  * @mbm_cntr_assign_enabled:	ABMC feature is enabled
  * @sdciae_enabled:	SDCIAE feature (backing "io_alloc") is enabled.
  *
@@ -140,6 +142,7 @@ struct rdt_hw_resource {
 	unsigned int		mon_scale;
 	unsigned int		mbm_width;
 	bool			cdp_enabled;
+	bool			has_per_cpu_cache_cfg;
 	bool			mbm_cntr_assign_enabled;
 	bool			sdciae_enabled;
 };
