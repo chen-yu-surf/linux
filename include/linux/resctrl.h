@@ -492,7 +492,8 @@ static inline u32 resctrl_get_config_index(u32 closid,
 }
 
 bool resctrl_arch_get_cdp_enabled(struct rdt_resource *r);
-int resctrl_arch_set_cdp_enabled(struct rdt_resource *r, bool enable);
+int resctrl_arch_set_cdp_enabled(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 bool enable);
 
 /**
  * resctrl_arch_mbm_cntr_assign_enabled() - Check if MBM counter assignment

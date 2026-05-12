@@ -129,7 +129,8 @@ static void l2_qos_cfg_update(void *arg)
 	wrmsrq(MSR_IA32_L2_QOS_CFG, *enable ? L2_QOS_CDP_ENABLE : 0ULL);
 }
 
-static int set_cache_qos_cfg(struct rdt_hw_resource *hw_res, bool enable)
+static int set_cache_qos_cfg(struct rdt_hw_resource *hw_res, struct resctrl_ctrl *ctrl,
+			     bool enable)
 {
 	struct rdt_resource *r = &hw_res->r_resctrl;
 	void (*update)(void *arg);
@@ -137,7 +138,7 @@ static int set_cache_qos_cfg(struct rdt_hw_resource *hw_res, bool enable)
 	cpumask_var_t cpu_mask;
 	int cpu;
 
-	/* Walking r->domains, ensure it can't race with cpuhp */
+	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
 	if (r->rid == RDT_RESOURCE_L3)
@@ -150,7 +151,7 @@ static int set_cache_qos_cfg(struct rdt_hw_resource *hw_res, bool enable)
 	if (!zalloc_cpumask_var(&cpu_mask, GFP_KERNEL))
 		return -ENOMEM;
 
-	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
+	list_for_each_entry(d, &ctrl->domains, hdr.list) {
 		if (hw_res->has_per_cpu_cache_cfg)
 			/* Pick all the CPUs in the domain instance */
 			for_each_cpu(cpu, &d->hdr.cpu_mask)
@@ -183,7 +184,7 @@ void rdt_domain_reconfigure_cdp(struct rdt_resource *r)
 		l3_qos_cfg_update(&hw_res->cdp_enabled);
 }
 
-static int cdp_enable(struct rdt_hw_resource *hw_res)
+static int cdp_enable(struct rdt_hw_resource *hw_res, struct resctrl_ctrl *ctrl)
 {
 	struct rdt_resource *r = &hw_res->r_resctrl;
 	int ret;
@@ -191,22 +192,23 @@ static int cdp_enable(struct rdt_hw_resource *hw_res)
 	if (!r->alloc_capable)
 		return -EINVAL;
 
-	ret = set_cache_qos_cfg(hw_res, true);
+	ret = set_cache_qos_cfg(hw_res, ctrl, true);
 	if (!ret)
 		hw_res->cdp_enabled = true;
 
 	return ret;
 }
 
-static void cdp_disable(struct rdt_hw_resource *hw_res)
+static void cdp_disable(struct rdt_hw_resource *hw_res, struct resctrl_ctrl *ctrl)
 {
 	if (hw_res->cdp_enabled) {
-		set_cache_qos_cfg(hw_res, false);
+		set_cache_qos_cfg(hw_res, ctrl, false);
 		hw_res->cdp_enabled = false;
 	}
 }
 
-int resctrl_arch_set_cdp_enabled(struct rdt_resource *r, bool enable)
+int resctrl_arch_set_cdp_enabled(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 bool enable)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 
@@ -214,9 +216,9 @@ int resctrl_arch_set_cdp_enabled(struct rdt_resource *r, bool enable)
 		return -EINVAL;
 
 	if (enable)
-		return cdp_enable(hw_res);
+		return cdp_enable(hw_res, ctrl);
 
-	cdp_disable(hw_res);
+	cdp_disable(hw_res, ctrl);
 
 	return 0;
 }

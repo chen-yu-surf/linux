@@ -343,6 +343,8 @@ int rdtgroup_kn_mode_restrict(struct rdtgroup *r, const char *name);
 int rdtgroup_kn_mode_restore(struct rdtgroup *r, const char *name,
 			     umode_t mask);
 
+struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r);
+
 ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 				char *buf, size_t nbytes, loff_t off);
 

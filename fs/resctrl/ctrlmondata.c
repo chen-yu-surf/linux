@@ -299,6 +299,23 @@ next:
 	return -EINVAL;
 }
 
+/*
+ * Only support one cache control per cache resource.
+ */
+struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r)
+{
+	struct resctrl_ctrl *ctrl;
+
+	if (r->rid != RDT_RESOURCE_L3 && r->rid != RDT_RESOURCE_L2)
+		return NULL;
+
+	ctrl = &r->ctrl;
+	if (ctrl->type != RESCTRL_CTRL_BITMAP)
+		return NULL;
+
+	return ctrl;
+}
+
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
 			       struct rdtgroup *rdtgrp)
 {

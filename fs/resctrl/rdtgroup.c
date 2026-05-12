@@ -2675,9 +2675,13 @@ static void rdt_disable_ctx(void)
 {
 	struct rdt_resource *l3 = resctrl_arch_get_resource(RDT_RESOURCE_L3);
 	struct rdt_resource *l2 = resctrl_arch_get_resource(RDT_RESOURCE_L2);
+	struct resctrl_ctrl *l3_ctrl = resctrl_get_cache_ctrl(l3);
+	struct resctrl_ctrl *l2_ctrl = resctrl_get_cache_ctrl(l2);
 
-	resctrl_arch_set_cdp_enabled(l3, false);
-	resctrl_arch_set_cdp_enabled(l2, false);
+	if (l3_ctrl)
+		resctrl_arch_set_cdp_enabled(l3, l3_ctrl, false);
+	if (l2_ctrl)
+		resctrl_arch_set_cdp_enabled(l2, l2_ctrl, false);
 	set_mba_sc(false);
 
 	resctrl_debug = false;
@@ -2687,16 +2691,18 @@ static int rdt_enable_ctx(struct rdt_fs_context *ctx)
 {
 	struct rdt_resource *l3 = resctrl_arch_get_resource(RDT_RESOURCE_L3);
 	struct rdt_resource *l2 = resctrl_arch_get_resource(RDT_RESOURCE_L2);
+	struct resctrl_ctrl *l3_ctrl = resctrl_get_cache_ctrl(l3);
+	struct resctrl_ctrl *l2_ctrl = resctrl_get_cache_ctrl(l2);
 	int ret = 0;
 
-	if (ctx->enable_cdpl2) {
-		ret = resctrl_arch_set_cdp_enabled(l2, true);
+	if (ctx->enable_cdpl2 && l2_ctrl) {
+		ret = resctrl_arch_set_cdp_enabled(l2, l2_ctrl, true);
 		if (ret)
 			goto out_done;
 	}
 
-	if (ctx->enable_cdpl3) {
-		ret = resctrl_arch_set_cdp_enabled(l3, true);
+	if (ctx->enable_cdpl3 && l3_ctrl) {
+		ret = resctrl_arch_set_cdp_enabled(l3, l3_ctrl, true);
 		if (ret)
 			goto out_cdpl2;
 	}
@@ -2713,9 +2719,11 @@ static int rdt_enable_ctx(struct rdt_fs_context *ctx)
 	return 0;
 
 out_cdpl3:
-	resctrl_arch_set_cdp_enabled(l3, false);
+	if (l3_ctrl)
+		resctrl_arch_set_cdp_enabled(l3, l3_ctrl, false);
 out_cdpl2:
-	resctrl_arch_set_cdp_enabled(l2, false);
+	if (l2_ctrl)
+		resctrl_arch_set_cdp_enabled(l2, l2_ctrl, false);
 out_done:
 	return ret;
 }
