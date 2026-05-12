@@ -832,7 +832,7 @@ static int resctrl_io_alloc_init_cbm(struct rdt_resource_final *f, u32 closid)
 		goto out;
 
 	/* Keep CDP_CODE and CDP_DATA of io_alloc CLOSID's CBM in sync. */
-	if (resctrl_arch_get_cdp_enabled(r->rid)) {
+	if (resctrl_arch_get_cdp_enabled(r)) {
 		peer_type = resctrl_peer_type(f->conf_type);
 		list_for_each_entry(d, &f->res->ctrl.domains, hdr.list)
 			memcpy(&d->staged_config[peer_type],
@@ -854,7 +854,7 @@ out:
  */
 u32 resctrl_io_alloc_closid(struct rdt_resource *r)
 {
-	if (resctrl_arch_get_cdp_enabled(r->rid))
+	if (resctrl_arch_get_cdp_enabled(r))
 		return resctrl_arch_get_num_closid(r) / 2  - 1;
 	else
 		return resctrl_arch_get_num_closid(r) - 1;
@@ -1011,7 +1011,7 @@ next:
 			 * Keep io_alloc CLOSID's CBM of CDP_CODE and CDP_DATA
 			 * in sync.
 			 */
-			if (resctrl_arch_get_cdp_enabled(r->rid)) {
+			if (resctrl_arch_get_cdp_enabled(r)) {
 				peer_type = resctrl_peer_type(f->conf_type);
 				memcpy(&d->staged_config[peer_type],
 				       &d->staged_config[f->conf_type],

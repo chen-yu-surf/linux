@@ -162,9 +162,12 @@ void resctrl_arch_pre_mount(void)
 {
 }
 
-bool resctrl_arch_get_cdp_enabled(enum resctrl_res_level rid)
+bool resctrl_arch_get_cdp_enabled(struct rdt_resource *r)
 {
-	return mpam_resctrl_controls[rid].cdp_enabled;
+	struct mpam_resctrl_res *res;
+
+	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
+	return res->cdp_enabled;
 }
 
 /**
@@ -185,7 +188,7 @@ static void resctrl_reset_task_closids(void)
 	read_unlock(&tasklist_lock);
 }
 
-int resctrl_arch_set_cdp_enabled(enum resctrl_res_level rid, bool enable)
+int resctrl_arch_set_cdp_enabled(struct rdt_resource *r, bool enable)
 {
 	u32 partid_i = RESCTRL_RESERVED_CLOSID, partid_d = RESCTRL_RESERVED_CLOSID;
 	struct mpam_resctrl_res *res = &mpam_resctrl_controls[RDT_RESOURCE_L3];
@@ -209,7 +212,7 @@ int resctrl_arch_set_cdp_enabled(enum resctrl_res_level rid, bool enable)
 	 * false on error and unmount.
 	 */
 	cdp_enabled = enable;
-	mpam_resctrl_controls[rid].cdp_enabled = enable;
+	mpam_resctrl_controls[r->rid].cdp_enabled = enable;
 
 	if (enable)
 		l3->mon.num_rmid = resctrl_arch_system_num_rmid_idx() / 2;
@@ -252,9 +255,9 @@ int resctrl_arch_set_cdp_enabled(enum resctrl_res_level rid, bool enable)
 	return 0;
 }
 
-static bool mpam_resctrl_hide_cdp(enum resctrl_res_level rid)
+static bool mpam_resctrl_hide_cdp(struct rdt_resource *r)
 {
-	return cdp_enabled && !resctrl_arch_get_cdp_enabled(rid);
+	return cdp_enabled && !resctrl_arch_get_cdp_enabled(r);
 }
 
 /*
@@ -1137,7 +1140,7 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 	 * the control is cloned across both partids.
 	 * Pick one at random to read:
 	 */
-	if (mpam_resctrl_hide_cdp(r->rid))
+	if (mpam_resctrl_hide_cdp(r))
 		type = CDP_DATA;
 
 	partid = resctrl_get_config_index(closid, type);
@@ -1196,7 +1199,7 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 	dom = container_of(d, struct mpam_resctrl_dom, resctrl_ctrl_dom);
 	cprops = &res->class->props;
 
-	if (mpam_resctrl_hide_cdp(r->rid))
+	if (mpam_resctrl_hide_cdp(r))
 		t = CDP_DATA;
 
 	partid = resctrl_get_config_index(closid, t);
@@ -1232,7 +1235,7 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 	 * When CDP is enabled, but the resource doesn't support it, we need to
 	 * apply the same configuration to the other partid.
 	 */
-	if (mpam_resctrl_hide_cdp(r->rid)) {
+	if (mpam_resctrl_hide_cdp(r)) {
 		partid = resctrl_get_config_index(closid, CDP_CODE);
 		err = mpam_apply_config(dom->ctrl_comp, partid, &cfg);
 		if (err)

@@ -129,21 +129,20 @@ static void l2_qos_cfg_update(void *arg)
 	wrmsrq(MSR_IA32_L2_QOS_CFG, *enable ? L2_QOS_CDP_ENABLE : 0ULL);
 }
 
-static int set_cache_qos_cfg(int level, bool enable)
+static int set_cache_qos_cfg(struct rdt_hw_resource *hw_res, bool enable)
 {
-	struct rdt_hw_resource *hw_res;
+	struct rdt_resource *r = &hw_res->r_resctrl;
 	void (*update)(void *arg);
 	struct rdt_ctrl_domain *d;
-	struct rdt_resource *r_l;
 	cpumask_var_t cpu_mask;
 	int cpu;
 
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	if (level == RDT_RESOURCE_L3)
+	if (r->rid == RDT_RESOURCE_L3)
 		update = l3_qos_cfg_update;
-	else if (level == RDT_RESOURCE_L2)
+	else if (r->rid == RDT_RESOURCE_L2)
 		update = l2_qos_cfg_update;
 	else
 		return -EINVAL;
@@ -151,9 +150,7 @@ static int set_cache_qos_cfg(int level, bool enable)
 	if (!zalloc_cpumask_var(&cpu_mask, GFP_KERNEL))
 		return -ENOMEM;
 
-	r_l = &rdt_resources_all[level].r_resctrl;
-	hw_res = resctrl_to_arch_res(r_l);
-	list_for_each_entry(d, &r_l->ctrl.domains, hdr.list) {
+	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
 		if (hw_res->has_per_cpu_cache_cfg)
 			/* Pick all the CPUs in the domain instance */
 			for_each_cpu(cpu, &d->hdr.cpu_mask)
@@ -186,49 +183,49 @@ void rdt_domain_reconfigure_cdp(struct rdt_resource *r)
 		l3_qos_cfg_update(&hw_res->cdp_enabled);
 }
 
-static int cdp_enable(int level)
+static int cdp_enable(struct rdt_hw_resource *hw_res)
 {
-	struct rdt_resource *r_l = &rdt_resources_all[level].r_resctrl;
+	struct rdt_resource *r = &hw_res->r_resctrl;
 	int ret;
 
-	if (!r_l->alloc_capable)
+	if (!r->alloc_capable)
 		return -EINVAL;
 
-	ret = set_cache_qos_cfg(level, true);
+	ret = set_cache_qos_cfg(hw_res, true);
 	if (!ret)
-		rdt_resources_all[level].cdp_enabled = true;
+		hw_res->cdp_enabled = true;
 
 	return ret;
 }
 
-static void cdp_disable(int level)
+static void cdp_disable(struct rdt_hw_resource *hw_res)
 {
-	struct rdt_hw_resource *r_hw = &rdt_resources_all[level];
-
-	if (r_hw->cdp_enabled) {
-		set_cache_qos_cfg(level, false);
-		r_hw->cdp_enabled = false;
+	if (hw_res->cdp_enabled) {
+		set_cache_qos_cfg(hw_res, false);
+		hw_res->cdp_enabled = false;
 	}
 }
 
-int resctrl_arch_set_cdp_enabled(enum resctrl_res_level l, bool enable)
+int resctrl_arch_set_cdp_enabled(struct rdt_resource *r, bool enable)
 {
-	struct rdt_hw_resource *hw_res = &rdt_resources_all[l];
+	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 
-	if (!hw_res->r_resctrl.cdp_capable)
+	if (!r->cdp_capable)
 		return -EINVAL;
 
 	if (enable)
-		return cdp_enable(l);
+		return cdp_enable(hw_res);
 
-	cdp_disable(l);
+	cdp_disable(hw_res);
 
 	return 0;
 }
 
-bool resctrl_arch_get_cdp_enabled(enum resctrl_res_level l)
+bool resctrl_arch_get_cdp_enabled(struct rdt_resource *r)
 {
-	return rdt_resources_all[l].cdp_enabled;
+	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
+
+	return hw_res->cdp_enabled;
 }
 
 void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
