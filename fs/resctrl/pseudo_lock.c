@@ -204,6 +204,12 @@ static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
 	plr->debugfs_dir = NULL;
 }
 
+
+static struct resctrl_ctrl *resctrl_get_pseudo_lock_ctrl(struct rdt_resource *r)
+{
+	return resctrl_get_cache_ctrl(r);
+}
+
 /**
  * pseudo_lock_region_init - Initialize pseudo-lock region information
  * @plr: pseudo-lock region
@@ -224,9 +230,16 @@ static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
  */
 static int pseudo_lock_region_init(struct pseudo_lock_region *plr)
 {
-	enum resctrl_scope scope = plr->f->res->ctrl.scope;
+	struct resctrl_ctrl *ctrl;
+	enum resctrl_scope scope;
 	struct cacheinfo *ci;
 	int ret;
+
+	ctrl = resctrl_get_pseudo_lock_ctrl(plr->f->res);
+	if (!ctrl)
+		return -ENODEV;
+
+	scope = ctrl->scope;
 
 	if (WARN_ON_ONCE(scope != RESCTRL_L2_CACHE && scope != RESCTRL_L3_CACHE))
 		return -ENODEV;
@@ -613,15 +626,24 @@ int rdtgroup_locksetup_exit(struct rdtgroup *rdtgrp)
  */
 bool rdtgroup_cbm_overlaps_pseudo_locked(struct rdt_ctrl_domain *d, unsigned long cbm)
 {
+	static struct resctrl_ctrl *ctrl;
 	unsigned int cbm_len;
 	unsigned long cbm_b;
 
-	if (d->plr) {
-		cbm_len = d->plr->f->res->ctrl.cache.cbm_len;
-		cbm_b = d->plr->cbm;
-		if (bitmap_intersects(&cbm, &cbm_b, cbm_len))
-			return true;
+	if (!d->plr)
+		return false;
+
+	ctrl = resctrl_get_pseudo_lock_ctrl(d->plr->f->res);
+	if (!ctrl) {
+		pr_warn("Unable to find pseudo-locking cache control\n");
+		return false;
 	}
+
+	cbm_len = ctrl->cache.cbm_len;
+	cbm_b = d->plr->cbm;
+	if (bitmap_intersects(&cbm, &cbm_b, cbm_len))
+		return true;
+
 	return false;
 }
 
@@ -642,6 +664,7 @@ bool rdtgroup_pseudo_locked_in_hierarchy(struct rdt_ctrl_domain *d)
 {
 	struct rdt_ctrl_domain *d_i;
 	cpumask_var_t cpu_with_psl;
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 	bool ret = false;
 
@@ -656,7 +679,10 @@ bool rdtgroup_pseudo_locked_in_hierarchy(struct rdt_ctrl_domain *d)
 	 * associated with them.
 	 */
 	for_each_alloc_capable_rdt_resource(r) {
-		list_for_each_entry(d_i, &r->ctrl.domains, hdr.list) {
+		ctrl = resctrl_get_pseudo_lock_ctrl(r);
+		if (!ctrl)
+			continue;
+		list_for_each_entry(d_i, &ctrl->domains, hdr.list) {
 			if (d_i->plr)
 				cpumask_or(cpu_with_psl, cpu_with_psl,
 					   &d_i->hdr.cpu_mask);
