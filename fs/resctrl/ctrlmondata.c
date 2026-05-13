@@ -304,6 +304,14 @@ next:
 	return -EINVAL;
 }
 
+static __maybe_unused struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
+{
+	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
+		return &r->ctrl;
+
+	return NULL;
+}
+
 /*
  * Only support one cache control per cache resource.
  */

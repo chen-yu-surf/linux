@@ -301,6 +301,17 @@ struct resctrl_mon {
 };
 
 /**
+ * enum resctrl_ctrl_name - Control name used to construct control schema
+ * @RESCTRL_CTRL_NAME_DEF:	The default control name. This is the empty
+ *				string used to create a schema consisting of
+ *				resource name only.
+ */
+enum resctrl_ctrl_name {
+	RESCTRL_CTRL_NAME_DEF,
+	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_DEF
+};
+
+/**
  * struct resctrl_ctrl - A resource control
  * @domains:	RCU list of all control domains
  * @scope:	Scope at which control allocates portions of the resource.
@@ -308,6 +319,11 @@ struct resctrl_mon {
  * @type:	The control type that determines the properties of the control,
  *		format string for displaying control values to user space, and
  *		parser of control values provided by user space.
+ * @name:	Name of the control. Contributes to final control schema
+ *		displayed to userspace that is constructed from the final
+ *		resource name (rdt_resource_final::name), @name, and the scope
+ *		of the resource (rdt_resource::alloc_scope) and control
+ *		(@scope).
  * @bitmap:	Bitmap control properties. Used by cache allocation.
  * @scalar:	Scalar control properties. Valid when @type == RESCTRL_CTRL_SCALAR.
  *		Used by memory bandwidth allocation.
@@ -316,6 +332,7 @@ struct resctrl_ctrl {
 	struct list_head	domains;
 	enum resctrl_scope	scope;
 	enum resctrl_ctrl_type	type;
+	enum resctrl_ctrl_name	name;
 	union {
 		struct resctrl_ctrl_bitmap	bitmap;
 		struct resctrl_ctrl_scalar	scalar;

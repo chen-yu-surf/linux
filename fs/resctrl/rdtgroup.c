@@ -87,6 +87,23 @@ enum resctrl_event_id mba_mbps_default_event;
 
 static bool resctrl_debug;
 
+static const char * const resctrl_ctrl_name[] = {
+	[RESCTRL_CTRL_NAME_DEF]		= "",
+};
+
+static __maybe_unused const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
+{
+	if (name < RESCTRL_CTRL_NAME_DEF || name > RESCTRL_CTRL_NAME_LAST) {
+		/*
+		 * Require architecture driver to initialize a control name
+		 * known to resctrl fs.
+		 */
+		WARN_ONCE(1, "Unknown control name\n");
+		return "unknown";
+	}
+	return resctrl_ctrl_name[name];
+}
+
 void rdt_last_cmd_clear(void)
 {
 	lockdep_assert_held(&rdtgroup_mutex);
