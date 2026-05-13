@@ -238,7 +238,7 @@ static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
  * the "id"s for this resource.
  */
 static int parse_line(char *line, struct rdt_resource_final *f,
-		      struct rdtgroup *rdtgrp)
+		      struct resctrl_ctrl *ctrl, struct rdtgroup *rdtgrp)
 {
 	enum resctrl_conf_type t = f->conf_type;
 	ctrlval_parser_t *parse_ctrlval = NULL;
@@ -252,7 +252,7 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	parse_ctrlval = resctrl_ctrl_priv_all[r->ctrl.type].parser;
+	parse_ctrlval = resctrl_ctrl_priv_all[ctrl->type].parser;
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP &&
 	    (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)) {
@@ -270,7 +270,7 @@ next:
 		return -EINVAL;
 	}
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
+	list_for_each_entry(d, &ctrl->domains, hdr.list) {
 		if (d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
@@ -303,7 +303,7 @@ static const char * const resctrl_ctrl_name[] = {
 	[RESCTRL_CTRL_NAME_DEF]		= "",
 };
 
-static __maybe_unused const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
+static const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
 {
 	if (name < RESCTRL_CTRL_NAME_DEF || name > RESCTRL_CTRL_NAME_LAST) {
 		pr_warn("Unknown control name\n");
@@ -342,6 +342,18 @@ struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r)
 	return ctrl;
 }
 
+static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
+						      char *ctrlname)
+{
+	if (!ctrlname && r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
+		return &r->ctrl;
+
+	if (ctrlname && !strcmp(ctrlname, resctrl_ctrl_name_str(r->ctrl.name)))
+		return &r->ctrl;
+
+	return NULL;
+}
+
 /*
  * Return length needed to display longest control suffix.
  * Add 1 for the "_" character when control name exists.
@@ -359,12 +371,22 @@ static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
 			       struct rdtgroup *rdtgrp)
 {
 	struct rdt_resource_final *f;
+	struct resctrl_ctrl *ctrl;
+	char *resname;
+
+	resname = strsep(&ctrlname, "_");
 
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
-		if (!strcmp(ctrlname, f->name) && rdtgrp->closid < f->num_closid)
-			return parse_line(tok, f, rdtgrp);
+		if (!strcmp(resname, f->name) && rdtgrp->closid < f->num_closid) {
+			ctrl = resctrl_resource_ctrl_get(f->res, ctrlname);
+			if (ctrl)
+				return parse_line(tok, f, ctrl, rdtgrp);
+			else
+				break;
+		}
 	}
-	rdt_last_cmd_printf("Unknown or unsupported control '%s'\n", ctrlname);
+	rdt_last_cmd_printf("Unknown or unsupported control '%s%s%s'\n",
+			    resname, ctrlname ? "_" : "", ctrlname ?: "");
 	return -EINVAL;
 }
 
