@@ -299,6 +299,27 @@ next:
 	return -EINVAL;
 }
 
+static const char * const resctrl_ctrl_name[] = {
+	[RESCTRL_CTRL_NAME_DEF]		= "",
+};
+
+static __maybe_unused const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
+{
+	if (name < RESCTRL_CTRL_NAME_DEF || name > RESCTRL_CTRL_NAME_LAST) {
+		pr_warn("Unknown control name\n");
+		return NULL;
+	}
+	return resctrl_ctrl_name[name];
+}
+
+static __maybe_unused struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
+{
+	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
+		return &r->ctrl;
+
+	return NULL;
+}
+
 /*
  * Only support one cache control per cache resource.
  */
