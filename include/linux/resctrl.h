@@ -48,6 +48,13 @@ int proc_resctrl_show(struct seq_file *m,
 	for_each_rdt_resource((r))					      \
 		if ((r)->mon_capable)
 
+/*
+ * Temporary: Do not treat like a real loop - do not use break and
+ * continue.
+ */
+#define for_each_resource_ctrl(ctrl, r)						\
+	ctrl = &r->ctrl;
+
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
@@ -259,7 +266,10 @@ enum resctrl_scope {
 	RESCTRL_L3_CACHE = 3,
 	RESCTRL_L3_NODE,
 	RESCTRL_PACKAGE,
+	RESCTRL_SCOPE_LAST = RESCTRL_PACKAGE
 };
+
+#define RESCTRL_NUM_SCOPE	(RESCTRL_SCOPE_LAST + 1)
 
 /**
  * enum resctrl_ctrl_type - The control type
@@ -324,6 +334,10 @@ enum resctrl_ctrl_name {
  *		resource name (rdt_resource_final::name), @name, and the scope
  *		of the resource (rdt_resource::alloc_scope) and control
  *		(@scope).
+ * @schema_suf:	Suffix of schema that is appended to rdt_resource_final::name
+ *		during resctrl mount to produce the control schema displayed to
+ *		user space. Constructed once by resctrl filesystem during
+ *		initialization. Any data placed by architecture will be overwritten.
  * @bitmap:	Bitmap control properties. Used by cache allocation.
  * @scalar:	Scalar control properties. Valid when @type == RESCTRL_CTRL_SCALAR.
  *		Used by memory bandwidth allocation.
@@ -333,6 +347,7 @@ struct resctrl_ctrl {
 	enum resctrl_scope	scope;
 	enum resctrl_ctrl_type	type;
 	enum resctrl_ctrl_name	name;
+	char			schema_suf[32];
 	union {
 		struct resctrl_ctrl_bitmap	bitmap;
 		struct resctrl_ctrl_scalar	scalar;

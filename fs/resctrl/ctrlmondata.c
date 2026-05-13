@@ -304,7 +304,7 @@ next:
 	return -EINVAL;
 }
 
-static __maybe_unused struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
+static struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
 	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
 		return &r->ctrl;
@@ -428,19 +428,20 @@ out_unlock:
 }
 
 static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
-		      char *resource_name, int closid)
+		      bool print_ctrl, int closid, struct resctrl_ctrl *ctrl)
 {
 	struct rdt_resource *r = f->res;
 	struct rdt_ctrl_domain *dom;
 	bool sep = false;
 	u32 ctrl_val;
 
-	/* Walking r->domains, ensure it can't race with cpuhp */
+	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	if (resource_name)
-		seq_printf(s, "%*s:", max_name_width, resource_name);
-	list_for_each_entry_rcu(dom, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
+	if (print_ctrl)
+		seq_printf(s, "%*s%s:", resctrl_prefix_width_adjust(ctrl),
+			   f->name, ctrl->schema_suf);
+	list_for_each_entry_rcu(dom, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 		if (sep)
 			seq_puts(s, ";");
 
@@ -450,7 +451,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,
 							   f->conf_type);
 
-		seq_printf(s, resctrl_ctrl_priv_all[r->ctrl.type].fmt_str,
+		seq_printf(s, resctrl_ctrl_priv_all[ctrl->type].fmt_str,
 			   dom->hdr.id, ctrl_val);
 		sep = true;
 	}
@@ -461,6 +462,7 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 			   struct seq_file *s, void *v)
 {
 	struct rdt_resource_final *f;
+	struct resctrl_ctrl *ctrl;
 	struct rdtgroup *rdtgrp;
 	int ret = 0;
 	u32 closid;
@@ -469,23 +471,33 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 	if (rdtgrp) {
 		if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 			list_for_each_entry(f, &rdt_resource_final_all, list) {
-				seq_printf(s, "%s:uninitialized\n", f->name);
+				ctrl = resctrl_resource_ctrl_get_default(f->res);
+				if (!ctrl)
+					continue;
+				seq_printf(s, "%*s%s:uninitialized\n",
+					   resctrl_prefix_width_adjust(ctrl),
+					   f->name, ctrl->schema_suf);
 			}
 		} else if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
 			if (!rdtgrp->plr->d) {
 				rdt_last_cmd_puts("Cache domain offline\n");
 				ret = -ENODEV;
 			} else {
-				seq_printf(s, "%s:%d=%x\n",
-					   rdtgrp->plr->f->res->name,
-					   rdtgrp->plr->d->hdr.id,
-					   rdtgrp->plr->cbm);
+				ctrl = resctrl_get_pseudo_lock_ctrl(rdtgrp->plr->f->res);
+				if (ctrl)
+					seq_printf(s, "%*s%s:%d=%x\n",
+						   resctrl_prefix_width_adjust(ctrl),
+						   rdtgrp->plr->f->name,
+						   ctrl->schema_suf,
+						   rdtgrp->plr->d->hdr.id,
+						   rdtgrp->plr->cbm);
 			}
 		} else {
 			closid = rdtgrp->closid;
 			list_for_each_entry(f, &rdt_resource_final_all, list) {
 				if (closid < f->num_closid)
-					show_doms(s, f, f->name, closid);
+					show_doms(s, f, true, closid,
+						  resctrl_resource_ctrl_get_default(f->res));
 			}
 		}
 	} else {
@@ -983,6 +995,7 @@ out_unlock:
 int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 	int ret = 0;
 
@@ -1004,13 +1017,20 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 		goto out_unlock;
 	}
 
+	ctrl = resctrl_io_alloc_get_ctrl(r);
+	if (!ctrl) {
+		rdt_last_cmd_puts("Unable to find io_alloc control\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
 	/*
 	 * When CDP is enabled, the CBMs of the highest CLOSID of CDP_CODE and
 	 * CDP_DATA are kept in sync. As a result, the io_alloc CBMs shown for
 	 * either CDP resource are identical and accurately represent the CBMs
 	 * used for I/O.
 	 */
-	show_doms(seq, f, NULL, resctrl_io_alloc_closid(r));
+	show_doms(seq, f, false, resctrl_io_alloc_closid(r), ctrl);
 
 out_unlock:
 	info_kn_unlock(of->kn);

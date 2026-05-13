@@ -91,7 +91,7 @@ static const char * const resctrl_ctrl_name[] = {
 	[RESCTRL_CTRL_NAME_DEF]		= "",
 };
 
-static __maybe_unused const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
+static const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
 {
 	if (name < RESCTRL_CTRL_NAME_DEF || name > RESCTRL_CTRL_NAME_LAST) {
 		/*
@@ -102,6 +102,33 @@ static __maybe_unused const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name n
 		return "unknown";
 	}
 	return resctrl_ctrl_name[name];
+}
+
+static const char * const scope_str[] = {
+	[RESCTRL_L2_CACHE]		= "L2",
+	[RESCTRL_L3_CACHE]		= "L3",
+	[RESCTRL_L3_NODE]		= "NODE",
+	[RESCTRL_PACKAGE]		= "PKG",
+};
+
+/**
+ * resctrl_scope_str - Return the string representation of scope
+ * @scope: the scope as &enum resctrl_scope
+ *
+ * Return: string representation of valid scope, "unknown" otherwise
+ */
+static const char *resctrl_scope_str(enum resctrl_scope scope)
+{
+	if (scope < RESCTRL_L2_CACHE || scope >= RESCTRL_NUM_SCOPE) {
+		/*
+		 * Require architecture driver to initialize a control
+		 * scope known to resctrl fs.
+		 */
+		WARN_ONCE(1, "Unknown control scope\n");
+		return "unknown";
+	}
+
+	return scope_str[scope];
 }
 
 void rdt_last_cmd_clear(void)
@@ -2914,6 +2941,36 @@ out_done:
 	return ret;
 }
 
+/*
+ * Return field width that should be used for a prefix of
+ * this resctrl_ctrl::schema_suf.
+ */
+int resctrl_prefix_width_adjust(struct resctrl_ctrl *ctrl)
+{
+	if (max_name_width < strlen(ctrl->schema_suf))
+		return 0;
+
+	return max_name_width - strlen(ctrl->schema_suf);
+}
+
+/*
+ * Return length of longest control suffix.
+ */
+static int ctrl_max_suffix_len(struct rdt_resource *r)
+{
+	struct resctrl_ctrl *ctrl;
+	int max_ctrl_len = 0;
+	int cl;
+
+	for_each_resource_ctrl(ctrl, r) {
+		cl = strlen(ctrl->schema_suf);
+		if (cl > max_ctrl_len)
+			max_ctrl_len = cl;
+	}
+
+	return max_ctrl_len;
+}
+
 static int final_resources_list_add(struct rdt_resource *r, enum resctrl_conf_type type)
 {
 	struct rdt_resource_final *f;
@@ -2956,6 +3013,8 @@ static int final_resources_list_add(struct rdt_resource *r, enum resctrl_conf_ty
 	if (r->cdp_capable && !resctrl_arch_get_cdp_enabled(r))
 		cl += 4;
 
+	cl += ctrl_max_suffix_len(r);
+
 	if (cl > max_name_width)
 		max_name_width = cl;
 
@@ -2969,6 +3028,8 @@ static int final_resources_list_create(void)
 {
 	struct rdt_resource *r;
 	int ret = 0;
+
+	max_name_width = 0;
 
 	for_each_alloc_capable_rdt_resource(r) {
 		if (resctrl_arch_get_cdp_enabled(r)) {
@@ -4845,6 +4906,108 @@ out_unlock:
 }
 
 /*
+ * Generate the suffix of a control schema to be appended to
+ * rdt_resource_final::name for display to user.
+ *
+ * control schema displayed to user in schemata file is constructed
+ * as follows:
+ *  <resource>_<resource_scope><control_scope>_<control_name>,
+ *  <control_scope> is dropped when resource_scope == control_scope.
+ *
+ * The resource name is <resource>_<resource_scope> but this is not
+ * consistent for legacy resources:
+ *  - MB resource has resource name "MB" with implicit L3 scope, any new "MB"
+ *    control schema should always contain the control scope.
+ *  - L2 resource has L2 scope as part of resource, neither resource nor
+ *    control scope need to be displayed as part of schema.
+ *  - L3 resource has L3 scope as part of resource, neither resource nor
+ *    control scope need to be displayed as part of schema.
+ */
+static int gen_ctrl_suffix(struct rdt_resource *r, struct resctrl_ctrl *ctrl)
+{
+	const char *sep = ctrl->name == RESCTRL_CTRL_NAME_DEF ? "" : "_";
+
+	/*
+	 * Do not print resource scope or control scope as part of
+	 * control name for L2 and L3 resources. The scope is implicit
+	 * in resource name.
+	 */
+	if (r->rid == RDT_RESOURCE_L2 || r->rid == RDT_RESOURCE_L3) {
+		if (WARN_ON_ONCE(r->alloc_scope != ctrl->scope))
+			return sizeof(ctrl->schema_suf);
+		return snprintf(ctrl->schema_suf, sizeof(ctrl->schema_suf),
+				"%s%s", sep, resctrl_ctrl_name_str(ctrl->name));
+	}
+
+	switch (r->rid) {
+	case RDT_RESOURCE_MBA:
+	case RDT_RESOURCE_SMBA:
+		/*
+		 * Legacy MB and SMBA resources are implicitly at L3 scope
+		 * but does not have the resource scope as part of the
+		 * resource name. Include the control scope in non-default
+		 * controls if it matches the resource scope to make up for
+		 * the omission.
+		 */
+		if (r->alloc_scope == ctrl->scope) {
+			if (ctrl->name == RESCTRL_CTRL_NAME_DEF) {
+				ctrl->schema_suf[0] = '\0';
+				return 0;
+			} else {
+				return snprintf(ctrl->schema_suf, sizeof(ctrl->schema_suf),
+						"_%s_%s", resctrl_scope_str(ctrl->scope),
+						resctrl_ctrl_name_str(ctrl->name));
+			}
+		} else {
+			return snprintf(ctrl->schema_suf, sizeof(ctrl->schema_suf),
+					"_%s%s%s%s",
+					resctrl_scope_str(r->alloc_scope),
+					resctrl_scope_str(ctrl->scope),
+					sep,
+					resctrl_ctrl_name_str(ctrl->name));
+		}
+		break;
+	default:
+		/*
+		 * Non-legacy resource is expected to have resource scope
+		 * as part of resource name. No need to include it again
+		 * in control name.
+		 */
+		if (r->alloc_scope == ctrl->scope)
+			return snprintf(ctrl->schema_suf, sizeof(ctrl->schema_suf),
+					"%s%s", sep,
+					resctrl_ctrl_name_str(ctrl->name));
+		else
+			return snprintf(ctrl->schema_suf, sizeof(ctrl->schema_suf),
+					"%s%s%s", resctrl_scope_str(ctrl->scope),
+					sep, resctrl_ctrl_name_str(ctrl->name));
+		break;
+	}
+
+	return sizeof(ctrl->schema_suf);
+}
+
+/*
+ * Verify and initialize the controls provided by architecture.
+ */
+static int controls_init(void)
+{
+	struct resctrl_ctrl *ctrl;
+	struct rdt_resource *r;
+	int ret = 0;
+
+	for_each_alloc_capable_rdt_resource(r) {
+		for_each_resource_ctrl(ctrl, r) {
+			ret = gen_ctrl_suffix(r, ctrl);
+			if (ret >= sizeof(ctrl->schema_suf))
+				return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+/*
  * resctrl_init - resctrl filesystem initialization
  *
  * Setup resctrl file system including set up root, create mount point,
@@ -4864,6 +5027,10 @@ int resctrl_init(void)
 	thread_throttle_mode_init();
 
 	io_alloc_init();
+
+	ret = controls_init();
+	if (ret)
+		return ret;
 
 	ret = resctrl_l3_mon_resource_init();
 	if (ret)
