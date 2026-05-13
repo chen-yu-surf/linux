@@ -238,7 +238,7 @@ static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
  * the "id"s for this resource.
  */
 static int parse_line(char *line, struct rdt_resource_final *f,
-		      struct rdtgroup *rdtgrp)
+		      struct resctrl_ctrl *ctrl, struct rdtgroup *rdtgrp)
 {
 	enum resctrl_conf_type t = f->conf_type;
 	ctrlval_parser_t *parse_ctrlval = NULL;
@@ -252,15 +252,16 @@ static int parse_line(char *line, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	parse_ctrlval = resctrl_ctrl_priv_all[r->ctrl.type].parser;
+	parse_ctrlval = resctrl_ctrl_priv_all[ctrl->type].parser;
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA) {
 			rdt_last_cmd_puts("Cannot pseudo-lock MBA resource\n");
 			return -EINVAL;
 		}
-		if (&r->ctrl != resctrl_get_pseudo_lock_ctrl(r)) {
-			rdt_last_cmd_puts("Cannot pseudo-lock using control\n");
+		if (ctrl != resctrl_get_pseudo_lock_ctrl(r)) {
+			rdt_last_cmd_printf("Cannot pseudo-lock using control %s%s\n",
+					    f->name, ctrl->schema_suf);
 			return -EINVAL;
 		}
 	}
@@ -275,7 +276,7 @@ next:
 		return -EINVAL;
 	}
 	dom = strim(dom);
-	list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
+	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 		if (d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
@@ -333,10 +334,16 @@ static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
 			       struct rdtgroup *rdtgrp)
 {
 	struct rdt_resource_final *f;
+	struct resctrl_ctrl *ctrl;
 
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
-		if (!strcmp(ctrlname, f->name) && rdtgrp->closid < f->num_closid)
-			return parse_line(tok, f, rdtgrp);
+		if (!strstarts(ctrlname, f->name))
+			continue;
+		for_each_resource_ctrl(ctrl, f->res) {
+			if (!strcmp(ctrlname + strlen(f->name), ctrl->schema_suf) &&
+			    rdtgrp->closid < f->num_closid)
+				return parse_line(tok, f, ctrl, rdtgrp);
+		}
 	}
 	rdt_last_cmd_printf("Unknown or unsupported control '%s'\n", ctrlname);
 	return -EINVAL;
