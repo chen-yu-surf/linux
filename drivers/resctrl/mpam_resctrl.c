@@ -148,7 +148,8 @@ int resctrl_arch_mbm_cntr_assign_set(struct rdt_resource *r, bool enable)
 	return -EINVAL;
 }
 
-int resctrl_arch_io_alloc_enable(struct rdt_resource *r, bool enable)
+int resctrl_arch_io_alloc_enable(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 bool enable)
 {
 	return -EOPNOTSUPP;
 }

@@ -800,6 +800,11 @@ out:
 	return ret;
 }
 
+static struct resctrl_ctrl *resctrl_io_alloc_get_ctrl(struct rdt_resource *r)
+{
+	return resctrl_get_cache_ctrl(r);
+}
+
 int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
@@ -835,7 +840,8 @@ static bool resctrl_io_alloc_closid_supported(u32 io_alloc_closid)
  * Initialize io_alloc CLOSID cache resource CBM with all usable (shared
  * and unused) cache portions.
  */
-static int resctrl_io_alloc_init_cbm(struct rdt_resource_final *f, u32 closid)
+static int resctrl_io_alloc_init_cbm(struct rdt_resource_final *f,
+				     struct resctrl_ctrl *ctrl, u32 closid)
 {
 	enum resctrl_conf_type peer_type;
 	struct rdt_resource *r = f->res;
@@ -851,7 +857,7 @@ static int resctrl_io_alloc_init_cbm(struct rdt_resource_final *f, u32 closid)
 	/* Keep CDP_CODE and CDP_DATA of io_alloc CLOSID's CBM in sync. */
 	if (resctrl_arch_get_cdp_enabled(r)) {
 		peer_type = resctrl_peer_type(f->conf_type);
-		list_for_each_entry(d, &f->res->ctrl.domains, hdr.list)
+		list_for_each_entry(d, &ctrl->domains, hdr.list)
 			memcpy(&d->staged_config[peer_type],
 			       &d->staged_config[f->conf_type],
 			       sizeof(d->staged_config[0]));
@@ -882,6 +888,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 	char const *grp_name;
 	u32 io_alloc_closid;
 	bool enable;
@@ -916,6 +923,13 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 		goto out_unlock;
 	}
 
+	ctrl = resctrl_io_alloc_get_ctrl(r);
+	if (!ctrl) {
+		rdt_last_cmd_puts("Unable to find io_alloc control\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
 	if (enable) {
 		if (!closid_alloc_fixed(io_alloc_closid)) {
 			grp_name = rdtgroup_name_by_closid(io_alloc_closid);
@@ -926,7 +940,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 			goto out_unlock;
 		}
 
-		ret = resctrl_io_alloc_init_cbm(f, io_alloc_closid);
+		ret = resctrl_io_alloc_init_cbm(f, ctrl, io_alloc_closid);
 		if (ret) {
 			rdt_last_cmd_puts("Failed to initialize io_alloc allocations\n");
 			closid_free(io_alloc_closid);
@@ -936,7 +950,7 @@ ssize_t resctrl_io_alloc_write(struct kernfs_open_file *of, char *buf,
 		closid_free(io_alloc_closid);
 	}
 
-	ret = resctrl_arch_io_alloc_enable(r, enable);
+	ret = resctrl_arch_io_alloc_enable(r, ctrl, enable);
 	if (enable && ret) {
 		rdt_last_cmd_puts("Failed to enable io_alloc feature\n");
 		closid_free(io_alloc_closid);
@@ -987,7 +1001,7 @@ out_unlock:
 }
 
 static int resctrl_io_alloc_parse_line(char *line, struct rdt_resource_final *f,
-				       u32 closid)
+				       struct resctrl_ctrl *ctrl, u32 closid)
 {
 	enum resctrl_conf_type peer_type;
 	unsigned long dom_id = ULONG_MAX;
@@ -1017,7 +1031,7 @@ next:
 	}
 
 	dom = strim(dom);
-	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
+	list_for_each_entry(d, &ctrl->domains, hdr.list) {
 		if (update_all || d->hdr.id == dom_id) {
 			data.buf = dom;
 			data.mode = RDT_MODE_SHAREABLE;
@@ -1051,6 +1065,7 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 	u32 io_alloc_closid;
 	int ret = 0;
 
@@ -1081,8 +1096,15 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 
 	io_alloc_closid = resctrl_io_alloc_closid(r);
 
+	ctrl = resctrl_io_alloc_get_ctrl(r);
+	if (!ctrl) {
+		rdt_last_cmd_puts("Unable to find io_alloc control\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
 	rdt_staged_configs_clear();
-	ret = resctrl_io_alloc_parse_line(buf, f, io_alloc_closid);
+	ret = resctrl_io_alloc_parse_line(buf, f, ctrl, io_alloc_closid);
 	if (ret)
 		goto out_clear_configs;
 

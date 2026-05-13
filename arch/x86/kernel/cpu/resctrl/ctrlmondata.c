@@ -107,25 +107,27 @@ static void resctrl_sdciae_set_one_amd(void *arg)
 		msr_clear_bit(MSR_IA32_L3_QOS_EXT_CFG, SDCIAE_ENABLE_BIT);
 }
 
-static void _resctrl_sdciae_enable(struct rdt_resource *r, bool enable)
+static void _resctrl_sdciae_enable(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				   bool enable)
 {
 	struct rdt_ctrl_domain *d;
 
-	/* Walking r->ctrl.domains, ensure it can't race with cpuhp */
+	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
 	/* Update MSR_IA32_L3_QOS_EXT_CFG MSR on all the CPUs in all domains */
-	list_for_each_entry(d, &r->ctrl.domains, hdr.list)
+	list_for_each_entry(d, &ctrl->domains, hdr.list)
 		on_each_cpu_mask(&d->hdr.cpu_mask, resctrl_sdciae_set_one_amd, &enable, 1);
 }
 
-int resctrl_arch_io_alloc_enable(struct rdt_resource *r, bool enable)
+int resctrl_arch_io_alloc_enable(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 bool enable)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 
 	if (hw_res->r_resctrl.cache_io_alloc_capable &&
 	    hw_res->sdciae_enabled != enable) {
-		_resctrl_sdciae_enable(r, enable);
+		_resctrl_sdciae_enable(r, ctrl, enable);
 		hw_res->sdciae_enabled = enable;
 	}
 

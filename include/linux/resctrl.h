@@ -696,6 +696,8 @@ void resctrl_arch_reset_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *d
 /**
  * resctrl_arch_io_alloc_enable() - Enable/disable io_alloc feature.
  * @r:		The resctrl resource.
+ * @ctrl:	The control specifying the properties and domains of resource
+ *		allocation used for io_alloc.
  * @enable:	Enable (true) or disable (false) io_alloc on resource @r.
  *
  * This can be called from any CPU.
@@ -703,7 +705,8 @@ void resctrl_arch_reset_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *d
  * Return:
  * 0 on success, <0 on error.
  */
-int resctrl_arch_io_alloc_enable(struct rdt_resource *r, bool enable);
+int resctrl_arch_io_alloc_enable(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 bool enable);
 
 /**
  * resctrl_arch_get_io_alloc_enabled() - Get io_alloc feature state.
