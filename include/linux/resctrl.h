@@ -301,11 +301,27 @@ struct resctrl_mon {
 };
 
 /**
+ * enum resctrl_ctrl_name - Suffix appended to resource name to create control name
+ * @RESCTRL_CTRL_NAME_DEF:	The default suffix which is the empty
+ *				string to create the default control that
+ *				has the same name as the resource.
+ */
+enum resctrl_ctrl_name {
+	RESCTRL_CTRL_NAME_DEF,
+	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_DEF
+};
+
+/**
  * struct resctrl_ctrl - A resource control
  * @domains:	RCU list of all control domains
  * @type:	The control type that determines the properties of the control,
  *		format string for displaying control values to user space, and
  *		parser of control values provided by user space.
+ * @name:	Name of the control. Appended to final resource name
+ *		(rdt_resource_final::name) to create final schema entry.
+ *		Specifically, "rdt_resource_final::name"_"resctrl_ctrl::name".
+ *		For example, with resource name "MB" and control name "MAX" the
+ *		schema entry will be "MB_MAX".
  * @bitmap:	Bitmap control properties. Used by cache allocation.
  * @scalar:	Scalar control properties. Valid when @type == RESCTRL_CTRL_SCALAR.
  *		Used by memory bandwidth allocation.
@@ -313,6 +329,7 @@ struct resctrl_mon {
 struct resctrl_ctrl {
 	struct list_head	domains;
 	enum resctrl_ctrl_type	type;
+	enum resctrl_ctrl_name	name;
 	union {
 		struct resctrl_ctrl_bitmap	bitmap;
 		struct resctrl_ctrl_scalar	scalar;
