@@ -850,7 +850,7 @@ static int resctrl_io_alloc_init_cbm(struct rdt_resource_final *f,
 
 	rdt_staged_configs_clear();
 
-	ret = rdtgroup_init_cat(f, closid);
+	ret = rdtgroup_init_cat(f, ctrl, closid);
 	if (ret < 0)
 		goto out;
 

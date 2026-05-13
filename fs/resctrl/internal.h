@@ -456,7 +456,8 @@ ssize_t mbm_L3_assignments_write(struct kernfs_open_file *of, char *buf, size_t 
 				 loff_t off);
 int resctrl_io_alloc_show(struct kernfs_open_file *of, struct seq_file *seq, void *v);
 
-int rdtgroup_init_cat(struct rdt_resource_final *f, u32 closid);
+int rdtgroup_init_cat(struct rdt_resource_final *f, struct resctrl_ctrl *ctrl,
+		      u32 closid);
 
 enum resctrl_conf_type resctrl_peer_type(enum resctrl_conf_type my_type);
 

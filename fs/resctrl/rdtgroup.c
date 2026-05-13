@@ -3639,17 +3639,11 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
  * If there are no more shareable bits available on any domain then
  * the entire allocation will fail.
  */
-int rdtgroup_init_cat(struct rdt_resource_final *f, u32 closid)
+int rdtgroup_init_cat(struct rdt_resource_final *f, struct resctrl_ctrl *ctrl,
+		      u32 closid)
 {
-	struct resctrl_ctrl *ctrl;
 	struct rdt_ctrl_domain *d;
 	int ret;
-
-	ctrl = resctrl_get_cache_ctrl(f->res);
-	if (!ctrl) {
-		pr_warn("Unable to find control for cache resource.\n");
-		return -EINVAL;
-	}
 
 	list_for_each_entry(d, &ctrl->domains, hdr.list) {
 		ret = __init_one_rdt_domain(d, f, closid, ctrl);
@@ -3682,6 +3676,7 @@ static void rdtgroup_init_mba(struct rdt_resource *r, u32 closid)
 static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 {
 	struct rdt_resource_final *f;
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 	int ret = 0;
 
@@ -3695,7 +3690,14 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 			if (is_mba_sc(r))
 				continue;
 		} else {
-			ret = rdtgroup_init_cat(f, rdtgrp->closid);
+			/* Support one cache control */
+			ctrl = resctrl_get_cache_ctrl(r);
+			if (!ctrl) {
+				rdt_last_cmd_puts("No cache control available\n");
+				ret = -EINVAL;
+				goto out;
+			}
+			ret = rdtgroup_init_cat(f, ctrl, rdtgrp->closid);
 			if (ret < 0)
 				goto out;
 		}
