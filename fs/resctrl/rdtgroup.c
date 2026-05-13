@@ -2793,6 +2793,12 @@ static int final_resources_list_add(struct rdt_resource *r, enum resctrl_conf_ty
 	cl = strlen(f->name);
 
 	/*
+	 * Maintain tabular format by taking into account the names of all
+	 * the resource's controls.
+	 */
+	cl += resctrl_resource_ctrl_max_len(f->res);
+
+	/*
 	 * If CDP is supported by this resource, but not enabled,
 	 * include the suffix. This ensures the tabular format of the
 	 * schemata file does not change between mounts of the filesystem.

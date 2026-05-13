@@ -312,12 +312,17 @@ static __maybe_unused const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name n
 	return resctrl_ctrl_name[name];
 }
 
-static __maybe_unused struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
+static struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
 	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
 		return &r->ctrl;
 
 	return NULL;
+}
+
+static bool resctrl_ctrl_is_default(struct resctrl_ctrl *ctrl)
+{
+	return ctrl->name == RESCTRL_CTRL_NAME_DEF;
 }
 
 /*
@@ -335,6 +340,19 @@ struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r)
 		return NULL;
 
 	return ctrl;
+}
+
+/*
+ * Return length needed to display longest control suffix.
+ * Add 1 for the "_" character when control name exists.
+ */
+size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
+{
+	/*
+	 * Temporary: only default control supported and it
+	 * has no suffix.
+	 */
+	return 0;
 }
 
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
@@ -436,7 +454,7 @@ out_unlock:
 }
 
 static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
-		      char *resource_name, int closid)
+		      bool print_ctrl, int closid, struct resctrl_ctrl *ctrl)
 {
 	struct rdt_resource *r = f->res;
 	struct rdt_ctrl_domain *dom;
@@ -446,9 +464,12 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	if (resource_name)
-		seq_printf(s, "%*s:", max_name_width, resource_name);
-	list_for_each_entry(dom, &r->ctrl.domains, hdr.list) {
+	if (print_ctrl)
+		seq_printf(s, "%*s%s%s:", max_name_width, f->name,
+				resctrl_ctrl_is_default(ctrl) ? "" : "_",
+				resctrl_ctrl_is_default(ctrl) ?
+				 "" : resctrl_ctrl_name_str(ctrl->name));
+	list_for_each_entry(dom, &ctrl->domains, hdr.list) {
 		if (sep)
 			seq_puts(s, ";");
 
@@ -458,7 +479,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,
 							   f->conf_type);
 
-		seq_printf(s, resctrl_ctrl_priv_all[r->ctrl.type].fmt_str,
+		seq_printf(s, resctrl_ctrl_priv_all[ctrl->type].fmt_str,
 			   dom->hdr.id, ctrl_val);
 		sep = true;
 	}
@@ -469,6 +490,7 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 			   struct seq_file *s, void *v)
 {
 	struct rdt_resource_final *f;
+	struct resctrl_ctrl *ctrl;
 	struct rdtgroup *rdtgrp;
 	int ret = 0;
 	u32 closid;
@@ -477,7 +499,13 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 	if (rdtgrp) {
 		if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 			list_for_each_entry(f, &rdt_resource_final_all, list) {
-				seq_printf(s, "%s:uninitialized\n", f->name);
+				ctrl = resctrl_resource_ctrl_get_default(f->res);
+				if (!ctrl)
+					continue;
+				seq_printf(s, "%s%s%s:uninitialized\n", f->name,
+					   resctrl_ctrl_is_default(ctrl) ? "" : "_",
+					   resctrl_ctrl_is_default(ctrl) ?
+					    "" : resctrl_ctrl_name_str(ctrl->name));
 			}
 		} else if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
 			if (!rdtgrp->plr->d) {
@@ -493,7 +521,8 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 			closid = rdtgrp->closid;
 			list_for_each_entry(f, &rdt_resource_final_all, list) {
 				if (closid < f->num_closid)
-					show_doms(s, f, f->name, closid);
+					show_doms(s, f, true, closid,
+						  resctrl_resource_ctrl_get_default(f->res));
 			}
 		}
 	} else {
@@ -988,6 +1017,7 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
 	struct rdt_resource *r = f->res;
+	struct resctrl_ctrl *ctrl;
 	int ret = 0;
 
 	cpus_read_lock();
@@ -1007,13 +1037,20 @@ int resctrl_io_alloc_cbm_show(struct kernfs_open_file *of, struct seq_file *seq,
 		goto out_unlock;
 	}
 
+	ctrl = resctrl_io_alloc_get_ctrl(r);
+	if (!ctrl) {
+		rdt_last_cmd_puts("Unable to find io_alloc control\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
 	/*
 	 * When CDP is enabled, the CBMs of the highest CLOSID of CDP_CODE and
 	 * CDP_DATA are kept in sync. As a result, the io_alloc CBMs shown for
 	 * either CDP resource are identical and accurately represent the CBMs
 	 * used for I/O.
 	 */
-	show_doms(seq, f, NULL, resctrl_io_alloc_closid(r));
+	show_doms(seq, f, false, resctrl_io_alloc_closid(r), ctrl);
 
 out_unlock:
 	mutex_unlock(&rdtgroup_mutex);

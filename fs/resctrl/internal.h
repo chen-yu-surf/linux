@@ -471,6 +471,8 @@ ssize_t resctrl_io_alloc_cbm_write(struct kernfs_open_file *of, char *buf,
 				   size_t nbytes, loff_t off);
 u32 resctrl_io_alloc_closid(struct rdt_resource *r);
 
+size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r);
+
 #ifdef CONFIG_RESCTRL_FS_PSEUDO_LOCK
 int rdtgroup_locksetup_enter(struct rdtgroup *rdtgrp);
 
