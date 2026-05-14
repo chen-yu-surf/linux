@@ -648,11 +648,12 @@ void mon_event_count(void *info)
  * Context: Call from RCU read-side critical section.
  */
 static struct rdt_ctrl_domain *get_sc_ctrl_domain_from_cpu(int cpu,
-							   struct rdt_resource *r)
+							   struct rdt_resource *r,
+							   struct resctrl_ctrl *ctrl)
 {
 	struct rdt_ctrl_domain *d;
 
-	list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list) {
+	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list) {
 		/* Find the domain that contains this CPU */
 		if (cpumask_test_cpu(cpu, &d->hdr.cpu_mask))
 			return d;
@@ -700,11 +701,17 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	struct rdt_ctrl_domain *dom_mba;
 	enum resctrl_event_id evt_id;
 	struct rdt_resource *r_mba;
+	struct resctrl_ctrl *ctrl;
 	struct list_head *head;
 	struct rdtgroup *entry;
 	u32 cur_bw, user_bw;
 
 	r_mba = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
+	ctrl = resctrl_get_mba_sc_ctrl(r_mba);
+	if (!ctrl) {
+		pr_warn_once("Unable to determine MBA controller for software control\n");
+		return;
+	}
 	evt_id = rgrp->mba_mbps_event;
 
 	closid = rgrp->closid;
@@ -714,7 +721,7 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 		return;
 
 	guard(rcu)();
-	dom_mba = get_sc_ctrl_domain_from_cpu(smp_processor_id(), r_mba);
+	dom_mba = get_sc_ctrl_domain_from_cpu(smp_processor_id(), r_mba, ctrl);
 	if (!dom_mba) {
 		pr_warn_once("Failure to get domain for MBA update\n");
 		return;
@@ -750,11 +757,11 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	 * 40% would go past the limit by multiplying current bandwidth by
 	 * "(30 + 10) / 30".
 	 */
-	if (cur_msr_val > r_mba->ctrl.scalar.min && user_bw < cur_bw) {
-		new_msr_val = cur_msr_val - r_mba->ctrl.scalar.gran;
+	if (cur_msr_val > ctrl->scalar.min && user_bw < cur_bw) {
+		new_msr_val = cur_msr_val - ctrl->scalar.gran;
 	} else if (cur_msr_val < MAX_MBA_BW &&
-		   (user_bw > (cur_bw * (cur_msr_val + r_mba->ctrl.scalar.min) / cur_msr_val))) {
-		new_msr_val = cur_msr_val + r_mba->ctrl.scalar.gran;
+		   (user_bw > (cur_bw * (cur_msr_val + ctrl->scalar.min) / cur_msr_val))) {
+		new_msr_val = cur_msr_val + ctrl->scalar.gran;
 	} else {
 		return;
 	}
