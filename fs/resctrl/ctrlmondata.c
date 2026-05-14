@@ -469,13 +469,6 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
 
-		/*
-		 * Writes to mba_sc resources update the software controller,
-		 * not the control MSR.
-		 */
-		if (is_mba_sc(r, NULL))
-			continue;
-
 		ret = resctrl_arch_update_domains(r, rdtgrp->closid);
 		if (ret)
 			goto out_clear_staged;
