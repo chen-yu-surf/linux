@@ -1589,7 +1589,7 @@ unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
 	return size;
 }
 
-bool is_mba_sc(struct rdt_resource *r)
+bool is_mba_sc(struct rdt_resource *r, struct resctrl_ctrl *ctrl)
 {
 	if (!r)
 		r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
@@ -1601,7 +1601,13 @@ bool is_mba_sc(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_MBA)
 		return false;
 
-	return r->ctrl.membw.mba_sc;
+	if (!ctrl) {
+		ctrl = resctrl_get_mba_sc_ctrl(r);
+		if (!ctrl)
+			return false;
+	}
+
+	return ctrl->membw.mba_sc;
 }
 
 /*
@@ -2579,10 +2585,17 @@ static bool supports_mba_mbps(void)
 {
 	struct rdt_resource *rmbm = resctrl_arch_get_resource(RDT_RESOURCE_L3);
 	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
+	struct resctrl_ctrl *ctrl;
 
-	return (resctrl_is_mbm_enabled() &&
-		r->alloc_capable && r->bw_delay_linear &&
-		r->ctrl.scope == rmbm->mon_scope &&
+	if (!r->alloc_capable)
+		return false;
+
+	ctrl = resctrl_get_mba_sc_ctrl(r);
+	if (!ctrl)
+		return false;
+
+	return (resctrl_is_mbm_enabled() && r->bw_delay_linear &&
+		ctrl->scope == rmbm->mon_scope &&
 		!rmbm->mon.mbm_cntr_assignable);
 }
 
@@ -2595,17 +2608,22 @@ static int set_mba_sc(bool mba_sc)
 	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
 	u32 num_closid = resctrl_arch_get_num_closid(r);
 	struct rdt_ctrl_domain *d;
+	struct resctrl_ctrl *ctrl;
 	unsigned long fflags;
 	int i;
 
 	if (!supports_mba_mbps() || mba_sc == is_mba_sc(r))
 		return -EINVAL;
 
-	r->ctrl.membw.mba_sc = mba_sc;
+	ctrl = resctrl_get_mba_sc_ctrl(r);
+	if (!ctrl)
+		return -EINVAL;
+
+	ctrl->membw.mba_sc = mba_sc;
 
 	rdtgroup_default.mba_mbps_event = mba_mbps_default_event;
 
-	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
+	list_for_each_entry(d, &ctrl->domains, hdr.list) {
 		for (i = 0; i < num_closid; i++)
 			d->mbps_val[i] = MBA_MAX_MBPS;
 	}
