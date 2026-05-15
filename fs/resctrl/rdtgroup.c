@@ -113,13 +113,16 @@ void rdt_last_cmd_printf(const char *fmt, ...)
 void rdt_staged_configs_clear(void)
 {
 	struct rdt_ctrl_domain *dom;
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	lockdep_assert_held(&rdtgroup_mutex);
 
 	for_each_alloc_capable_rdt_resource(r) {
-		list_for_each_entry(dom, &r->ctrl.domains, hdr.list)
-			memset(dom->staged_config, 0, sizeof(dom->staged_config));
+		for_each_resource_ctrl(ctrl, r) {
+			list_for_each_entry(dom, &ctrl->domains, hdr.list)
+				memset(dom->staged_config, 0, sizeof(dom->staged_config));
+		}
 	}
 }
 
