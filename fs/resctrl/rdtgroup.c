@@ -1809,7 +1809,8 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 			goto out;
 		}
 		sep = false;
-		seq_printf(s, "%*s:", max_name_width, f->name);
+		seq_printf(s, "%*s%s:", resctrl_prefix_width_adjust(ctrl),
+			   f->name, ctrl->schema_suf);
 		list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 			if (sep)
 				seq_putc(s, ';');
