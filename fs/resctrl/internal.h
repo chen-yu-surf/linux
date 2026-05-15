@@ -358,7 +358,8 @@ int rdtgroup_mba_mbps_event_show(struct kernfs_open_file *of,
 				 struct seq_file *s, void *v);
 
 bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain *d,
-			   unsigned long cbm, int closid, bool exclusive);
+			   unsigned long cbm, int closid, bool exclusive,
+			   struct resctrl_ctrl *ctrl);
 
 unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 				  unsigned long cbm);
@@ -397,7 +398,8 @@ void mbm_setup_overflow_handler(struct rdt_l3_mon_domain *dom,
 
 void mbm_handle_overflow(struct work_struct *work);
 
-bool is_mba_sc(struct rdt_resource *r);
+bool is_mba_sc(struct rdt_resource *r, struct resctrl_ctrl *ctrl);
+struct resctrl_ctrl *resctrl_get_mba_sc_ctrl(struct rdt_resource *r);
 
 void cqm_setup_limbo_handler(struct rdt_l3_mon_domain *dom, unsigned long delay_ms,
 			     int exclude_cpu);

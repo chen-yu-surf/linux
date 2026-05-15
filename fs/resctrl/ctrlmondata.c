@@ -32,12 +32,13 @@ struct rdt_parse_data {
 
 typedef int (ctrlval_parser_t)(struct rdt_parse_data *data,
 			       struct rdt_resource_final *f,
-			       struct rdt_ctrl_domain *d);
+			       struct rdt_ctrl_domain *d,
+			       struct resctrl_ctrl *ctrl);
 
 static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
-		    struct rdt_ctrl_domain *d);
+		    struct rdt_ctrl_domain *d, struct resctrl_ctrl *ctrl);
 static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
-		     struct rdt_ctrl_domain *d);
+		     struct rdt_ctrl_domain *d, struct resctrl_ctrl *ctrl);
 
 /*
  * resource control properties that are private to the filesystem.
@@ -67,7 +68,8 @@ static struct resctrl_ctrl_priv resctrl_ctrl_priv_all[] = {
  * hardware. The allocated bandwidth percentage is rounded to the next
  * control step available on the hardware.
  */
-static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
+static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r,
+			struct resctrl_ctrl *ctrl)
 {
 	int ret;
 	u32 bw;
@@ -79,23 +81,23 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 	}
 
 	/* Nothing else to do if software controller is enabled. */
-	if (is_mba_sc(r)) {
+	if (is_mba_sc(r, ctrl)) {
 		*data = bw;
 		return true;
 	}
 
-	if (bw < r->ctrl.membw.min_bw || bw > r->ctrl.membw.max_bw) {
+	if (bw < ctrl->membw.min_bw || bw > ctrl->membw.max_bw) {
 		rdt_last_cmd_printf("MB value %u out of range [%d,%d]\n",
-				    bw, r->ctrl.membw.min_bw, r->ctrl.membw.max_bw);
+				    bw, ctrl->membw.min_bw, ctrl->membw.max_bw);
 		return false;
 	}
 
-	*data = roundup(bw, (unsigned long)r->ctrl.membw.bw_gran);
+	*data = roundup(bw, (unsigned long)ctrl->membw.bw_gran);
 	return true;
 }
 
 static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
-		    struct rdt_ctrl_domain *d)
+		    struct rdt_ctrl_domain *d, struct resctrl_ctrl *ctrl)
 {
 	struct resctrl_staged_config *cfg;
 	struct rdt_resource *r = f->res;
@@ -108,10 +110,10 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
 		return -EINVAL;
 	}
 
-	if (!bw_validate(data->buf, &bw_val, r))
+	if (!bw_validate(data->buf, &bw_val, r, ctrl))
 		return -EINVAL;
 
-	if (is_mba_sc(r)) {
+	if (is_mba_sc(r, ctrl)) {
 		d->mbps_val[closid] = bw_val;
 		return 0;
 	}
@@ -132,10 +134,10 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
  * requires at least two bits set.
  * AMD allows non-contiguous bitmasks.
  */
-static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
+static bool cbm_validate(char *buf, u32 *data, struct resctrl_ctrl *ctrl)
 {
-	u32 supported_bits = BIT_MASK(r->ctrl.cache.cbm_len) - 1;
-	unsigned int cbm_len = r->ctrl.cache.cbm_len;
+	u32 supported_bits = BIT_MASK(ctrl->cache.cbm_len) - 1;
+	unsigned int cbm_len = ctrl->cache.cbm_len;
 	unsigned long first_bit, zero_bit, val;
 	int ret;
 
@@ -145,7 +147,7 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
 		return false;
 	}
 
-	if ((r->ctrl.cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
+	if ((ctrl->cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
 		rdt_last_cmd_puts("Mask out of range\n");
 		return false;
 	}
@@ -154,15 +156,15 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
 	zero_bit = find_next_zero_bit(&val, cbm_len, first_bit);
 
 	/* Are non-contiguous bitmasks allowed? */
-	if (!r->ctrl.cache.arch_has_sparse_bitmasks &&
+	if (!ctrl->cache.arch_has_sparse_bitmasks &&
 	    (find_next_bit(&val, cbm_len, zero_bit) < cbm_len)) {
 		rdt_last_cmd_printf("The mask %lx has non-consecutive 1-bits\n", val);
 		return false;
 	}
 
-	if ((zero_bit - first_bit) < r->ctrl.cache.min_cbm_bits) {
+	if ((zero_bit - first_bit) < ctrl->cache.min_cbm_bits) {
 		rdt_last_cmd_printf("Need at least %d bits in the mask\n",
-				    r->ctrl.cache.min_cbm_bits);
+				    ctrl->cache.min_cbm_bits);
 		return false;
 	}
 
@@ -175,11 +177,10 @@ static bool cbm_validate(char *buf, u32 *data, struct rdt_resource *r)
  * resource type.
  */
 static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
-		     struct rdt_ctrl_domain *d)
+		     struct rdt_ctrl_domain *d, struct resctrl_ctrl *ctrl)
 {
 	enum rdtgrp_mode mode = data->mode;
 	struct resctrl_staged_config *cfg;
-	struct rdt_resource *r = f->res;
 	u32 closid = data->closid;
 	u32 cbm_val;
 
@@ -199,7 +200,7 @@ static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
 		return -EINVAL;
 	}
 
-	if (!cbm_validate(data->buf, &cbm_val, r))
+	if (!cbm_validate(data->buf, &cbm_val, ctrl))
 		return -EINVAL;
 
 	if ((mode == RDT_MODE_EXCLUSIVE || mode == RDT_MODE_SHAREABLE) &&
@@ -212,12 +213,12 @@ static int parse_cbm(struct rdt_parse_data *data, struct rdt_resource_final *f,
 	 * The CBM may not overlap with the CBM of another closid if
 	 * either is exclusive.
 	 */
-	if (rdtgroup_cbm_overlaps(f, d, cbm_val, closid, true)) {
+	if (rdtgroup_cbm_overlaps(f, d, cbm_val, closid, true, ctrl)) {
 		rdt_last_cmd_puts("Overlaps with exclusive group\n");
 		return -EINVAL;
 	}
 
-	if (rdtgroup_cbm_overlaps(f, d, cbm_val, closid, false)) {
+	if (rdtgroup_cbm_overlaps(f, d, cbm_val, closid, false, ctrl)) {
 		if (mode == RDT_MODE_EXCLUSIVE ||
 		    mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 			rdt_last_cmd_puts("Overlaps with other group\n");
@@ -275,7 +276,7 @@ next:
 			data.buf = dom;
 			data.closid = rdtgrp->closid;
 			data.mode = rdtgrp->mode;
-			if (parse_ctrlval(&data, f, d))
+			if (parse_ctrlval(&data, f, d, ctrl))
 				return -EINVAL;
 			if (rdtgrp->mode ==  RDT_MODE_PSEUDO_LOCKSETUP) {
 				cfg = &d->staged_config[t];
@@ -337,6 +338,28 @@ struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r)
 
 	ctrl = &r->ctrl;
 	if (ctrl->type != RESCTRL_CTRL_BITMAP)
+		return NULL;
+
+	return ctrl;
+}
+
+/*
+ * Get control used by MBA software controller. This is the default
+ * control of MBA resource that has same name as the resource ("MB")
+ */
+struct resctrl_ctrl *resctrl_get_mba_sc_ctrl(struct rdt_resource *r)
+{
+	struct resctrl_ctrl *ctrl;
+
+	if (r->rid != RDT_RESOURCE_MBA)
+		return NULL;
+
+	ctrl = &r->ctrl;
+
+	if (!resctrl_ctrl_is_default(ctrl))
+		return NULL;
+
+	if (ctrl->type != RESCTRL_CTRL_SCALAR)
 		return NULL;
 
 	return ctrl;
@@ -450,7 +473,7 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 		 * Writes to mba_sc resources update the software controller,
 		 * not the control MSR.
 		 */
-		if (is_mba_sc(r))
+		if (is_mba_sc(r, NULL))
 			continue;
 
 		ret = resctrl_arch_update_domains(r, rdtgrp->closid);
@@ -495,7 +518,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 		if (sep)
 			seq_puts(s, ";");
 
-		if (is_mba_sc(r))
+		if (is_mba_sc(r, ctrl))
 			ctrl_val = dom->mbps_val[closid];
 		else
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,
@@ -1116,7 +1139,7 @@ next:
 			data.buf = dom;
 			data.mode = RDT_MODE_SHAREABLE;
 			data.closid = closid;
-			if (parse_cbm(&data, f, d))
+			if (parse_cbm(&data, f, d, ctrl))
 				return -EINVAL;
 			/*
 			 * Keep io_alloc CLOSID's CBM of CDP_CODE and CDP_DATA
