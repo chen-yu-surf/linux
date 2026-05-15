@@ -1689,6 +1689,7 @@ out:
 /**
  * rdtgroup_cbm_to_size - Translate CBM to size in bytes
  * @r: RDT resource to which @d belongs.
+ * @ctrl: Properties of the cache control
  * @d: RDT domain instance.
  * @cbm: bitmask for which the size should be computed.
  *
@@ -1703,25 +1704,18 @@ out:
  *
  * Return: Size (in bytes) of cache portion represented by CBM, 0 on failure.
  */
-unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
+unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 				  struct rdt_ctrl_domain *d, unsigned long cbm)
 {
-	struct resctrl_ctrl *ctrl;
 	unsigned int size = 0;
 	struct cacheinfo *ci;
 	int num_b;
 
-	if (WARN_ON_ONCE(r->ctrl.scope != RESCTRL_L2_CACHE && r->ctrl.scope != RESCTRL_L3_CACHE))
+	if (WARN_ON_ONCE(ctrl->scope != RESCTRL_L2_CACHE && ctrl->scope != RESCTRL_L3_CACHE))
 		return size;
 
-	ctrl = resctrl_get_cache_ctrl(r);
-	if (!ctrl) {
-		pr_warn("Unable to find default control for cache resource\n");
-		return 0;
-	}
-
 	num_b = bitmap_weight(&cbm, ctrl->bitmap.cbm_len);
-	ci = get_cpu_cacheinfo_level(cpumask_any(&d->hdr.cpu_mask), r->ctrl.scope);
+	ci = get_cpu_cacheinfo_level(cpumask_any(&d->hdr.cpu_mask), ctrl->scope);
 	if (ci)
 		size = ci->size / ctrl->bitmap.cbm_len * num_b;
 
@@ -1786,9 +1780,15 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 			rdt_last_cmd_puts("Cache domain offline\n");
 			ret = -ENODEV;
 		} else {
+			ctrl = resctrl_get_pseudo_lock_ctrl(rdtgrp->plr->f->res);
+			if (!ctrl) {
+				ret = -EINVAL;
+				goto out;
+			}
 			seq_printf(s, "%*s:", max_name_width,
 				   rdtgrp->plr->f->name);
 			size = rdtgroup_cbm_to_size(rdtgrp->plr->f->res,
+						    ctrl,
 						    rdtgrp->plr->d,
 						    rdtgrp->plr->cbm);
 			seq_printf(s, "%d=%u\n", rdtgrp->plr->d->hdr.id, size);
@@ -1827,7 +1827,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 				    r->rid == RDT_RESOURCE_SMBA)
 					size = ctrl_val;
 				else
-					size = rdtgroup_cbm_to_size(r, d, ctrl_val);
+					size = rdtgroup_cbm_to_size(r, ctrl, d, ctrl_val);
 			}
 			seq_printf(s, "%d=%u", d->hdr.id, size);
 			sep = true;
