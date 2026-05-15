@@ -4741,6 +4741,7 @@ cleanup_mountpoint:
 
 static bool resctrl_online_domains_exist(void)
 {
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	/*
@@ -4748,8 +4749,10 @@ static bool resctrl_online_domains_exist(void)
 	 * to return dummy 'not capable' resources.
 	 */
 	for_each_alloc_capable_rdt_resource(r) {
-		if (!list_empty(&r->ctrl.domains))
-			return true;
+		for_each_resource_ctrl(ctrl, r) {
+			if (!list_empty(&ctrl->domains))
+				return true;
+		}
 	}
 
 	for_each_mon_capable_rdt_resource(r) {
