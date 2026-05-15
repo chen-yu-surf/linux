@@ -42,7 +42,8 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	return 0;
 }
 
-int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
+static void _resctrl_arch_update_domains(struct rdt_resource *r,
+					 struct resctrl_ctrl *ctrl, u32 closid)
 {
 	struct resctrl_staged_config *cfg;
 	struct rdt_hw_ctrl_domain *hw_dom;
@@ -51,10 +52,10 @@ int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
 	enum resctrl_conf_type t;
 	u32 idx;
 
-	/* Walking r->domains, ensure it can't race with cpuhp */
+	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
+	list_for_each_entry(d, &ctrl->domains, hdr.list) {
 		hw_dom = resctrl_to_arch_ctrl_dom(d);
 		msr_param.res = NULL;
 		for (t = 0; t < CDP_NUM_TYPES; t++) {
@@ -80,6 +81,15 @@ int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
 		if (msr_param.res)
 			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &msr_param, 1);
 	}
+}
+
+
+int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
+{
+	struct resctrl_ctrl *ctrl;
+
+	for_each_resource_ctrl(ctrl, r)
+		_resctrl_arch_update_domains(r, ctrl, closid);
 
 	return 0;
 }

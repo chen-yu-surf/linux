@@ -1177,8 +1177,9 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 	}
 }
 
-int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
-			    u32 closid, enum resctrl_conf_type t, u32 cfg_val)
+int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+			    struct rdt_ctrl_domain *d, u32 closid,
+			    enum resctrl_conf_type t, u32 cfg_val)
 {
 	int err;
 	u32 partid;
@@ -1250,7 +1251,8 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 	return mpam_apply_config(dom->ctrl_comp, partid, &cfg);
 }
 
-int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
+static int _resctrl_arch_update_domains(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+					u32 closid)
 {
 	int err;
 	struct rdt_ctrl_domain *d;
@@ -1258,21 +1260,41 @@ int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
 	lockdep_assert_cpus_held();
 	lockdep_assert_irqs_enabled();
 
-	if (!mpam_is_enabled())
-		return -EINVAL;
-
-	list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list) {
+	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list) {
 		for (enum resctrl_conf_type t = 0; t < CDP_NUM_TYPES; t++) {
 			struct resctrl_staged_config *cfg = &d->staged_config[t];
 
 			if (!cfg->have_new_ctrl)
 				continue;
 
-			err = resctrl_arch_update_one(r, d, closid, t,
+			err = resctrl_arch_update_one(r, ctrl, d, closid, t,
 						      cfg->new_ctrl);
 			if (err)
 				return err;
 		}
+	}
+
+	return 0;
+}
+
+int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid)
+{
+	struct resctrl_ctrl *ctrl;
+	int err;
+
+	if (!mpam_is_enabled())
+		return -EINVAL;
+
+	/*
+	 * FIXME:
+	 * What is likelihood of hardware configuration failing?
+	 * What is likelihood of configuration failing on one but not all
+	 * controls? How to communicate to user space?
+	 */
+	for_each_resource_ctrl(ctrl, r) {
+		err = _resctrl_arch_update_domains(r, ctrl, closid);
+		if (err)
+			return err;
 	}
 
 	return 0;
