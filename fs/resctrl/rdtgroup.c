@@ -1678,7 +1678,11 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 			goto out;
 		}
 		sep = false;
-		seq_printf(s, "%*s:", max_name_width, f->name);
+		seq_printf(s, "%*s", max_name_width, f->name);
+		if (!resctrl_ctrl_is_default(ctrl))
+			seq_printf(s, "_%s:", resctrl_ctrl_name_str(ctrl->name));
+		else
+			seq_putc(s, ':');
 		list_for_each_entry(d, &ctrl->domains, hdr.list) {
 			if (sep)
 				seq_putc(s, ';');

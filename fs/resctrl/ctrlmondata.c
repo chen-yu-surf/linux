@@ -304,7 +304,7 @@ static const char * const resctrl_ctrl_name[] = {
 	[RESCTRL_CTRL_NAME_DEF]		= "",
 };
 
-static const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
+const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
 {
 	if (name < RESCTRL_CTRL_NAME_DEF || name > RESCTRL_CTRL_NAME_LAST) {
 		pr_warn("Unknown control name\n");
@@ -321,7 +321,7 @@ struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 	return NULL;
 }
 
-static bool resctrl_ctrl_is_default(struct resctrl_ctrl *ctrl)
+bool resctrl_ctrl_is_default(struct resctrl_ctrl *ctrl)
 {
 	return ctrl->name == RESCTRL_CTRL_NAME_DEF;
 }
