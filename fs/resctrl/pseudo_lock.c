@@ -205,7 +205,7 @@ static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
 }
 
 
-static struct resctrl_ctrl *resctrl_get_pseudo_lock_ctrl(struct rdt_resource *r)
+struct resctrl_ctrl *resctrl_get_pseudo_lock_ctrl(struct rdt_resource *r)
 {
 	return resctrl_get_cache_ctrl(r);
 }
@@ -257,7 +257,7 @@ static int pseudo_lock_region_init(struct pseudo_lock_region *plr)
 	ci = get_cpu_cacheinfo_level(plr->cpu, scope);
 	if (ci) {
 		plr->line_size = ci->coherency_line_size;
-		plr->size = rdtgroup_cbm_to_size(plr->f->res, plr->d, plr->cbm);
+		plr->size = rdtgroup_cbm_to_size(plr->f->res, ctrl, plr->d, plr->cbm);
 		return 0;
 	}
 

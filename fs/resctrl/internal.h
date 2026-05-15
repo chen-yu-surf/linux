@@ -361,8 +361,8 @@ bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain 
 			   unsigned long cbm, int closid, bool exclusive,
 			   struct resctrl_ctrl *ctrl);
 
-unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r, struct rdt_ctrl_domain *d,
-				  unsigned long cbm);
+unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				  struct rdt_ctrl_domain *d, unsigned long cbm);
 
 enum rdtgrp_mode rdtgroup_mode_by_closid(int closid);
 
@@ -494,6 +494,7 @@ void rdt_pseudo_lock_release(void);
 int rdtgroup_pseudo_lock_create(struct rdtgroup *rdtgrp);
 
 void rdtgroup_pseudo_lock_remove(struct rdtgroup *rdtgrp);
+struct resctrl_ctrl *resctrl_get_pseudo_lock_ctrl(struct rdt_resource *r);
 
 #else
 static inline int rdtgroup_locksetup_enter(struct rdtgroup *rdtgrp)
@@ -524,6 +525,11 @@ static inline int rdtgroup_pseudo_lock_create(struct rdtgroup *rdtgrp)
 }
 
 static inline void rdtgroup_pseudo_lock_remove(struct rdtgroup *rdtgrp) { }
+
+static inline struct resctrl_ctrl *resctrl_get_pseudo_lock_ctrl(struct rdt_resource *r)
+{
+	return NULL;
+}
 #endif /* CONFIG_RESCTRL_FS_PSEUDO_LOCK */
 
 #endif /* _FS_RESCTRL_INTERNAL_H */
