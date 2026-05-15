@@ -536,6 +536,7 @@ int resctrl_arch_mbm_cntr_assign_set(struct rdt_resource *r, bool enable);
 /**
  * resctrl_arch_preconvert_bw() - Prepare bandwidth control value for arch use.
  * @r:		Resource whose schema was written.
+ * @ctrl:	Bandwidth control
  * @val:	Bandwidth control value written to the schemata file by userspace.
  *
  * Convert the user provided bandwidth control value to an appropriate form for
@@ -550,7 +551,7 @@ int resctrl_arch_mbm_cntr_assign_set(struct rdt_resource *r, bool enable);
  * Return:
  * The converted value.
  */
-u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r, u32 val);
+u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r, struct resctrl_ctrl *ctrl, u32 val);
 
 /*
  * Update the ctrl_val and apply this config right now.
