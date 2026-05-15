@@ -20,9 +20,10 @@
 
 #include "internal.h"
 
-u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r, u32 val)
+u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r,
+			       struct resctrl_ctrl *ctrl, u32 val)
 {
-	return roundup(val, (unsigned long)r->ctrl.scalar.gran);
+	return roundup(val, (unsigned long)ctrl->scalar.gran);
 }
 
 int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
