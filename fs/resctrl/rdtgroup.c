@@ -1670,41 +1670,36 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
 		type = f->conf_type;
-		/* Support for single control temporary */
-		ctrl = resctrl_resource_ctrl_get_default(r);
-		if (!ctrl) {
-			pr_warn_once("Unable to find default control\n");
-			ret = -EINVAL;
-			goto out;
-		}
-		sep = false;
-		seq_printf(s, "%*s", max_name_width, f->name);
-		if (!resctrl_ctrl_is_default(ctrl))
-			seq_printf(s, "_%s:", resctrl_ctrl_name_str(ctrl->name));
-		else
-			seq_putc(s, ':');
-		list_for_each_entry(d, &ctrl->domains, hdr.list) {
-			if (sep)
-				seq_putc(s, ';');
-			if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
-				size = 0;
-			} else {
-				if (is_mba_sc(r, ctrl))
-					ctrl_val = d->mbps_val[closid];
-				else
-					ctrl_val = resctrl_arch_get_config(r, d,
-								       closid,
-								       type);
-				if (r->rid == RDT_RESOURCE_MBA ||
-				    r->rid == RDT_RESOURCE_SMBA)
-					size = ctrl_val;
-				else
-					size = rdtgroup_cbm_to_size(r, ctrl, d, ctrl_val);
+		for_each_resource_ctrl(ctrl, r) {
+			sep = false;
+			seq_printf(s, "%*s", max_name_width, f->name);
+			if (!resctrl_ctrl_is_default(ctrl))
+				seq_printf(s, "_%s:", resctrl_ctrl_name_str(ctrl->name));
+			else
+				seq_putc(s, ':');
+			list_for_each_entry(d, &ctrl->domains, hdr.list) {
+				if (sep)
+					seq_putc(s, ';');
+				if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
+					size = 0;
+				} else {
+					if (is_mba_sc(r, ctrl))
+						ctrl_val = d->mbps_val[closid];
+					else
+						ctrl_val = resctrl_arch_get_config(r, d,
+										   closid,
+										   type);
+					if (r->rid == RDT_RESOURCE_MBA ||
+					    r->rid == RDT_RESOURCE_SMBA)
+						size = ctrl_val;
+					else
+						size = rdtgroup_cbm_to_size(r, ctrl, d, ctrl_val);
+				}
+				seq_printf(s, "%d=%u", d->hdr.id, size);
+				sep = true;
 			}
-			seq_printf(s, "%d=%u", d->hdr.id, size);
-			sep = true;
+			seq_putc(s, '\n');
 		}
-		seq_putc(s, '\n');
 	}
 
 out:

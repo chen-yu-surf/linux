@@ -48,6 +48,9 @@ int proc_resctrl_show(struct seq_file *m,
 	for_each_rdt_resource((r))					      \
 		if ((r)->mon_capable)
 
+#define for_each_resource_ctrl(ctrl, r)					\
+	ctrl = &r->ctrl;
+
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
