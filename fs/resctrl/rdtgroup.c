@@ -1429,6 +1429,7 @@ out_unlock:
  * @closid: Intended closid for @cbm.
  * @type: CDP type of @r.
  * @exclusive: Only check if overlaps with exclusive resource groups
+ * @ctrl: properties of the bitmap control that @cbm should be tested against
  *
  * Checks if provided @cbm intended to be used for @closid on domain
  * @d overlaps with any other closids or other hardware usage associated
@@ -1444,7 +1445,8 @@ out_unlock:
  */
 static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 				    unsigned long cbm, int closid,
-				    enum resctrl_conf_type type, bool exclusive)
+				    enum resctrl_conf_type type, bool exclusive,
+				    struct resctrl_ctrl *ctrl)
 {
 	enum rdtgrp_mode mode;
 	unsigned long ctrl_b;
@@ -1452,8 +1454,8 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 
 	/* Check for any overlap with regions used by hardware directly */
 	if (!exclusive) {
-		ctrl_b = r->ctrl.bitmap.shareable_bits;
-		if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.bitmap.cbm_len))
+		ctrl_b = ctrl->bitmap.shareable_bits;
+		if (bitmap_intersects(&cbm, &ctrl_b, ctrl->bitmap.cbm_len))
 			return true;
 	}
 
@@ -1463,7 +1465,7 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 		mode = rdtgroup_mode_by_closid(i);
 		if (closid_allocated(i) && i != closid &&
 		    mode != RDT_MODE_PSEUDO_LOCKSETUP) {
-			if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.bitmap.cbm_len)) {
+			if (bitmap_intersects(&cbm, &ctrl_b, ctrl->bitmap.cbm_len)) {
 				if (exclusive) {
 					if (mode == RDT_MODE_EXCLUSIVE)
 						return true;
@@ -1484,6 +1486,7 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
  * @cbm: Capacity bitmask being tested.
  * @closid: Intended closid for @cbm.
  * @exclusive: Only check if overlaps with exclusive resource groups
+ * @ctrl: properties of the bitmap control that @cbm should be tested against
  *
  * Resources that can be allocated using a CBM can use the CBM to control
  * the overlap of these allocations. rdtgroup_cmb_overlaps() is the test
@@ -1498,18 +1501,19 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
  * Return: true if CBM overlap detected, false if there is no overlap
  */
 bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain *d,
-			   unsigned long cbm, int closid, bool exclusive)
+			   unsigned long cbm, int closid, bool exclusive,
+			   struct resctrl_ctrl *ctrl)
 {
 	enum resctrl_conf_type peer_type = resctrl_peer_type(f->conf_type);
 	struct rdt_resource *r = f->res;
 
 	if (__rdtgroup_cbm_overlaps(r, d, cbm, closid, f->conf_type,
-				    exclusive))
+				    exclusive, ctrl))
 		return true;
 
 	if (!resctrl_arch_get_cdp_enabled(r))
 		return false;
-	return  __rdtgroup_cbm_overlaps(r, d, cbm, closid, peer_type, exclusive);
+	return  __rdtgroup_cbm_overlaps(r, d, cbm, closid, peer_type, exclusive, ctrl);
 }
 
 /**
@@ -1528,6 +1532,7 @@ bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain 
 static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 {
 	struct rdt_resource_final *f;
+	struct resctrl_ctrl *bm_ctrl;
 	int closid = rdtgrp->closid;
 	struct rdt_ctrl_domain *d;
 	struct rdt_resource *r;
@@ -1541,11 +1546,14 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 		r = f->res;
 		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)
 			continue;
+		bm_ctrl = resctrl_get_cache_ctrl(r);
+		if (!bm_ctrl)
+			continue;
 		has_cache = true;
-		list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
+		list_for_each_entry_rcu(d, &bm_ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 			ctrl = resctrl_arch_get_config(r, d, closid,
 						       f->conf_type);
-			if (rdtgroup_cbm_overlaps(f, d, ctrl, closid, false)) {
+			if (rdtgroup_cbm_overlaps(f, d, ctrl, closid, false, bm_ctrl)) {
 				rdt_last_cmd_puts("Schemata overlaps\n");
 				return false;
 			}
@@ -1676,10 +1684,15 @@ unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
 	return size;
 }
 
-bool is_mba_sc(struct rdt_resource *r)
+bool is_mba_sc(struct rdt_resource *r, struct resctrl_ctrl *ctrl)
 {
-	if (!r)
+	if (!r) {
 		r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
+		if (ctrl) {
+			pr_warn("Control requires associated resource\n");
+			return false;
+		}
+	}
 
 	/*
 	 * The software controller support is only applicable to MBA resource.
@@ -1688,7 +1701,13 @@ bool is_mba_sc(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_MBA)
 		return false;
 
-	return r->ctrl.scalar.mba_sc;
+	if (!ctrl) {
+		ctrl = resctrl_get_mba_sc_ctrl(r);
+		if (!ctrl)
+			return false;
+	}
+
+	return ctrl->scalar.mba_sc;
 }
 
 /*
@@ -1703,13 +1722,14 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 	struct rdt_resource_final *f;
 	enum resctrl_conf_type type;
 	struct rdt_ctrl_domain *d;
+	struct resctrl_ctrl *ctrl;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
 	unsigned int size;
+	u32 ctrl_val;
 	int ret = 0;
 	u32 closid;
 	bool sep;
-	u32 ctrl;
 
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
 	if (!rdtgrp) {
@@ -1737,25 +1757,32 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
 		type = f->conf_type;
+		/* Support for single control temporary */
+		ctrl = resctrl_resource_ctrl_get_default(r);
+		if (!ctrl) {
+			pr_warn_once("Unable to find default control\n");
+			ret = -EINVAL;
+			goto out;
+		}
 		sep = false;
 		seq_printf(s, "%*s:", max_name_width, f->name);
-		list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
+		list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 			if (sep)
 				seq_putc(s, ';');
 			if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 				size = 0;
 			} else {
-				if (is_mba_sc(r))
-					ctrl = d->mbps_val[closid];
+				if (is_mba_sc(r, ctrl))
+					ctrl_val = d->mbps_val[closid];
 				else
-					ctrl = resctrl_arch_get_config(r, d,
+					ctrl_val = resctrl_arch_get_config(r, d,
 								       closid,
 								       type);
 				if (r->rid == RDT_RESOURCE_MBA ||
 				    r->rid == RDT_RESOURCE_SMBA)
-					size = ctrl;
+					size = ctrl_val;
 				else
-					size = rdtgroup_cbm_to_size(r, d, ctrl);
+					size = rdtgroup_cbm_to_size(r, d, ctrl_val);
 			}
 			seq_printf(s, "%d=%u", d->hdr.id, size);
 			sep = true;
@@ -2688,7 +2715,7 @@ static int set_mba_sc(bool mba_sc)
 	unsigned long fflags;
 	int i;
 
-	if (!supports_mba_mbps() || mba_sc == is_mba_sc(r))
+	if (!supports_mba_mbps() || mba_sc == is_mba_sc(r, NULL))
 		return -EINVAL;
 
 	r->ctrl.scalar.mba_sc = mba_sc;
@@ -3889,13 +3916,14 @@ int rdtgroup_init_cat(struct rdt_resource_final *f, struct resctrl_ctrl *ctrl,
 }
 
 /* Initialize MBA resource with default values. */
-static void rdtgroup_init_mba(struct rdt_resource *r, u32 closid)
+static void rdtgroup_init_mba(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+			      u32 closid)
 {
 	struct resctrl_staged_config *cfg;
 	struct rdt_ctrl_domain *d;
 
-	list_for_each_entry_rcu(d, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
-		if (is_mba_sc(r)) {
+	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
+		if (is_mba_sc(r, ctrl)) {
 			d->mbps_val[closid] = MBA_MAX_MBPS;
 			continue;
 		}
@@ -3920,8 +3948,14 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 		r = f->res;
 		if (r->rid == RDT_RESOURCE_MBA ||
 		    r->rid == RDT_RESOURCE_SMBA) {
-			rdtgroup_init_mba(r, rdtgrp->closid);
-			if (is_mba_sc(r))
+			/* Temporary support for one control only */
+			ctrl = resctrl_resource_ctrl_get_default(r);
+			if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR) {
+				ret = -EINVAL;
+				goto out;
+			}
+			rdtgroup_init_mba(r, ctrl, rdtgrp->closid);
+			if (is_mba_sc(r, ctrl))
 				continue;
 		} else {
 			/* Support one cache control */
@@ -4189,7 +4223,7 @@ static int rdtgroup_mkdir_ctrl_mon(struct kernfs_node *parent_kn,
 			rdt_last_cmd_puts("kernfs subdir error\n");
 			goto out_del_list;
 		}
-		if (is_mba_sc(NULL))
+		if (is_mba_sc(NULL, NULL))
 			rdtgrp->mba_mbps_event = mba_mbps_default_event;
 	}
 
@@ -4512,7 +4546,7 @@ static int rdtgroup_show_options(struct seq_file *seq, struct kernfs_root *kf)
 	if (resctrl_arch_get_cdp_enabled(resctrl_arch_get_resource(RDT_RESOURCE_L2)))
 		seq_puts(seq, ",cdpl2");
 
-	if (is_mba_sc(resctrl_arch_get_resource(RDT_RESOURCE_MBA)))
+	if (is_mba_sc(resctrl_arch_get_resource(RDT_RESOURCE_MBA), NULL))
 		seq_puts(seq, ",mba_MBps");
 
 	if (resctrl_debug)
@@ -4591,7 +4625,7 @@ void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct rdt_ctrl_domain 
 	 * cpus_read_lock() held. Running here with cpus_write_lock() so
 	 * there are no concurrent changes to software controller status.
 	 */
-	if (r->rid == RDT_RESOURCE_MBA && is_mba_sc(r)) {
+	if (r->rid == RDT_RESOURCE_MBA && is_mba_sc(r, NULL)) {
 		struct rdt_resource *l3 = resctrl_arch_get_resource(RDT_RESOURCE_L3);
 		struct rdt_l3_mon_domain *mon_d;
 

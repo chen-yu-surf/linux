@@ -171,7 +171,7 @@ bool resctrl_arch_get_cdp_enabled(struct rdt_resource *r)
 	return res->cdp_enabled;
 }
 
-u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r, u32 val)
+u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r, struct resctrl_ctrl *ctrl, u32 val)
 {
 	return val;
 }
