@@ -628,14 +628,13 @@ void mon_event_count(void *info)
 }
 
 static struct rdt_ctrl_domain *get_ctrl_domain_from_cpu(int cpu,
-							struct rdt_resource *r,
-							struct resctrl_ctrl *ctrl)
+							struct rdt_resource *r)
 {
 	struct rdt_ctrl_domain *d;
 
 	lockdep_assert_cpus_held();
 
-	list_for_each_entry(d, &ctrl->domains, hdr.list) {
+	list_for_each_entry(d, &r->ctrl.domains, hdr.list) {
 		/* Find the domain that contains this CPU */
 		if (cpumask_test_cpu(cpu, &d->hdr.cpu_mask))
 			return d;
@@ -683,17 +682,11 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	struct rdt_ctrl_domain *dom_mba;
 	enum resctrl_event_id evt_id;
 	struct rdt_resource *r_mba;
-	struct resctrl_ctrl *ctrl;
 	struct list_head *head;
 	struct rdtgroup *entry;
 	u32 cur_bw, user_bw;
 
 	r_mba = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
-	ctrl = resctrl_get_mba_sc_ctrl(r_mba);
-	if (!ctrl) {
-		pr_warn_once("Unable to determine MBA controller for software control\n");
-		return;
-	}
 	evt_id = rgrp->mba_mbps_event;
 
 	closid = rgrp->closid;
@@ -702,7 +695,7 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	if (WARN_ON_ONCE(!pmbm_data))
 		return;
 
-	dom_mba = get_ctrl_domain_from_cpu(smp_processor_id(), r_mba, ctrl);
+	dom_mba = get_ctrl_domain_from_cpu(smp_processor_id(), r_mba);
 	if (!dom_mba) {
 		pr_warn_once("Failure to get domain for MBA update\n");
 		return;
@@ -738,11 +731,11 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	 * 40% would go past the limit by multiplying current bandwidth by
 	 * "(30 + 10) / 30".
 	 */
-	if (cur_msr_val > ctrl->membw.min_bw && user_bw < cur_bw) {
-		new_msr_val = cur_msr_val - ctrl->membw.bw_gran;
+	if (cur_msr_val > r_mba->ctrl.membw.min_bw && user_bw < cur_bw) {
+		new_msr_val = cur_msr_val - r_mba->ctrl.membw.bw_gran;
 	} else if (cur_msr_val < MAX_MBA_BW &&
-		   (user_bw > (cur_bw * (cur_msr_val + ctrl->membw.min_bw) / cur_msr_val))) {
-		new_msr_val = cur_msr_val + ctrl->membw.bw_gran;
+		   (user_bw > (cur_bw * (cur_msr_val + r_mba->ctrl.membw.min_bw) / cur_msr_val))) {
+		new_msr_val = cur_msr_val + r_mba->ctrl.membw.bw_gran;
 	} else {
 		return;
 	}
@@ -775,7 +768,7 @@ static void mbm_update_one_event(struct rdt_resource *r, struct rdt_l3_mon_domai
 	 * If the software controller is enabled, compute the
 	 * bandwidth for this event id.
 	 */
-	if (is_mba_sc(NULL, NULL))
+	if (is_mba_sc(NULL))
 		mbm_bw_count(rdtgrp, &rr);
 
 	if (rr.arch_mon_ctx)

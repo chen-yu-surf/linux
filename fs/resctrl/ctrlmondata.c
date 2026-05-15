@@ -342,28 +342,6 @@ struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r)
 	return ctrl;
 }
 
-/*
- * Get control used by MBA software controller. This is the default
- * control of MBA resource that has same name as the resource ("MB")
- */
-struct resctrl_ctrl *resctrl_get_mba_sc_ctrl(struct rdt_resource *r)
-{
-	struct resctrl_ctrl *ctrl;
-
-	if (r->rid != RDT_RESOURCE_MBA)
-		return NULL;
-
-	ctrl = &r->ctrl;
-
-	if (!resctrl_ctrl_is_default(ctrl))
-		return NULL;
-
-	if (ctrl->type != RESCTRL_CTRL_SCALAR)
-		return NULL;
-
-	return ctrl;
-}
-
 static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
 						      char *ctrlname)
 {
@@ -468,6 +446,13 @@ ssize_t rdtgroup_schemata_write(struct kernfs_open_file *of,
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
 
+		/*
+		 * Writes to mba_sc resources update the software controller,
+		 * not the control MSR.
+		 */
+		if (is_mba_sc(r))
+			continue;
+
 		ret = resctrl_arch_update_domains(r, rdtgrp->closid);
 		if (ret)
 			goto out_clear_staged;
@@ -510,7 +495,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 		if (sep)
 			seq_puts(s, ";");
 
-		if (is_mba_sc(r, ctrl))
+		if (is_mba_sc(r))
 			ctrl_val = dom->mbps_val[closid];
 		else
 			ctrl_val = resctrl_arch_get_config(r, dom, closid,

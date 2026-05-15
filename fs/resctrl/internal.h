@@ -397,8 +397,7 @@ void mbm_setup_overflow_handler(struct rdt_l3_mon_domain *dom,
 
 void mbm_handle_overflow(struct work_struct *work);
 
-bool is_mba_sc(struct rdt_resource *r, struct resctrl_ctrl *ctrl);
-struct resctrl_ctrl *resctrl_get_mba_sc_ctrl(struct rdt_resource *r);
+bool is_mba_sc(struct rdt_resource *r);
 
 void cqm_setup_limbo_handler(struct rdt_l3_mon_domain *dom, unsigned long delay_ms,
 			     int exclude_cpu);
