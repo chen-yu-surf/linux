@@ -1765,7 +1765,13 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 			goto out;
 		}
 		sep = false;
-		seq_printf(s, "%*s:", max_name_width, f->name);
+		if (resctrl_ctrl_is_default(ctrl)) {
+			seq_printf(s, "%*s:", max_name_width, f->name);
+		} else {
+			seq_printf(s, "%*s_%s:", resctrl_prefix_width_adjust(ctrl),
+				   f->name,
+				   resctrl_ctrl_name_str(ctrl->name));
+		}
 		list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 			if (sep)
 				seq_putc(s, ';');

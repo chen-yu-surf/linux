@@ -477,6 +477,8 @@ u32 resctrl_io_alloc_closid(struct rdt_resource *r);
 size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r);
 int resctrl_prefix_width_adjust(struct resctrl_ctrl *ctrl);
 struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r);
+const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name);
+bool resctrl_ctrl_is_default(struct resctrl_ctrl *ctrl);
 
 #ifdef CONFIG_RESCTRL_FS_PSEUDO_LOCK
 int rdtgroup_locksetup_enter(struct rdtgroup *rdtgrp);
