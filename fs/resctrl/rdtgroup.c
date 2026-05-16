@@ -3770,28 +3770,22 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
-		if (r->rid == RDT_RESOURCE_MBA ||
-		    r->rid == RDT_RESOURCE_SMBA) {
-			/* Temporary support for one control only */
-			ctrl = resctrl_resource_ctrl_get_default(r);
-			if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR) {
-				ret = -EINVAL;
-				goto out;
+		for_each_resource_ctrl(ctrl, r) {
+			if (r->rid == RDT_RESOURCE_MBA ||
+			    r->rid == RDT_RESOURCE_SMBA) {
+				rdtgroup_init_mba(r, ctrl, rdtgrp->closid);
+				if (is_mba_sc(r, ctrl))
+					continue;
+			} else {
+				if (ctrl->type != RESCTRL_CTRL_BITMAP) {
+					rdt_last_cmd_puts("No cache control available\n");
+					ret = -EINVAL;
+					goto out;
+				}
+				ret = rdtgroup_init_cat(f, ctrl, rdtgrp->closid);
+				if (ret < 0)
+					goto out;
 			}
-			rdtgroup_init_mba(r, ctrl, rdtgrp->closid);
-			if (is_mba_sc(r, ctrl))
-				continue;
-		} else {
-			/* Support one cache control */
-			ctrl = resctrl_get_cache_ctrl(r);
-			if (!ctrl) {
-				rdt_last_cmd_puts("No cache control available\n");
-				ret = -EINVAL;
-				goto out;
-			}
-			ret = rdtgroup_init_cat(f, ctrl, rdtgrp->closid);
-			if (ret < 0)
-				goto out;
 		}
 
 		ret = resctrl_arch_update_domains(r, rdtgrp->closid);
