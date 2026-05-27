@@ -1683,7 +1683,7 @@ static int mpam_resctrl_setup_ctrl_domain(unsigned int cpu,
 
 	mpam_resctrl_domain_hdr_init(cpu, comp, r->rid, &ctrl_d->hdr);
 	ctrl_d->hdr.type = RESCTRL_CTRL_DOMAIN;
-	err = resctrl_online_ctrl_domain(r, ctrl_d);
+	err = resctrl_online_ctrl_domain(r, ctrl, ctrl_d);
 	if (err)
 		return err;
 
@@ -1853,7 +1853,7 @@ static void mpam_resctrl_remove_cpu_ctrl_domain(unsigned int cpu,
 		dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, ctrl);
 		if (dom) {
 			if (mpam_resctrl_offline_domain_hdr(cpu, &dom->resctrl_ctrl_dom.hdr)) {
-				resctrl_offline_ctrl_domain(r, &dom->resctrl_ctrl_dom);
+				resctrl_offline_ctrl_domain(r, ctrl, &dom->resctrl_ctrl_dom);
 				kfree(dom);
 			}
 		}
