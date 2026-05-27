@@ -2696,18 +2696,22 @@ static void mba_sc_domain_destroy(struct rdt_resource *r,
  * event backing the software controller in all monitoring domains of all
  * monitoring groups.
  */
-static bool supports_mba_mbps(void)
+static bool supports_mba_mbps(struct resctrl_ctrl *ctrl)
 {
 	struct rdt_resource *rmbm = resctrl_arch_get_resource(RDT_RESOURCE_L3);
 	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
-	struct resctrl_ctrl *ctrl;
 
 	if (!r->alloc_capable)
 		return false;
 
-	ctrl = resctrl_get_mba_sc_ctrl(r);
-	if (!ctrl)
-		return false;
+	if (!ctrl) {
+		ctrl = resctrl_get_mba_sc_ctrl(r);
+		if (!ctrl)
+			return false;
+	} else {
+		if (ctrl != resctrl_get_mba_sc_ctrl(r))
+			return false;
+	}
 
 	return (resctrl_is_mbm_enabled() && ctrl->scalar.linear &&
 		r->ctrl_scope == rmbm->mon_scope &&
@@ -2727,11 +2731,11 @@ static int set_mba_sc(bool mba_sc)
 	unsigned long fflags;
 	int i;
 
-	if (!supports_mba_mbps() || mba_sc == is_mba_sc(r, NULL))
-		return -EINVAL;
-
 	ctrl = resctrl_get_mba_sc_ctrl(r);
 	if (!ctrl)
+		return -EINVAL;
+
+	if (!supports_mba_mbps(ctrl) || mba_sc == is_mba_sc(r, ctrl))
 		return -EINVAL;
 
 	ctrl->scalar.mba_sc = mba_sc;
@@ -3453,7 +3457,7 @@ static int rdt_parse_param(struct fs_context *fc, struct fs_parameter *param)
 		return 0;
 	case Opt_mba_mbps:
 		msg = "mba_MBps requires MBM (mbm_event mode not supported) and linear scale MBA at L3 scope";
-		if (!supports_mba_mbps())
+		if (!supports_mba_mbps(NULL))
 			return invalfc(fc, msg);
 		ctx->enable_mba_mbps = true;
 		return 0;
@@ -4622,7 +4626,8 @@ static void domain_destroy_l3_mon_state(struct rdt_l3_mon_domain *d)
 	}
 }
 
-void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct rdt_ctrl_domain *d)
+void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				 struct rdt_ctrl_domain *d)
 {
 	/*
 	 * mbm_handle_overflow() may dereference this ctrl domain via
@@ -4635,7 +4640,7 @@ void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct rdt_ctrl_domain 
 	 * cpus_read_lock() held. Running here with cpus_write_lock() so
 	 * there are no concurrent changes to software controller status.
 	 */
-	if (r->rid == RDT_RESOURCE_MBA && is_mba_sc(r, NULL)) {
+	if (r->rid == RDT_RESOURCE_MBA && is_mba_sc(r, ctrl)) {
 		struct rdt_resource *l3 = resctrl_arch_get_resource(RDT_RESOURCE_L3);
 		struct rdt_l3_mon_domain *mon_d;
 
@@ -4649,7 +4654,7 @@ void resctrl_offline_ctrl_domain(struct rdt_resource *r, struct rdt_ctrl_domain 
 
 	mutex_lock(&rdtgroup_mutex);
 
-	if (supports_mba_mbps() && r->rid == RDT_RESOURCE_MBA)
+	if (supports_mba_mbps(ctrl) && r->rid == RDT_RESOURCE_MBA)
 		mba_sc_domain_destroy(r, d);
 
 	mutex_unlock(&rdtgroup_mutex);
@@ -4769,13 +4774,14 @@ cleanup:
 	return -ENOMEM;
 }
 
-int resctrl_online_ctrl_domain(struct rdt_resource *r, struct rdt_ctrl_domain *d)
+int resctrl_online_ctrl_domain(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+			       struct rdt_ctrl_domain *d)
 {
 	int err = 0;
 
 	mutex_lock(&rdtgroup_mutex);
 
-	if (supports_mba_mbps() && r->rid == RDT_RESOURCE_MBA) {
+	if (supports_mba_mbps(ctrl) && r->rid == RDT_RESOURCE_MBA) {
 		/* RDT_RESOURCE_MBA is never mon_capable */
 		err = mba_sc_domain_allocate(r, d);
 	}
