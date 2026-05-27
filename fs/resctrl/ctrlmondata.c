@@ -315,8 +315,15 @@ const char *resctrl_ctrl_name_str(enum resctrl_ctrl_name name)
 
 struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
-	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
-		return &r->ctrl;
+	struct resctrl_ctrl *ctrl;
+
+	if (list_empty(&r->controls))
+		return NULL;
+
+	for_each_resource_ctrl(ctrl, r) {
+		if (ctrl->name == RESCTRL_CTRL_NAME_DEF)
+			return ctrl;
+	}
 
 	return NULL;
 }
@@ -336,8 +343,8 @@ struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_L3 && r->rid != RDT_RESOURCE_L2)
 		return NULL;
 
-	ctrl = &r->ctrl;
-	if (ctrl->type != RESCTRL_CTRL_BITMAP)
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_BITMAP)
 		return NULL;
 
 	return ctrl;
@@ -354,12 +361,8 @@ struct resctrl_ctrl *resctrl_get_mba_sc_ctrl(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_MBA)
 		return NULL;
 
-	ctrl = &r->ctrl;
-
-	if (!resctrl_ctrl_is_default(ctrl))
-		return NULL;
-
-	if (ctrl->type != RESCTRL_CTRL_SCALAR)
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
 		return NULL;
 
 	return ctrl;
@@ -368,11 +371,15 @@ struct resctrl_ctrl *resctrl_get_mba_sc_ctrl(struct rdt_resource *r)
 static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
 						      char *ctrlname)
 {
-	if (!ctrlname && r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
-		return &r->ctrl;
+	struct resctrl_ctrl *ctrl;
 
-	if (ctrlname && !strcmp(ctrlname, resctrl_ctrl_name_str(r->ctrl.name)))
-		return &r->ctrl;
+	for_each_resource_ctrl(ctrl, r) {
+		if (!ctrlname && ctrl->name == RESCTRL_CTRL_NAME_DEF)
+			return ctrl;
+
+		if (ctrlname && !strcmp(ctrlname, resctrl_ctrl_name_str(ctrl->name)))
+			return ctrl;
+	}
 
 	return NULL;
 }
@@ -383,11 +390,17 @@ static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
  */
 size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
 {
-	/*
-	 * Temporary: only default control supported and it
-	 * has no suffix.
-	 */
-	return 0;
+	struct resctrl_ctrl *ctrl;
+	size_t total = 0;
+	size_t len;
+
+	for_each_resource_ctrl(ctrl,r) {
+		len = strlen(resctrl_ctrl_name_str(ctrl->name));
+		if (len)
+			total += 1 + len;
+	}
+
+	return total;
 }
 
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,

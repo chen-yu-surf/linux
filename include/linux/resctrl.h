@@ -49,7 +49,7 @@ int proc_resctrl_show(struct seq_file *m,
 		if ((r)->mon_capable)
 
 #define for_each_resource_ctrl(ctrl, r)					\
-	ctrl = &r->ctrl;
+	list_for_each_entry(ctrl, &r->controls, entry)
 
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
@@ -314,6 +314,7 @@ enum resctrl_ctrl_name {
 
 /**
  * struct resctrl_ctrl - A resource control
+ * @entry:	List entry of rdt_resource::controls
  * @scope:	Scope of the resource that this control allocates
  * @domains:	RCU list of all control domains
  * @type:	The control type that determines the properties of the control,
@@ -328,6 +329,7 @@ enum resctrl_ctrl_name {
  * @membw:	Bandwidth control properties.
  */
 struct resctrl_ctrl {
+	struct list_head	entry;
 	enum resctrl_scope	scope;
 	struct list_head	domains;
 	enum resctrl_ctrl_type	type;
@@ -353,7 +355,7 @@ struct resctrl_ctrl {
  *			different memory bandwidths
  * @cache_io_alloc_capable:True if portion of the cache can be configured
  *			   for I/O traffic.
- * @ctrl:		The control of an alloc_capable resource.
+ * @controls:		List of controls of an alloc_capable resource
  */
 struct rdt_resource {
 	enum resctrl_res_level		rid;
@@ -367,7 +369,7 @@ struct rdt_resource {
 	bool				bw_delay_linear;
 	enum membw_throttle_mode	bw_throttle_mode;
 	bool				cache_io_alloc_capable;
-	struct resctrl_ctrl		ctrl;
+	struct list_head		controls;
 };
 
 /*
