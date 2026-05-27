@@ -427,17 +427,17 @@ struct resctrl_mon_config_info {
 void resctrl_arch_sync_cpu_closid_rmid(void *info);
 
 /**
- * resctrl_get_default_ctrl() - Return the default control value for this
- *                              resource.
- * @r:		The resource whose default control type is queried.
+ * resctrl_get_default_ctrlval() - Return the default control value for this
+ *                                 control.
+ * @ctrl:	The control whose default control type is queried.
  */
-static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
+static inline u32 resctrl_get_default_ctrlval(struct resctrl_ctrl *ctrl)
 {
-	switch (r->ctrl.type) {
+	switch (ctrl->type) {
 	case RESCTRL_CTRL_BITMAP:
-		return BIT_MASK(r->ctrl.cache.cbm_len) - 1;
+		return BIT_MASK(ctrl->cache.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
-		return r->ctrl.membw.max_bw;
+		return ctrl->membw.max_bw;
 	}
 
 	return WARN_ON_ONCE(1);

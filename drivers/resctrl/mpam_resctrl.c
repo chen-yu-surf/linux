@@ -1023,7 +1023,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		 * we have configured the SMMU and GIC not to do this 'all the
 		 * bits' is the correct answer here.
 		 */
-		r->ctrl.cache.shareable_bits = resctrl_get_default_ctrl(r);
+		r->ctrl.cache.shareable_bits = resctrl_get_default_ctrlval(&r->ctrl);
 		r->alloc_capable = true;
 		break;
 	case RDT_RESOURCE_MBA:
@@ -1132,7 +1132,7 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	lockdep_assert_cpus_held();
 
 	if (!mpam_is_enabled())
-		return resctrl_get_default_ctrl(r);
+		return resctrl_get_default_ctrlval(ctrl);
 
 	res = container_of(r, struct mpam_resctrl_res, resctrl_res);
 	dom = container_of(d, struct mpam_resctrl_dom, resctrl_ctrl_dom);
@@ -1161,12 +1161,12 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		}
 		fallthrough;
 	default:
-		return resctrl_get_default_ctrl(r);
+		return resctrl_get_default_ctrlval(ctrl);
 	}
 
 	if (!r->alloc_capable || partid >= resctrl_arch_get_num_closid(r) ||
 	    !mpam_has_feature(configured_by, cfg))
-		return resctrl_get_default_ctrl(r);
+		return resctrl_get_default_ctrlval(ctrl);
 
 	switch (configured_by) {
 	case mpam_feat_cpor_part:
@@ -1174,7 +1174,7 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	case mpam_feat_mbw_max:
 		return mbw_max_to_percent(cfg->mbw_max, cprops);
 	default:
-		return resctrl_get_default_ctrl(r);
+		return resctrl_get_default_ctrlval(ctrl);
 	}
 }
 

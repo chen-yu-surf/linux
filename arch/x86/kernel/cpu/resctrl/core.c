@@ -363,7 +363,8 @@ void rdt_ctrl_update(void *arg)
 	hw_res->msr_update(m);
 }
 
-static void setup_default_ctrlval(struct rdt_resource *r, u32 *dc)
+static void setup_default_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				  u32 *dc)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	int i;
@@ -374,7 +375,7 @@ static void setup_default_ctrlval(struct rdt_resource *r, u32 *dc)
 	 * For Memory Allocation: Set b/w requested to 100%
 	 */
 	for (i = 0; i < hw_res->num_closid; i++, dc++)
-		*dc = resctrl_get_default_ctrl(r);
+		*dc = resctrl_get_default_ctrlval(ctrl);
 }
 
 static void ctrl_domain_free(struct rdt_hw_ctrl_domain *hw_dom)
@@ -392,7 +393,8 @@ static void l3_mon_domain_free(struct rdt_hw_l3_mon_domain *hw_dom)
 	kfree(hw_dom);
 }
 
-static int domain_setup_ctrlval(struct rdt_resource *r, struct rdt_ctrl_domain *d)
+static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+				struct rdt_ctrl_domain *d)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
@@ -405,7 +407,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct rdt_ctrl_domain *
 		return -ENOMEM;
 
 	hw_dom->ctrl_val = dc;
-	setup_default_ctrlval(r, dc);
+	setup_default_ctrlval(r, ctrl, dc);
 
 	m.res = r;
 	m.dom = d;
@@ -507,7 +509,7 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r,
 
 	rdt_domain_reconfigure_cdp(r);
 
-	if (domain_setup_ctrlval(r, d)) {
+	if (domain_setup_ctrlval(r, ctrl, d)) {
 		ctrl_domain_free(hw_dom);
 		return;
 	}
