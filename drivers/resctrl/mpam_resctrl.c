@@ -1388,7 +1388,8 @@ static struct mpam_component *find_component(struct mpam_class *class, int cpu)
 }
 
 static struct mpam_resctrl_dom *
-mpam_resctrl_alloc_ctrl_domain(unsigned int cpu, struct mpam_resctrl_res *res)
+mpam_resctrl_alloc_ctrl_domain(unsigned int cpu, struct mpam_resctrl_res *res,
+			       struct resctrl_ctrl *ctrl)
 {
 	int err;
 	struct mpam_resctrl_dom *dom;
@@ -1429,7 +1430,7 @@ mpam_resctrl_alloc_ctrl_domain(unsigned int cpu, struct mpam_resctrl_res *res)
 	if (err)
 		goto free_domain;
 
-	mpam_resctrl_domain_insert(&r->ctrl.domains, &ctrl_d->hdr);
+	mpam_resctrl_domain_insert(&ctrl->domains, &ctrl_d->hdr);
 
 	return dom;
 
@@ -1553,14 +1554,13 @@ mpam_resctrl_get_mon_domain_from_cpu(int cpu, struct mpam_resctrl_res *res)
 }
 
 static struct mpam_resctrl_dom *
-mpam_resctrl_get_ctrl_domain_from_cpu(int cpu, struct mpam_resctrl_res *res)
+mpam_resctrl_get_ctrl_domain_from_cpu(int cpu, struct resctrl_ctrl *ctrl)
 {
 	struct mpam_resctrl_dom *dom;
-	struct rdt_resource *r = &res->resctrl_res;
 
 	lockdep_assert_cpus_held();
 
-	list_for_each_entry_rcu(dom, &r->ctrl.domains, resctrl_ctrl_dom.hdr.list) {
+	list_for_each_entry_rcu(dom, &ctrl->domains, resctrl_ctrl_dom.hdr.list) {
 		if (cpumask_test_cpu(cpu, &dom->ctrl_comp->affinity))
 			return dom;
 	}
@@ -1577,20 +1577,23 @@ int mpam_resctrl_online_cpu(unsigned int cpu)
 	for_each_mpam_resctrl_control(res, rid) {
 		struct mpam_resctrl_dom *dom;
 		struct rdt_resource *r = &res->resctrl_res;
+		struct resctrl_ctrl *ctrl;
 
 		if (!res->class)
 			continue;	// dummy_resource;
 
 		if (r->alloc_capable) {
-			dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res);
-			if (!dom) {
-				dom = mpam_resctrl_alloc_ctrl_domain(cpu, res);
-				if (IS_ERR(dom))
-					return PTR_ERR(dom);
-			} else {
-				struct rdt_ctrl_domain *ctrl_d = &dom->resctrl_ctrl_dom;
+			for_each_resource_ctrl(ctrl, r) {
+				dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, ctrl);
+				if (!dom) {
+					dom = mpam_resctrl_alloc_ctrl_domain(cpu, res, ctrl);
+					if (IS_ERR(dom))
+						return PTR_ERR(dom);
+				} else {
+					struct rdt_ctrl_domain *ctrl_d = &dom->resctrl_ctrl_dom;
 
-				mpam_resctrl_online_domain_hdr(cpu, &ctrl_d->hdr);
+					mpam_resctrl_online_domain_hdr(cpu, &ctrl_d->hdr);
+				}
 			}
 		}
 		if (r->mon_capable) {
@@ -1624,6 +1627,7 @@ void mpam_resctrl_offline_cpu(unsigned int cpu)
 		struct mpam_resctrl_dom *dom;
 		struct rdt_l3_mon_domain *mon_d;
 		struct rdt_ctrl_domain *ctrl_d;
+		struct resctrl_ctrl *ctrl;
 		bool dom_empty;
 		struct rdt_resource *r = &res->resctrl_res;
 
@@ -1631,14 +1635,16 @@ void mpam_resctrl_offline_cpu(unsigned int cpu)
 			continue;	// dummy resource
 
 		if (r->alloc_capable) {
-			dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res);
-			if (WARN_ON_ONCE(!dom))
-				continue;
-			ctrl_d = &dom->resctrl_ctrl_dom;
-			dom_empty = mpam_resctrl_offline_domain_hdr(cpu, &ctrl_d->hdr);
-			if (dom_empty) {
-				resctrl_offline_ctrl_domain(&res->resctrl_res, ctrl_d);
-				kfree(dom);
+			for_each_resource_ctrl(ctrl, r) {
+				dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, ctrl);
+				if (WARN_ON_ONCE(!dom))
+					continue;
+				ctrl_d = &dom->resctrl_ctrl_dom;
+				dom_empty = mpam_resctrl_offline_domain_hdr(cpu, &ctrl_d->hdr);
+				if (dom_empty) {
+					resctrl_offline_ctrl_domain(&res->resctrl_res, ctrl_d);
+					kfree(dom);
+				}
 			}
 		}
 
