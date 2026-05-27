@@ -1020,14 +1020,21 @@ static int rdt_default_ctrl_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
 	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%x\n", resctrl_get_default_ctrl(r));
-	info_kn_unlock(of->kn);
 
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl)
+		goto out_unlock;
+
+	seq_printf(seq, "%x\n", resctrl_get_default_ctrlval(ctrl));
+
+out_unlock:
+	info_kn_unlock(of->kn);
 	return 0;
 }
 
@@ -3949,7 +3956,7 @@ static void rdtgroup_init_mba(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 		}
 
 		cfg = &d->staged_config[CDP_NONE];
-		cfg->new_ctrl = resctrl_get_default_ctrl(r);
+		cfg->new_ctrl = resctrl_get_default_ctrlval(ctrl);
 		cfg->have_new_ctrl = true;
 	}
 }
