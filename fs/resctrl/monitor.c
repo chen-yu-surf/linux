@@ -712,7 +712,7 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	user_bw = dom_mba->mbps_val[closid];
 
 	/* MBA resource doesn't support CDP */
-	cur_msr_val = resctrl_arch_get_config(r_mba, dom_mba, closid, CDP_NONE);
+	cur_msr_val = resctrl_arch_get_config(r_mba, ctrl, dom_mba, closid, CDP_NONE);
 
 	/*
 	 * For Ctrl groups read data from child monitor groups.

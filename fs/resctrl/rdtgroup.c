@@ -1095,7 +1095,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 			    (resctrl_arch_get_io_alloc_enabled(r) &&
 			     i == resctrl_io_alloc_closid(r)))
 				continue;
-			ctrl_val = resctrl_arch_get_config(r, dom, i,
+			ctrl_val = resctrl_arch_get_config(r, ctrl, dom, i,
 							   f->conf_type);
 			mode = rdtgroup_mode_by_closid(i);
 			switch (mode) {
@@ -1130,7 +1130,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 		 * be accessed through either resource.
 		 */
 		if (resctrl_arch_get_io_alloc_enabled(r)) {
-			ctrl_val = resctrl_arch_get_config(r, dom,
+			ctrl_val = resctrl_arch_get_config(r, ctrl, dom,
 							   resctrl_io_alloc_closid(r),
 							   f->conf_type);
 			hw_shareable |= ctrl_val;
@@ -1377,7 +1377,7 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 
 	/* Check for overlap with other resource groups */
 	for (i = 0; i < closids_supported(); i++) {
-		ctrl_b = resctrl_arch_get_config(r, d, i, type);
+		ctrl_b = resctrl_arch_get_config(r, ctrl, d, i, type);
 		mode = rdtgroup_mode_by_closid(i);
 		if (closid_allocated(i) && i != closid &&
 		    mode != RDT_MODE_PSEUDO_LOCKSETUP) {
@@ -1467,7 +1467,7 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 			continue;
 		has_cache = true;
 		list_for_each_entry(d, &bm_ctrl->domains, hdr.list) {
-			ctrl = resctrl_arch_get_config(r, d, closid,
+			ctrl = resctrl_arch_get_config(r, bm_ctrl, d, closid,
 						       f->conf_type);
 			if (rdtgroup_cbm_overlaps(f, d, ctrl, closid, false, bm_ctrl)) {
 				rdt_last_cmd_puts("Schemata overlaps\n");
@@ -1689,7 +1689,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 					if (is_mba_sc(r, ctrl))
 						ctrl_val = d->mbps_val[closid];
 					else
-						ctrl_val = resctrl_arch_get_config(r, d,
+						ctrl_val = resctrl_arch_get_config(r, ctrl, d,
 										   closid,
 										   type);
 					if (r->rid == RDT_RESOURCE_MBA ||
@@ -3683,11 +3683,11 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 			 * with an exclusive group.
 			 */
 			if (resctrl_arch_get_cdp_enabled(r))
-				peer_ctl = resctrl_arch_get_config(r, d, i,
+				peer_ctl = resctrl_arch_get_config(r, ctrl, d, i,
 								   peer_type);
 			else
 				peer_ctl = 0;
-			ctrl_val = resctrl_arch_get_config(r, d, i,
+			ctrl_val = resctrl_arch_get_config(r, ctrl, d, i,
 							   f->conf_type);
 			used_b |= ctrl_val | peer_ctl;
 			if (mode == RDT_MODE_SHAREABLE)

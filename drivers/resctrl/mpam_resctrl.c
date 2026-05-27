@@ -1118,8 +1118,9 @@ static int mpam_resctrl_monitor_init(struct mpam_resctrl_mon *mon,
 	return 0;
 }
 
-u32 resctrl_arch_get_config(struct rdt_resource *r, struct rdt_ctrl_domain *d,
-			    u32 closid, enum resctrl_conf_type type)
+u32 resctrl_arch_get_config(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+			    struct rdt_ctrl_domain *d, u32 closid,
+			    enum resctrl_conf_type type)
 {
 	u32 partid;
 	struct mpam_config *cfg;

@@ -514,7 +514,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 		if (is_mba_sc(r, ctrl))
 			ctrl_val = dom->mbps_val[closid];
 		else
-			ctrl_val = resctrl_arch_get_config(r, dom, closid,
+			ctrl_val = resctrl_arch_get_config(r, ctrl, dom, closid,
 							   f->conf_type);
 
 		seq_printf(s, resctrl_ctrl_priv_all[ctrl->type].fmt_str,
