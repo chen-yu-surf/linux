@@ -1001,16 +1001,24 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 	struct mpam_class *class = res->class;
 	struct mpam_props *cprops = &class->props;
 	struct rdt_resource *r = &res->resctrl_res;
+	struct mpam_resctrl_ctrl *mpam_ctrl;
+
+	mpam_ctrl = kzalloc_obj(*mpam_ctrl);
+	if (!mpam_ctrl)
+		return -ENOMEM;
 
 	switch (r->rid) {
 	case RDT_RESOURCE_L2:
 	case RDT_RESOURCE_L3:
-		r->ctrl.type = RESCTRL_CTRL_BITMAP;
-		r->ctrl.bitmap.arch_has_sparse_bitmasks = true;
+		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
+		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
+		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
 
-		r->ctrl.bitmap.cbm_len = class->props.cpbm_wd;
+		mpam_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = true;
+
+		mpam_ctrl->r_ctrl.bitmap.cbm_len = class->props.cpbm_wd;
 		/* mpam_devices will reject empty bitmaps */
-		r->ctrl.bitmap.min_cbm_bits = 1;
+		mpam_ctrl->r_ctrl.bitmap.min_cbm_bits = 1;
 
 		if (r->rid == RDT_RESOURCE_L2) {
 			r->name = "L2";
@@ -1028,18 +1036,22 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		 * we have configured the SMMU and GIC not to do this 'all the
 		 * bits' is the correct answer here.
 		 */
-		r->ctrl.bitmap.shareable_bits = resctrl_get_default_ctrlval(&r->ctrl);
+		mpam_ctrl->r_ctrl.bitmap.shareable_bits = resctrl_get_default_ctrlval(&mpam_ctrl->r_ctrl);
+		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
 		r->alloc_capable = true;
 		break;
 	case RDT_RESOURCE_MBA:
-		r->ctrl.type = RESCTRL_CTRL_SCALAR;
 		r->ctrl_scope = RESCTRL_L3_CACHE;
-		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
+		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
+		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
 
-		r->ctrl.scalar.linear = true;
-		r->ctrl.scalar.min = get_mba_min(cprops);
-		r->ctrl.scalar.max = MAX_MBA_BW;
-		r->ctrl.scalar.gran = get_mba_granularity(cprops);
+		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
+		mpam_ctrl->r_ctrl.scalar.linear = true;
+		mpam_ctrl->r_ctrl.scalar.min = get_mba_min(cprops);
+		mpam_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
+		mpam_ctrl->r_ctrl.scalar.gran = get_mba_granularity(cprops);
+		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
 
 		r->name = "MB";
 		r->alloc_capable = true;
@@ -1680,7 +1692,7 @@ int mpam_resctrl_setup(void)
 
 	cpus_read_lock();
 	for_each_mpam_resctrl_control(res, rid) {
-		INIT_LIST_HEAD_RCU(&res->resctrl_res.ctrl.domains);
+		INIT_LIST_HEAD(&res->resctrl_res.controls);
 		INIT_LIST_HEAD_RCU(&res->resctrl_res.mon_domains);
 		res->resctrl_res.rid = rid;
 	}

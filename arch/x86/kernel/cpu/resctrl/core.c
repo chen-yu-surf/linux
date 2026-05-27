@@ -55,7 +55,7 @@ static void mba_wrmsr_intel(struct msr_param *m);
 static void cat_wrmsr(struct msr_param *m);
 static void mba_wrmsr_amd(struct msr_param *m);
 
-#define ctrl_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.ctrl.domains)
+#define ctrl_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.controls)
 #define mon_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.mon_domains)
 
 struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
@@ -66,10 +66,7 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 			.ctrl_scope		= RESCTRL_L3_CACHE,
 			.mon_scope		= RESCTRL_L3_CACHE,
 			.mon_domains		= mon_domain_init(RDT_RESOURCE_L3),
-			.ctrl	= {
-				.domains	= ctrl_domain_init(RDT_RESOURCE_L3),
-				.type		= RESCTRL_CTRL_BITMAP,
-			},
+			.controls		= ctrl_init(RDT_RESOURCE_L3),
 		},
 		.msr_base		= MSR_IA32_L3_CBM_BASE,
 		.msr_update		= cat_wrmsr,
@@ -79,10 +76,7 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 		.r_resctrl = {
 			.name			= "L2",
 			.ctrl_scope		= RESCTRL_L2_CACHE,
-			.ctrl	= {
-				.domains	= ctrl_domain_init(RDT_RESOURCE_L2),
-				.type		= RESCTRL_CTRL_BITMAP,
-			},
+			.controls		= ctrl_init(RDT_RESOURCE_L2),
 		},
 		.msr_base		= MSR_IA32_L2_CBM_BASE,
 		.msr_update		= cat_wrmsr,
@@ -92,10 +86,7 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 		.r_resctrl = {
 			.name			= "MB",
 			.ctrl_scope		= RESCTRL_L3_CACHE,
-			.ctrl = {
-				.domains	= ctrl_domain_init(RDT_RESOURCE_MBA),
-				.type		= RESCTRL_CTRL_SCALAR,
-			},
+			.controls		= ctrl_init(RDT_RESOURCE_MBA),
 		},
 	},
 	[RDT_RESOURCE_SMBA] =
@@ -103,10 +94,7 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 		.r_resctrl = {
 			.name			= "SMBA",
 			.ctrl_scope		= RESCTRL_L3_CACHE,
-			.ctrl = {
-				.domains	= ctrl_domain_init(RDT_RESOURCE_SMBA),
-				.type		= RESCTRL_CTRL_SCALAR,
-			},
+			.controls		= ctrl_init(RDT_RESOURCE_SMBA),
 		},
 	},
 	[RDT_RESOURCE_PERF_PKG] =
@@ -169,6 +157,7 @@ static inline void cache_alloc_hsw_probe(void)
 	struct rdt_hw_resource *hw_res = &rdt_resources_all[RDT_RESOURCE_L3];
 	struct rdt_resource *r  = &hw_res->r_resctrl;
 	u64 max_cbm = BIT_ULL_MASK(20) - 1, l3_cbm_0;
+	struct resctrl_hw_ctrl *hw_ctrl;
 
 	if (wrmsrq_safe(MSR_IA32_L3_CBM_BASE, max_cbm))
 		return;
@@ -179,11 +168,20 @@ static inline void cache_alloc_hsw_probe(void)
 	if (l3_cbm_0 != max_cbm)
 		return;
 
+	hw_ctrl = kzalloc_obj(*hw_ctrl);
+	if (!hw_ctrl)
+		return;
+
+	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
+	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+	hw_ctrl->r_ctrl.bitmap.cbm_len = 20;
+	hw_ctrl->r_ctrl.bitmap.shareable_bits = 0xc0000;
+	hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 2;
+	hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = false;
+	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
+
 	hw_res->num_closid = 4;
-	r->ctrl.bitmap.cbm_len = 20;
-	r->ctrl.bitmap.shareable_bits = 0xc0000;
-	r->ctrl.bitmap.min_cbm_bits = 2;
-	r->ctrl.bitmap.arch_has_sparse_bitmasks = false;
 	r->alloc_capable = true;
 
 	rdt_alloc_capable = true;
@@ -192,6 +190,7 @@ static inline void cache_alloc_hsw_probe(void)
 static __init bool __get_mem_config_intel(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
+	struct resctrl_hw_ctrl *hw_ctrl;
 	union cpuid_0x10_3_eax eax;
 	union cpuid_0x10_x_edx edx;
 	u32 ebx, ecx, max_delay;
@@ -199,19 +198,29 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	cpuid_count(0x00000010, 3, &eax.full, &ebx, &ecx, &edx.full);
 	hw_res->num_closid = edx.split.cos_max + 1;
 	max_delay = eax.split.max_delay + 1;
-	r->ctrl.scalar.max = MAX_MBA_BW;
 
 	if (!(ecx & MBA_IS_LINEAR))
 		return false;
-	r->ctrl.scalar.linear = true;
 
-	r->ctrl.scalar.min = MAX_MBA_BW - max_delay;
-	r->ctrl.scalar.gran = MAX_MBA_BW - max_delay;
+	hw_ctrl = kzalloc_obj(*hw_ctrl);
+	if (!hw_ctrl)
+		return false;
+
+	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+
+	hw_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
+	hw_ctrl->r_ctrl.scalar.min = MAX_MBA_BW - max_delay;
+	hw_ctrl->r_ctrl.scalar.gran = MAX_MBA_BW - max_delay;
+	hw_ctrl->r_ctrl.scalar.linear = true;
 
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->bw_throttle_mode = THREAD_THROTTLE_PER_THREAD;
 	else
 		r->bw_throttle_mode = THREAD_THROTTLE_MAX;
+
+	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
 
@@ -222,6 +231,7 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	u32 eax, ebx, ecx, edx, subleaf;
+	struct resctrl_hw_ctrl *hw_ctrl;
 
 	/*
 	 * Query CPUID_Fn80000020_EDX_x01 for MBA and
@@ -231,22 +241,33 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 
 	cpuid_count(0x80000020, subleaf, &eax, &ebx, &ecx, &edx);
 	hw_res->num_closid = edx + 1;
-	if (BITS_PER_TYPE(r->ctrl.scalar.max) <= eax) {
+	hw_ctrl = kzalloc_obj(*hw_ctrl);
+	if (!hw_ctrl)
+		return false;
+
+	if (BITS_PER_TYPE(hw_ctrl->r_ctrl.scalar.max) <= eax) {
 		pr_warn("Unable to support hardware's maximum bandwidth\n");
+		kfree(hw_ctrl);
 		return false;
 	}
-	r->ctrl.scalar.max = BIT(eax);
+
+	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+
+	hw_ctrl->r_ctrl.scalar.max = BIT(eax);
 
 	/* AMD does not use delay */
-	r->ctrl.scalar.linear = false;
+	hw_ctrl->r_ctrl.scalar.linear = false;
 
 	/*
 	 * AMD does not use memory delay throttle model to control
 	 * the allocation like Intel does.
 	 */
 	r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-	r->ctrl.scalar.min = 0;
-	r->ctrl.scalar.gran = 1;
+	hw_ctrl->r_ctrl.scalar.min = 0;
+	hw_ctrl->r_ctrl.scalar.gran = 1;
+	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
 
@@ -256,6 +277,7 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
+	struct resctrl_hw_ctrl *hw_ctrl;
 	union cpuid_0x10_1_eax eax;
 	union cpuid_0x10_x_ecx ecx;
 	union cpuid_0x10_x_edx edx;
@@ -263,19 +285,29 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 
 	cpuid_count(0x00000010, idx, &eax.full, &ebx, &ecx.full, &edx.full);
 	hw_res->num_closid = edx.split.cos_max + 1;
-	r->ctrl.bitmap.cbm_len = eax.split.cbm_len + 1;
+	hw_ctrl = kzalloc_obj(*hw_ctrl);
+	if (!hw_ctrl)
+		return;
+
+	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
+	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+
+	hw_ctrl->r_ctrl.bitmap.cbm_len = eax.split.cbm_len + 1;
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;
-	r->ctrl.bitmap.shareable_bits = ebx & default_ctrl;
+	hw_ctrl->r_ctrl.bitmap.shareable_bits = ebx & default_ctrl;
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL) {
-		r->ctrl.bitmap.arch_has_sparse_bitmasks = ecx.split.noncont;
-		r->ctrl.bitmap.min_cbm_bits = 1;
+		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = ecx.split.noncont;
+		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 1;
 	} else if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
 		   boot_cpu_data.x86_vendor == X86_VENDOR_HYGON) {
-		r->ctrl.bitmap.arch_has_sparse_bitmasks = true;
-		r->ctrl.bitmap.min_cbm_bits = 0;
+		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = true;
+		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 0;
 	} else {
 		return;
 	}
+
+	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
 }
@@ -1159,6 +1191,10 @@ static void __exit resctrl_arch_exit(void)
 
 	cpuhp_remove_state(rdt_online);
 
+	/*
+	 * When resctrl becomes a module the lists of controls need to be
+	 * removed here.
+	 */
 	resctrl_exit();
 }
 

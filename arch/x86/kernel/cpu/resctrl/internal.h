@@ -52,6 +52,14 @@ struct arch_mbm_state {
 /* Setting bit 1 in MSR_IA32_L3_QOS_EXT_CFG enables the SDCIAE feature. */
 #define SDCIAE_ENABLE_BIT		1
 
+/*
+ * struct resctrl_hw_ctrl - Arch private properties of a resource control
+ * @r_ctrl:	Control properties exposed to resctrl file system
+ */
+struct resctrl_hw_ctrl {
+	struct resctrl_ctrl	r_ctrl;
+};
+
 /**
  * struct rdt_hw_ctrl_domain - Arch private attributes of a set of CPUs that share
  *			       a resource for a control function
