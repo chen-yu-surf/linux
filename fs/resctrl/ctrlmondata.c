@@ -308,8 +308,15 @@ next:
 
 struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
-	if (r->ctrl.name == RESCTRL_CTRL_NAME_DEF)
-		return &r->ctrl;
+	struct resctrl_ctrl *ctrl;
+
+	if (list_empty(&r->controls))
+		return NULL;
+
+	for_each_resource_ctrl(ctrl, r) {
+		if (ctrl->name == RESCTRL_CTRL_NAME_DEF)
+			return ctrl;
+	}
 
 	return NULL;
 }
@@ -324,8 +331,8 @@ struct resctrl_ctrl *resctrl_get_cache_ctrl(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_L3 && r->rid != RDT_RESOURCE_L2)
 		return NULL;
 
-	ctrl = &r->ctrl;
-	if (ctrl->type != RESCTRL_CTRL_BITMAP)
+	ctrl = resctrl_resource_ctrl_get_default(r);
+	if (!ctrl || ctrl->type != RESCTRL_CTRL_BITMAP)
 		return NULL;
 
 	return ctrl;

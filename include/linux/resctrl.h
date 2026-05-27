@@ -48,12 +48,8 @@ int proc_resctrl_show(struct seq_file *m,
 	for_each_rdt_resource((r))					      \
 		if ((r)->mon_capable)
 
-/*
- * Temporary: Do not treat like a real loop - do not use break and
- * continue.
- */
 #define for_each_resource_ctrl(ctrl, r)						\
-	ctrl = &r->ctrl;
+	list_for_each_entry(ctrl, &r->controls, entry)
 
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
@@ -323,6 +319,7 @@ enum resctrl_ctrl_name {
 
 /**
  * struct resctrl_ctrl - A resource control
+ * @entry:	List entry of rdt_resource::controls
  * @domains:	RCU list of all control domains
  * @scope:	Scope at which control allocates portions of the resource.
  *		May be different from the scope of the resource.
@@ -343,6 +340,7 @@ enum resctrl_ctrl_name {
  *		Used by memory bandwidth allocation.
  */
 struct resctrl_ctrl {
+	struct list_head	entry;
 	struct list_head	domains;
 	enum resctrl_scope	scope;
 	enum resctrl_ctrl_type	type;
@@ -371,7 +369,7 @@ struct resctrl_ctrl {
  *			different memory bandwidths
  * @cache_io_alloc_capable:True if portion of the cache can be configured
  *			   for I/O traffic.
- * @ctrl:		The control of an alloc_capable resource.
+ * @controls:		List of controls of an alloc_capable resource
  */
 struct rdt_resource {
 	enum resctrl_res_level		rid;
@@ -385,7 +383,7 @@ struct rdt_resource {
 	bool				cdp_capable;
 	enum membw_throttle_mode	bw_throttle_mode;
 	bool				cache_io_alloc_capable;
-	struct resctrl_ctrl		ctrl;
+	struct list_head		controls;
 };
 
 /*
