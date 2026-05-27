@@ -456,7 +456,8 @@ static int get_domain_id_from_scope(int cpu, enum resctrl_scope scope)
 	return -EINVAL;
 }
 
-static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
+static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r,
+				struct resctrl_ctrl *ctrl)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
@@ -474,7 +475,7 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r)
 		return;
 	}
 
-	hdr = resctrl_find_domain(&r->ctrl.domains, id, &add_pos);
+	hdr = resctrl_find_domain(&ctrl->domains, id, &add_pos);
 	if (hdr) {
 		if (!domain_header_is_valid(hdr, RESCTRL_CTRL_DOMAIN, r->rid))
 			return;
@@ -588,13 +589,18 @@ static void domain_add_cpu_mon(int cpu, struct rdt_resource *r)
 
 static void domain_add_cpu(int cpu, struct rdt_resource *r)
 {
-	if (r->alloc_capable)
-		domain_add_cpu_ctrl(cpu, r);
+	struct resctrl_ctrl *ctrl;
+
+	if (r->alloc_capable) {
+		for_each_resource_ctrl(ctrl, r)
+			domain_add_cpu_ctrl(cpu, r, ctrl);
+	}
 	if (r->mon_capable)
 		domain_add_cpu_mon(cpu, r);
 }
 
-static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r)
+static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r,
+				   struct resctrl_ctrl *ctrl)
 {
 	int id = get_domain_id_from_scope(cpu, r->ctrl_scope);
 	struct rdt_hw_ctrl_domain *hw_dom;
@@ -609,7 +615,7 @@ static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r)
 		return;
 	}
 
-	hdr = resctrl_find_domain(&r->ctrl.domains, id, NULL);
+	hdr = resctrl_find_domain(&ctrl->domains, id, NULL);
 	if (!hdr) {
 		pr_warn("Can't find control domain for id=%d for CPU %d for resource %s\n",
 			id, cpu, r->name);
@@ -700,8 +706,12 @@ static void domain_remove_cpu_mon(int cpu, struct rdt_resource *r)
 
 static void domain_remove_cpu(int cpu, struct rdt_resource *r)
 {
-	if (r->alloc_capable)
-		domain_remove_cpu_ctrl(cpu, r);
+	struct resctrl_ctrl *ctrl;
+
+	if (r->alloc_capable) {
+		for_each_resource_ctrl(ctrl, r)
+			domain_remove_cpu_ctrl(cpu, r, ctrl);
+	}
 	if (r->mon_capable)
 		domain_remove_cpu_mon(cpu, r);
 }
