@@ -1672,6 +1672,7 @@ static struct mpam_component *find_component(struct mpam_class *class, int cpu)
 
 static int mpam_resctrl_setup_ctrl_domain(unsigned int cpu,
 					  struct rdt_resource *r,
+					  struct resctrl_ctrl *ctrl,
 					  struct mpam_component *comp,
 					  struct mpam_resctrl_ctrl_dom *dom)
 {
@@ -1686,7 +1687,7 @@ static int mpam_resctrl_setup_ctrl_domain(unsigned int cpu,
 	if (err)
 		return err;
 
-	mpam_resctrl_domain_insert(&r->ctrl.domains, &ctrl_d->hdr);
+	mpam_resctrl_domain_insert(&ctrl->domains, &ctrl_d->hdr);
 
 	return 0;
 }
@@ -1772,14 +1773,13 @@ static struct mpam_resctrl_mon_dom *mpam_resctrl_get_mon_domain_from_cpu(int cpu
 }
 
 static struct mpam_resctrl_ctrl_dom *
-mpam_resctrl_get_ctrl_domain_from_cpu(int cpu, struct mpam_resctrl_res *res)
+mpam_resctrl_get_ctrl_domain_from_cpu(int cpu, struct resctrl_ctrl *ctrl)
 {
 	struct mpam_resctrl_ctrl_dom *dom;
-	struct rdt_resource *r = &res->resctrl_res;
 
 	lockdep_assert_cpus_held();
 
-	list_for_each_entry_rcu(dom, &r->ctrl.domains, resctrl_ctrl_dom.hdr.list) {
+	list_for_each_entry_rcu(dom, &ctrl->domains, resctrl_ctrl_dom.hdr.list) {
 		if (cpumask_test_cpu(cpu, &dom->ctrl_comp->affinity))
 			return dom;
 	}
@@ -1793,26 +1793,28 @@ static void mpam_resctrl_add_cpu_ctrl_domain(unsigned int cpu,
 	struct rdt_resource *r = &res->resctrl_res;
 	struct mpam_resctrl_ctrl_dom *dom;
 	struct mpam_component *comp;
+	struct resctrl_ctrl *ctrl;
 
 	lockdep_assert_held(&domain_list_lock);
-
-	dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res);
-	if (dom) {
-		mpam_resctrl_online_domain_hdr(cpu, &dom->resctrl_ctrl_dom.hdr);
-		return;
-	}
 
 	comp = find_component(res->class, cpu);
 	/* class has no component for this CPU */
 	if (WARN_ON_ONCE(!comp))
 		return;
 
-	dom = kzalloc_node(sizeof(*dom), GFP_KERNEL, cpu_to_node(cpu));
-	if (WARN_ON_ONCE(!dom))
-		return;
+	for_each_resource_ctrl(ctrl, r) {
+		dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, ctrl);
+		if (dom) {
+			mpam_resctrl_online_domain_hdr(cpu, &dom->resctrl_ctrl_dom.hdr);
+		} else {
+			dom = kzalloc_node(sizeof(*dom), GFP_KERNEL, cpu_to_node(cpu));
+			if (WARN_ON_ONCE(!dom))
+				return;
 
-	if (mpam_resctrl_setup_ctrl_domain(cpu, r, comp, dom))
-		kfree(dom);
+			if (mpam_resctrl_setup_ctrl_domain(cpu, r, ctrl, comp, dom))
+				kfree(dom);
+		}
+	}
 }
 
 static void mpam_resctrl_add_cpu_mon_domain(unsigned int cpu,
@@ -1842,19 +1844,20 @@ static void mpam_resctrl_remove_cpu_ctrl_domain(unsigned int cpu,
 {
 	struct rdt_resource *r = &res->resctrl_res;
 	struct mpam_resctrl_ctrl_dom *dom;
+	struct resctrl_ctrl *ctrl;
 
 	lockdep_assert_held(&domain_list_lock);
 
-	/* The domain may be missing if its setup failed. */
-	dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, res);
-	if (!dom)
-		return;
-
-	if (!mpam_resctrl_offline_domain_hdr(cpu, &dom->resctrl_ctrl_dom.hdr))
-		return;
-
-	resctrl_offline_ctrl_domain(r, &dom->resctrl_ctrl_dom);
-	kfree(dom);
+	for_each_resource_ctrl(ctrl, r) {
+		/* The domain may be missing if its setup failed. */
+		dom = mpam_resctrl_get_ctrl_domain_from_cpu(cpu, ctrl);
+		if (dom) {
+			if (mpam_resctrl_offline_domain_hdr(cpu, &dom->resctrl_ctrl_dom.hdr)) {
+				resctrl_offline_ctrl_domain(r, &dom->resctrl_ctrl_dom);
+				kfree(dom);
+			}
+		}
+	}
 }
 
 static void mpam_resctrl_remove_cpu_mon_domain(unsigned int cpu,
