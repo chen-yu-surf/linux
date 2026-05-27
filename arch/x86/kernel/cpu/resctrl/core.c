@@ -514,7 +514,7 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r,
 
 	list_add_tail_rcu(&d->hdr.list, add_pos);
 
-	err = resctrl_online_ctrl_domain(r, d);
+	err = resctrl_online_ctrl_domain(r, ctrl, d);
 	if (err) {
 		list_del_rcu(&d->hdr.list);
 		synchronize_rcu();
@@ -644,7 +644,7 @@ static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r,
 	d = container_of(hdr, struct rdt_ctrl_domain, hdr);
 	hw_dom = resctrl_to_arch_ctrl_dom(d);
 
-	resctrl_offline_ctrl_domain(r, d);
+	resctrl_offline_ctrl_domain(r, ctrl, d);
 	list_del_rcu(&hdr->list);
 	synchronize_rcu();
 

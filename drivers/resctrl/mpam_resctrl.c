@@ -1426,7 +1426,7 @@ mpam_resctrl_alloc_ctrl_domain(unsigned int cpu, struct mpam_resctrl_res *res,
 	ctrl_d = &dom->resctrl_ctrl_dom;
 	mpam_resctrl_domain_hdr_init(cpu, ctrl_comp, r->rid, &ctrl_d->hdr);
 	ctrl_d->hdr.type = RESCTRL_CTRL_DOMAIN;
-	err = resctrl_online_ctrl_domain(r, ctrl_d);
+	err = resctrl_online_ctrl_domain(r, ctrl, ctrl_d);
 	if (err)
 		goto free_domain;
 
@@ -1642,7 +1642,7 @@ void mpam_resctrl_offline_cpu(unsigned int cpu)
 				ctrl_d = &dom->resctrl_ctrl_dom;
 				dom_empty = mpam_resctrl_offline_domain_hdr(cpu, &ctrl_d->hdr);
 				if (dom_empty) {
-					resctrl_offline_ctrl_domain(&res->resctrl_res, ctrl_d);
+					resctrl_offline_ctrl_domain(&res->resctrl_res, ctrl, ctrl_d);
 					kfree(dom);
 				}
 			}
