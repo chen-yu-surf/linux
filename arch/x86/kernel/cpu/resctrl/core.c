@@ -504,7 +504,7 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r,
 		return;
 	}
 
-	err = resctrl_online_ctrl_domain(r, d);
+	err = resctrl_online_ctrl_domain(r, ctrl, d);
 	if (err) {
 		ctrl_domain_free(hw_dom);
 		return;
@@ -634,7 +634,7 @@ static void domain_remove_cpu_ctrl(int cpu, struct rdt_resource *r,
 
 	list_del_rcu(&hdr->list);
 	synchronize_rcu();
-	resctrl_offline_ctrl_domain(r, d);
+	resctrl_offline_ctrl_domain(r, ctrl, d);
 
 	/*
 	 * rdt_ctrl_domain "d" is going to be freed below, so clear
