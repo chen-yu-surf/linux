@@ -252,6 +252,7 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 	 * Pick one CPU from each domain to update the MSRs below.
 	 */
 	for_each_resource_ctrl(ctrl, r) {
+		msr_param.ctrl = ctrl;
 		list_for_each_entry(d, &ctrl->domains, hdr.list) {
 			hw_dom = resctrl_to_arch_ctrl_dom(d);
 

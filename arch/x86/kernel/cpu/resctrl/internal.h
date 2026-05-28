@@ -52,13 +52,38 @@ struct arch_mbm_state {
 /* Setting bit 1 in MSR_IA32_L3_QOS_EXT_CFG enables the SDCIAE feature. */
 #define SDCIAE_ENABLE_BIT		1
 
+/**
+ * struct msr_param - set a range of MSRs from a domain
+ * @res:       The resource to use
+ * @ctrl:      Properties of the control being updated
+ * @dom:       The domain to update
+ * @low:       Beginning index from base MSR
+ * @high:      End index
+ */
+struct msr_param {
+	struct rdt_resource	*res;
+	struct resctrl_ctrl	*ctrl;
+	struct rdt_ctrl_domain	*dom;
+	u32			low;
+	u32			high;
+};
+
 /*
  * struct resctrl_hw_ctrl - Arch private properties of a resource control
  * @r_ctrl:	Control properties exposed to resctrl file system
+ * @msr_base:	Base MSR address where control values should be programmed
+ * @msr_update:	Function pointer to update control values
  */
 struct resctrl_hw_ctrl {
 	struct resctrl_ctrl	r_ctrl;
+	unsigned int		msr_base;
+	void			(*msr_update)(struct msr_param *m);
 };
+
+static inline struct resctrl_hw_ctrl *resctrl_to_arch_ctrl(struct resctrl_ctrl *c)
+{
+	return container_of(c, struct resctrl_hw_ctrl, r_ctrl);
+}
 
 /**
  * struct rdt_hw_ctrl_domain - Arch private attributes of a set of CPUs that share
@@ -107,20 +132,6 @@ struct rdt_perf_pkg_mon_domain {
 };
 
 /**
- * struct msr_param - set a range of MSRs from a domain
- * @res:       The resource to use
- * @dom:       The domain to update
- * @low:       Beginning index from base MSR
- * @high:      End index
- */
-struct msr_param {
-	struct rdt_resource	*res;
-	struct rdt_ctrl_domain	*dom;
-	u32			low;
-	u32			high;
-};
-
-/**
  * struct rdt_hw_resource - arch private attributes of a resctrl resource
  * @r_resctrl:		Attributes of the resource used directly by resctrl.
  * @num_closid:		Maximum number of closid this hardware can support,
@@ -128,8 +139,6 @@ struct msr_param {
  *			resctrl_arch_get_num_closid() to avoid confusion
  *			with struct rdt_resource_final's property of the same
  *			name, which has been corrected for features like CDP.
- * @msr_base:		Base MSR address for CBMs
- * @msr_update:		Function pointer to update QOS MSRs
  * @mon_scale:		cqm counter * mon_scale = occupancy in bytes
  * @mbm_width:		Monitor width, to detect and correct for overflow.
  * @cdp_enabled:	CDP state of this resource
@@ -138,15 +147,11 @@ struct msr_param {
  * @mbm_cntr_assign_enabled:	ABMC feature is enabled
  * @sdciae_enabled:	SDCIAE feature (backing "io_alloc") is enabled.
  *
- * Members of this structure are either private to the architecture
- * e.g. mbm_width, or accessed via helpers that provide abstraction. e.g.
- * msr_update and msr_base.
+ * Members of this structure are either private to the architecture.
  */
 struct rdt_hw_resource {
 	struct rdt_resource	r_resctrl;
 	u32			num_closid;
-	unsigned int		msr_base;
-	void			(*msr_update)(struct msr_param *m);
 	unsigned int		mon_scale;
 	unsigned int		mbm_width;
 	bool			cdp_enabled;
