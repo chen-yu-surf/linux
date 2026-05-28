@@ -2271,6 +2271,53 @@ static int resctrl_ctrl_max_show(struct kernfs_open_file *of,
 	return 0;
 }
 
+static int resctrl_ctrl_resolution_show(struct kernfs_open_file *of,
+					struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%u\n", ctrl->membw.resolution);
+
+	return 0;
+}
+
+static int resctrl_ctrl_tolerance_show(struct kernfs_open_file *of,
+				       struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%d\n", ctrl->membw.tolerance);
+
+	return 0;
+}
+
+static int resctrl_ctrl_scale_show(struct kernfs_open_file *of,
+				   struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%u\n", ctrl->membw.scale);
+
+	return 0;
+}
+
+static int resctrl_ctrl_unit_show(struct kernfs_open_file *of,
+				  struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	switch (ctrl->membw.unit) {
+	case RESCTRL_CTRL_UNIT_ALL:
+		seq_puts(seq, "all\n");
+		return 0;
+	case RESCTRL_CTRL_UNIT_GBPS:
+		seq_puts(seq, "GBps\n");
+		return 0;
+	}
+	WARN_ON_ONCE(1);
+	return 0;
+}
+
 static struct rftype ctrl_files[] = {
 	{
 		.name		= "scope",
@@ -2298,6 +2345,34 @@ static struct rftype ctrl_files[] = {
 		.mode		= 0444,
 		.kf_ops		= &rdtgroup_kf_single_ops,
 		.seq_show	= resctrl_ctrl_max_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+	{
+		.name		= "resolution",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_resolution_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+	{
+		.name		= "tolerance",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_tolerance_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+	{
+		.name		= "scale",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_scale_show,
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+	},
+	{
+		.name		= "unit",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_unit_show,
 		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
 	},
 };
