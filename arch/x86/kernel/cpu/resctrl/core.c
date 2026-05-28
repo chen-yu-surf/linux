@@ -68,8 +68,6 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 			.mon_domains		= mon_domain_init(RDT_RESOURCE_L3),
 			.controls		= ctrl_init(RDT_RESOURCE_L3),
 		},
-		.msr_base		= MSR_IA32_L3_CBM_BASE,
-		.msr_update		= cat_wrmsr,
 	},
 	[RDT_RESOURCE_L2] =
 	{
@@ -78,8 +76,6 @@ struct rdt_hw_resource rdt_resources_all[RDT_NUM_RESOURCES] = {
 			.ctrl_scope		= RESCTRL_L2_CACHE,
 			.controls		= ctrl_init(RDT_RESOURCE_L2),
 		},
-		.msr_base		= MSR_IA32_L2_CBM_BASE,
-		.msr_update		= cat_wrmsr,
 	},
 	[RDT_RESOURCE_MBA] =
 	{
@@ -223,6 +219,9 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.scalar.tolerance = 10;
 	hw_ctrl->r_ctrl.scalar.scale = 1;
 	hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
+
+	hw_ctrl->msr_base = MSR_IA32_MBA_THRTL_BASE;
+	hw_ctrl->msr_update = mba_wrmsr_intel;
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
@@ -271,6 +270,14 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.scalar.tolerance = 0;
 	hw_ctrl->r_ctrl.scalar.scale = 1;
 	hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_GBPS;
+
+	if (r->rid == RDT_RESOURCE_MBA) {
+		hw_ctrl->msr_base = MSR_IA32_MBA_BW_BASE;
+		hw_ctrl->msr_update = mba_wrmsr_amd;
+	} else { /* r->rid == RDT_RESOURCE_SMBA */
+		hw_ctrl->msr_base = MSR_IA32_SMBA_BW_BASE;
+		hw_ctrl->msr_update = mba_wrmsr_amd;
+	}
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
@@ -312,6 +319,9 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 		return;
 	}
 
+	hw_ctrl->msr_base = idx == 1 ? MSR_IA32_L3_CBM_BASE: MSR_IA32_L2_CBM_BASE;
+	hw_ctrl->msr_update = cat_wrmsr;
+
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	r->alloc_capable = true;
@@ -345,17 +355,17 @@ static void rdt_get_cdp_l2_config(void)
 static void mba_wrmsr_amd(struct msr_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
-	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
 	unsigned int i;
 
 	for (i = m->low; i < m->high; i++)
-		wrmsrq(hw_res->msr_base + i, hw_dom->ctrl_val[i]);
+		wrmsrq(hw_ctrl->msr_base + i, hw_dom->ctrl_val[i]);
 }
 
 static void mba_wrmsr_intel(struct msr_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
-	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
 	unsigned int i;
 
 	if (!test_bit(RESCTRL_SCALAR_FLAG_LINEAR, m->ctrl->scalar.flags)) {
@@ -365,17 +375,17 @@ static void mba_wrmsr_intel(struct msr_param *m)
 
 	/* Program bandwidth percentage mapped to linear delay value. */
 	for (i = m->low; i < m->high; i++)
-		wrmsrq(hw_res->msr_base + i, MAX_MBA_BW - hw_dom->ctrl_val[i]);
+		wrmsrq(hw_ctrl->msr_base + i, MAX_MBA_BW - hw_dom->ctrl_val[i]);
 }
 
 static void cat_wrmsr(struct msr_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
-	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
 	unsigned int i;
 
 	for (i = m->low; i < m->high; i++)
-		wrmsrq(hw_res->msr_base + i, hw_dom->ctrl_val[i]);
+		wrmsrq(hw_ctrl->msr_base + i, hw_dom->ctrl_val[i]);
 }
 
 u32 resctrl_arch_get_num_closid(struct rdt_resource *r)
@@ -385,11 +395,11 @@ u32 resctrl_arch_get_num_closid(struct rdt_resource *r)
 
 void rdt_ctrl_update(void *arg)
 {
-	struct rdt_hw_resource *hw_res;
+	struct resctrl_hw_ctrl *hw_ctrl;
 	struct msr_param *m = arg;
 
-	hw_res = resctrl_to_arch_res(m->res);
-	hw_res->msr_update(m);
+	hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
+	hw_ctrl->msr_update(m);
 }
 
 static void setup_default_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
@@ -426,6 +436,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 				struct rdt_ctrl_domain *d)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(ctrl);
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	struct msr_param m;
 	u32 *dc;
@@ -443,7 +454,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 	m.dom = d;
 	m.low = 0;
 	m.high = hw_res->num_closid;
-	hw_res->msr_update(&m);
+	hw_ctrl->msr_update(&m);
 	return 0;
 }
 
@@ -1061,13 +1072,8 @@ static __init void rdt_init_res_defs_intel(void)
 	for_each_rdt_resource(r) {
 		hw_res = resctrl_to_arch_res(r);
 
-		if (r->rid == RDT_RESOURCE_L3 ||
-		    r->rid == RDT_RESOURCE_L2) {
+		if (r->rid == RDT_RESOURCE_L3 || r->rid == RDT_RESOURCE_L2)
 			hw_res->has_per_cpu_cache_cfg = false;
-		} else if (r->rid == RDT_RESOURCE_MBA) {
-			hw_res->msr_base = MSR_IA32_MBA_THRTL_BASE;
-			hw_res->msr_update = mba_wrmsr_intel;
-		}
 	}
 }
 
@@ -1079,16 +1085,8 @@ static __init void rdt_init_res_defs_amd(void)
 	for_each_rdt_resource(r) {
 		hw_res = resctrl_to_arch_res(r);
 
-		if (r->rid == RDT_RESOURCE_L3 ||
-		    r->rid == RDT_RESOURCE_L2) {
+		if (r->rid == RDT_RESOURCE_L3 || r->rid == RDT_RESOURCE_L2)
 			hw_res->has_per_cpu_cache_cfg = true;
-		} else if (r->rid == RDT_RESOURCE_MBA) {
-			hw_res->msr_base = MSR_IA32_MBA_BW_BASE;
-			hw_res->msr_update = mba_wrmsr_amd;
-		} else if (r->rid == RDT_RESOURCE_SMBA) {
-			hw_res->msr_base = MSR_IA32_SMBA_BW_BASE;
-			hw_res->msr_update = mba_wrmsr_amd;
-		}
 	}
 }
 
