@@ -377,10 +377,14 @@ struct resctrl_mon {
  * @RESCTRL_CTRL_NAME_DEF:	The default control name. This is the empty
  *				string used to create a schema consisting of
  *				resource name only.
+ * @RESCTRL_CTRL_NAME_MIN:	"MIN"
+ * @RESCTRL_CTRL_NAME_MAX:	"MAX"
  */
 enum resctrl_ctrl_name {
 	RESCTRL_CTRL_NAME_DEF,
-	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_DEF
+	RESCTRL_CTRL_NAME_MIN,
+	RESCTRL_CTRL_NAME_MAX,
+	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAX
 };
 
 /**
