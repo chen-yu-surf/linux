@@ -346,10 +346,14 @@ struct resctrl_mon {
  * @RESCTRL_CTRL_NAME_DEF:	The default suffix which is the empty
  *				string to create the default control that
  *				has the same name as the resource.
+ * @RESCTRL_CTRL_NAME_MIN:	"MIN"
+ * @RESCTRL_CTRL_NAME_MAX:	"MAX"
  */
 enum resctrl_ctrl_name {
 	RESCTRL_CTRL_NAME_DEF,
-	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_DEF
+	RESCTRL_CTRL_NAME_MIN,
+	RESCTRL_CTRL_NAME_MAX,
+	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAX
 };
 
 /**
