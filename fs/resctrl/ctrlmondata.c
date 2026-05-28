@@ -550,13 +550,11 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 	if (rdtgrp) {
 		if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 			list_for_each_entry(f, &rdt_resource_final_all, list) {
-				ctrl = resctrl_resource_ctrl_get_default(f->res);
-				if (!ctrl)
-					continue;
-				seq_printf(s, "%s%s%s:uninitialized\n", f->name,
-					   resctrl_ctrl_is_default(ctrl) ? "" : "_",
-					   resctrl_ctrl_is_default(ctrl) ?
-					    "" : resctrl_ctrl_name_str(ctrl->name));
+				for_each_resource_ctrl(ctrl, f->res)
+					seq_printf(s, "%s%s%s:uninitialized\n", f->name,
+						   resctrl_ctrl_is_default(ctrl) ? "" : "_",
+						   resctrl_ctrl_is_default(ctrl) ?
+						    "" : resctrl_ctrl_name_str(ctrl->name));
 			}
 		} else if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
 			if (!rdtgrp->plr->d) {
@@ -571,9 +569,10 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 		} else {
 			closid = rdtgrp->closid;
 			list_for_each_entry(f, &rdt_resource_final_all, list) {
-				if (closid < f->num_closid)
-					show_doms(s, f, true, closid,
-						  resctrl_resource_ctrl_get_default(f->res));
+				if (closid >= f->num_closid)
+					continue;
+				for_each_resource_ctrl(ctrl, f->res)
+					show_doms(s, f, true, closid, ctrl);
 			}
 		}
 	} else {
