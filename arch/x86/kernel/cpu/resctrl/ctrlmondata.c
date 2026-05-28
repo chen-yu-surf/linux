@@ -31,7 +31,7 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 			    enum resctrl_conf_type t, u32 cfg_val)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
-	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(ctrl);
 	u32 idx = resctrl_get_config_index(closid, t);
 	struct msr_param msr_param;
 
@@ -45,7 +45,7 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	msr_param.dom = d;
 	msr_param.low = idx;
 	msr_param.high = idx + 1;
-	hw_res->msr_update(&msr_param);
+	hw_ctrl->msr_update(&msr_param);
 
 	return 0;
 }
