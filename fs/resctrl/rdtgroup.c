@@ -2302,6 +2302,34 @@ static struct rftype ctrl_files[] = {
 	},
 };
 
+static int resctrl_add_ctrl_files(struct kernfs_node *kn, struct resctrl_ctrl *ctrl)
+{
+	struct rftype *rfts, *rft;
+	int ret, len;
+
+	rfts = ctrl_files;
+	len = ARRAY_SIZE(ctrl_files);
+
+	lockdep_assert_held(&rdtgroup_mutex);
+
+	for (rft = rfts; rft < rfts + len; rft++) {
+		if (rft->fflags && ((BIT(ctrl->type) & rft->fflags))) {
+			ret = rdtgroup_add_file(kn, rft);
+			if (ret)
+				goto error;
+		}
+	}
+
+	return 0;
+error:
+	pr_warn("Failed to add %s, err=%d\n", rft->name, ret);
+	while (--rft >= rfts) {
+		if (BIT(ctrl->type) & rft->fflags)
+			kernfs_remove_by_name(kn, rft->name);
+	}
+	return ret;
+}
+
 static int rdtgroup_add_files(struct kernfs_node *kn, unsigned long fflags)
 {
 	struct rftype *rfts, *rft;
@@ -2593,6 +2621,52 @@ static unsigned long fflags_from_resource(struct rdt_resource *r)
 	return WARN_ON_ONCE(1);
 }
 
+/*
+ * No need to cleanup on exit - caller calls the recursive kernfs_remove()
+ * on failure.
+ */
+static int resctrl_mkdir_schemata_dir(struct kernfs_node *kn,
+				      struct rdt_resource_final *f)
+{
+	struct kernfs_node *kn_subdir, *kn_ctrl;
+	struct resctrl_ctrl *ctrl;
+	char ctrl_full_name[20];
+	int ret;
+
+	kn_subdir = kernfs_create_dir(kn, "resource_schemata", kn->mode, NULL);
+	if (IS_ERR(kn_subdir))
+		return PTR_ERR(kn_subdir);
+
+	ret = rdtgroup_kn_set_ugid(kn_subdir);
+	if (ret)
+		return ret;
+
+	for_each_resource_ctrl(ctrl, f->res) {
+		ret = snprintf(ctrl_full_name, sizeof(ctrl_full_name), "%s%s%s",
+			       f->name, resctrl_ctrl_is_default(ctrl) ? "" : "_",
+			       resctrl_ctrl_is_default(ctrl) ? "" : resctrl_ctrl_name_str(ctrl->name));
+		if (ret >= sizeof(ctrl_full_name))
+			return -ENOSPC;
+
+		kn_ctrl = kernfs_create_dir(kn_subdir, ctrl_full_name, kn_subdir->mode,
+					    ctrl);
+		if (IS_ERR(kn_ctrl))
+			return PTR_ERR(kn_ctrl);
+
+		ret = rdtgroup_kn_set_ugid(kn_subdir);
+		if (ret)
+			return ret;
+
+		ret = resctrl_add_ctrl_files(kn_ctrl, ctrl);
+		if (ret)
+			return ret;
+	}
+
+	kernfs_activate(kn_subdir);
+
+	return 0;
+}
+
 static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 {
 	struct rdt_resource_final *f;
@@ -2620,6 +2694,10 @@ static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 			ret = PTR_ERR(kn_res);
 			goto out_destroy;
 		}
+
+		ret = resctrl_mkdir_schemata_dir(kn_res, f);
+		if (ret)
+			goto out_destroy;
 	}
 
 	for_each_mon_capable_rdt_resource(r) {
