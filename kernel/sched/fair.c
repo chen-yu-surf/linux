@@ -1617,7 +1617,8 @@ static unsigned long fraction_mm_sched(int cpu,
 	guard(raw_spinlock_irqsave)(&rq->cpu_epoch_lock);
 
 	/* Skip the rq that has not been hit for a long time */
-	if ((rq->cpu_epoch - pcpu_sched->epoch) > llc_epoch_affinity_timeout) {
+	if (sched_feat(SCAN_VISIT) &&
+	   (rq->cpu_epoch - pcpu_sched->epoch) > llc_epoch_affinity_timeout) {
 		cpumask_clear_cpu(cpu, &mm->sc_stat.visited_cpus);
 		return 0;
 	}
@@ -1693,7 +1694,8 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 		pcpu_sched->runtime += delta_exec;
 		rq->cpu_runtime += delta_exec;
 		epoch = rq->cpu_epoch;
-		if (!cpumask_test_cpu(cpu_of(rq), &mm->sc_stat.visited_cpus))
+		if (sched_feat(SCAN_VISIT) &&
+		    !cpumask_test_cpu(cpu_of(rq), &mm->sc_stat.visited_cpus))
 			cpumask_set_cpu(cpu_of(rq), &mm->sc_stat.visited_cpus);
 	}
 
@@ -1772,6 +1774,7 @@ static void task_cache_work(struct callback_head *work)
 	struct mm_struct *mm = p->mm;
 	unsigned long m_a_occ = 0;
 	cpumask_var_t cpus;
+	int scanned = 0;
 
 	WARN_ON_ONCE(work != &p->cache_work);
 
@@ -1805,7 +1808,10 @@ static void task_cache_work(struct callback_head *work)
 	scoped_guard (cpus_read_lock) {
 		guard(rcu)();
 
-		cpumask_and(cpus, cpu_online_mask, &mm->sc_stat.visited_cpus);
+		if (sched_feat(SCAN_VISIT))
+			cpumask_and(cpus, cpu_online_mask, &mm->sc_stat.visited_cpus);
+		else
+			cpumask_copy(cpus, cpu_online_mask);
 
 		for_each_cpu(cpu, cpus) {
 			/* XXX sched_cluster_active */
@@ -1822,6 +1828,7 @@ static void task_cache_work(struct callback_head *work)
 				    cur->mm == mm)
 					nr_running++;
 
+				scanned++;
 				occ = fraction_mm_sched(i, mm);
 				if (occ == 0)
 					continue;
@@ -1877,6 +1884,7 @@ static void task_cache_work(struct callback_head *work)
 
 	update_avg_scale(&mm->sc_stat.nr_running_avg, nr_running);
 	free_cpumask_var(cpus);
+	trace_sched_cache_scan(p, scanned);
 }
 
 void init_sched_mm(struct task_struct *p)
