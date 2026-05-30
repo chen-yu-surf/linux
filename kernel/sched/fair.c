@@ -1455,9 +1455,6 @@ static bool invalid_llc_nr(struct mm_struct *mm, struct task_struct *p,
 {
 	int scale;
 
-	if (get_nr_threads(p) <= 1)
-		return true;
-
 	/*
 	 * Scale the number of 'cores' in a LLC by llc_aggr_tolerance
 	 * and compare it to the task's active threads.
@@ -1465,6 +1462,9 @@ static bool invalid_llc_nr(struct mm_struct *mm, struct task_struct *p,
 	scale = get_sched_cache_scale(1);
 	if (scale == INT_MAX)
 		return false;
+
+	if (get_nr_threads(p) <= 1)
+		return true;
 
 	return !fits_capacity((mm->sc_stat.nr_running_avg * cpu_smt_num_threads),
 			(scale * per_cpu(sd_llc_size, cpu)));
