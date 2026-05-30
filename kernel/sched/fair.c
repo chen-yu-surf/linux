@@ -1556,6 +1556,7 @@ void mm_init_sched(struct mm_struct *mm,
 		pcpu_sched->runtime = 0;
 		/* a slightly stale cpu epoch is acceptible */
 		pcpu_sched->epoch = rq->cpu_epoch;
+		pcpu_sched->epoch_timeout = rq->cpu_epoch;
 		epoch = rq->cpu_epoch;
 	}
 
@@ -1618,7 +1619,7 @@ static unsigned long fraction_mm_sched(int cpu,
 
 	/* Skip the rq that has not been hit for a long time */
 	if (sched_feat(SCAN_VISIT) &&
-	   (rq->cpu_epoch - pcpu_sched->epoch) > llc_epoch_affinity_timeout) {
+	   (rq->cpu_epoch - pcpu_sched->epoch_timeout) > llc_epoch_affinity_timeout) {
 		cpumask_clear_cpu(cpu, &mm->sc_stat.visited_cpus);
 		return 0;
 	}
@@ -1694,6 +1695,7 @@ void account_mm_sched(struct rq *rq, struct task_struct *p, s64 delta_exec)
 		pcpu_sched->runtime += delta_exec;
 		rq->cpu_runtime += delta_exec;
 		epoch = rq->cpu_epoch;
+		pcpu_sched->epoch_timeout = epoch;
 		if (sched_feat(SCAN_VISIT) &&
 		    !cpumask_test_cpu(cpu_of(rq), &mm->sc_stat.visited_cpus))
 			cpumask_set_cpu(cpu_of(rq), &mm->sc_stat.visited_cpus);
