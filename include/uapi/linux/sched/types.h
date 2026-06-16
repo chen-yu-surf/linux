@@ -116,6 +116,8 @@ struct sched_attr {
 	__u32 sched_util_min;
 	__u32 sched_util_max;
 
+	/* Cache-aware scheduling: 1 = enable, 0 = disable for the process */
+	__u32 sched_cache;
 };
 
 #endif /* _UAPI_LINUX_SCHED_TYPES_H */

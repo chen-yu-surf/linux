@@ -427,6 +427,44 @@ static void __setscheduler_uclamp(struct task_struct *p,
 				  const struct sched_attr *attr) { }
 #endif /* !CONFIG_UCLAMP_TASK */
 
+#ifdef CONFIG_SCHED_CACHE
+
+static int sched_cache_validate(struct task_struct *p,
+				const struct sched_attr *attr)
+{
+	if (attr->sched_cache != 0 && attr->sched_cache != 1)
+		return -EINVAL;
+
+	return 0;
+}
+
+static void __setscheduler_cache(struct task_struct *p,
+				 const struct sched_attr *attr)
+{
+	struct sched_cache_stat *sc_stat;
+
+	if (!(attr->sched_flags & SCHED_FLAG_CACHE))
+		return;
+
+	sc_stat = p->sc_stat;
+	if (!sc_stat)
+		return;
+
+	WRITE_ONCE(sc_stat->disabled, !attr->sched_cache);
+}
+
+#else /* !CONFIG_SCHED_CACHE */
+
+static inline int sched_cache_validate(struct task_struct *p,
+				       const struct sched_attr *attr)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void __setscheduler_cache(struct task_struct *p,
+					const struct sched_attr *attr) { }
+#endif /* !CONFIG_SCHED_CACHE */
+
 /*
  * Allow unprivileged RT tasks to decrease priority.
  * Only issue a capable test if needed and only once to avoid an audit
@@ -552,6 +590,12 @@ recheck:
 			return retval;
 	}
 
+	if (attr->sched_flags & SCHED_FLAG_CACHE) {
+		retval = sched_cache_validate(p, attr);
+		if (retval)
+			return retval;
+	}
+
 	/*
 	 * SCHED_DEADLINE bandwidth accounting relies on stable cpusets
 	 * information.
@@ -597,6 +641,8 @@ recheck:
 		if (dl_policy(policy) && dl_param_changed(p, attr))
 			goto change;
 		if (attr->sched_flags & SCHED_FLAG_UTIL_CLAMP)
+			goto change;
+		if (attr->sched_flags & SCHED_FLAG_CACHE)
 			goto change;
 
 		p->sched_reset_on_fork = reset_on_fork;
@@ -687,6 +733,7 @@ change:
 			__setscheduler_dl_pi(newprio, policy, p, scope);
 		}
 		__setscheduler_uclamp(p, attr);
+		__setscheduler_cache(p, attr);
 
 		if (scope->queued) {
 			/*
@@ -1097,6 +1144,10 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 		 */
 		kattr.sched_util_min = p->uclamp_req[UCLAMP_MIN].value;
 		kattr.sched_util_max = p->uclamp_req[UCLAMP_MAX].value;
+#endif
+#ifdef CONFIG_SCHED_CACHE
+		if (p->sc_stat)
+			kattr.sched_cache = !READ_ONCE(p->sc_stat->disabled);
 #endif
 	}
 
