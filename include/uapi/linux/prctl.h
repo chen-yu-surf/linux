@@ -416,4 +416,9 @@ struct prctl_mm_map {
 # define PR_CFI_DISABLE		_BITUL(1)
 # define PR_CFI_LOCK		_BITUL(2)
 
+/* Enable/disable cache aware scheduling for the calling thread */
+#define PR_SCHED_CACHE			82
+# define PR_SCHED_CACHE_GET		0
+# define PR_SCHED_CACHE_SET		1
+
 #endif /* _LINUX_PRCTL_H */

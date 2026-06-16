@@ -2343,6 +2343,17 @@ static inline int sched_core_idle_cpu(int cpu) { return idle_cpu(cpu); }
 
 extern void sched_set_stop_task(int cpu, struct task_struct *stop);
 
+#ifdef CONFIG_SCHED_CACHE
+extern int sched_cache_prctl(int cmd, unsigned long arg3, unsigned long arg4,
+			     unsigned long arg5);
+#else
+static inline int sched_cache_prctl(int cmd, unsigned long arg3,
+				    unsigned long arg4, unsigned long arg5)
+{
+	return -EINVAL;
+}
+#endif
+
 #ifdef CONFIG_MEM_ALLOC_PROFILING
 static __always_inline struct alloc_tag *alloc_tag_save(struct alloc_tag *tag)
 {
@@ -2413,6 +2424,8 @@ struct sched_cache_stat {
 	unsigned long next_scan;
 	unsigned long footprint;
 	int cpu;
+	/* 1: cache aware scheduling disabled by prctl(PR_SCHED_CACHE) */
+	int disabled;
 	enum sched_cache_type type;
 	union sched_cache_group grp;
 } ____cacheline_aligned_in_smp;

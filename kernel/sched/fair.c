@@ -44,6 +44,7 @@
 #include <linux/memory-tiers.h>
 #include <linux/mempolicy.h>
 #include <linux/mutex_api.h>
+#include <linux/prctl.h>
 #include <linux/profile.h>
 #include <linux/psi.h>
 #include <linux/ratelimit.h>
@@ -1708,6 +1709,9 @@ static int get_pref_llc(struct task_struct *p)
 	if (!p->sc_stat)
 		return -1;
 
+	if (READ_ONCE(p->sc_stat->disabled))
+		return -1;
+
 	mm_sched_cpu = READ_ONCE(p->sc_stat->cpu);
 	if (mm_sched_cpu != -1) {
 		mm_sched_llc = llc_id(mm_sched_cpu);
@@ -1731,6 +1735,34 @@ static int get_pref_llc(struct task_struct *p)
 	}
 
 	return mm_sched_llc;
+}
+
+/* Called from prctl interface: PR_SCHED_CACHE */
+int sched_cache_prctl(int cmd, unsigned long arg3, unsigned long arg4,
+		      unsigned long arg5)
+{
+	struct sched_cache_stat *sc_stat = current->sc_stat;
+
+	if (arg4 || arg5)
+		return -EINVAL;
+
+	/* Only user threads aggregated into a process group can be tuned. */
+	if (!sc_stat)
+		return -ENODEV;
+
+	switch (cmd) {
+	case PR_SCHED_CACHE_GET:
+		if (arg3)
+			return -EINVAL;
+		return !READ_ONCE(sc_stat->disabled);
+	case PR_SCHED_CACHE_SET:
+		if (arg3 != 0 && arg3 != 1)
+			return -EINVAL;
+		WRITE_ONCE(sc_stat->disabled, !arg3);
+		return 0;
+	default:
+		return -EINVAL;
+	}
 }
 
 static unsigned int task_running_on_cpu(int cpu, struct task_struct *p);
@@ -1797,6 +1829,9 @@ static void task_tick_cache(struct rq *rq, struct task_struct *p)
 
 	if (!sc_stat || p->flags & PF_KTHREAD ||
 	    !sc_stat->pcpu_sched)
+		return;
+
+	if (READ_ONCE(sc_stat->disabled))
 		return;
 
 	epoch = rq->cpu_epoch;
