@@ -1572,25 +1572,17 @@ static void account_llc_dequeue(struct rq *rq, struct task_struct *p)
 	}
 }
 
-int mm_init_sched(struct mm_struct *mm,
-		  struct sched_cache_time __percpu *_pcpu_sched)
+void sched_cache_group_init(struct sched_cache_group *grp,
+			    struct sched_cache_time __percpu *_pcpu_sched)
 {
-	struct sched_cache_group *grp;
 	unsigned long epoch = 0;
 	int i;
-
-	grp = kzalloc(sizeof(*grp), GFP_KERNEL);
-	if (!grp) {
-		free_percpu(_pcpu_sched);
-		return -ENOMEM;
-	}
 
 	for_each_possible_cpu(i) {
 		struct sched_cache_time *pcpu_sched = per_cpu_ptr(_pcpu_sched, i);
 		struct rq *rq = cpu_rq(i);
 
 		pcpu_sched->runtime = 0;
-		/* a slightly stale cpu epoch is acceptible */
 		pcpu_sched->epoch = rq->cpu_epoch;
 		epoch = rq->cpu_epoch;
 	}
@@ -1602,13 +1594,22 @@ int mm_init_sched(struct mm_struct *mm,
 	grp->nr_running_avg = 0;
 	grp->footprint = 0;
 	refcount_set(&grp->refcnt, 1);
-	mm->sched_cache_grp = grp;
-	/*
-	 * The update to grp->pcpu_sched should not be reordered
-	 * before initialization to grp's other fields, in case
-	 * the readers may get invalid mm_sched_epoch, etc.
-	 */
 	smp_store_release(&grp->pcpu_sched, _pcpu_sched);
+}
+
+int mm_init_sched(struct mm_struct *mm,
+		  struct sched_cache_time __percpu *_pcpu_sched)
+{
+	struct sched_cache_group *grp;
+
+	grp = kzalloc(sizeof(*grp), GFP_KERNEL);
+	if (!grp) {
+		free_percpu(_pcpu_sched);
+		return -ENOMEM;
+	}
+
+	sched_cache_group_init(grp, _pcpu_sched);
+	mm->sched_cache_grp = grp;
 	return 0;
 }
 
@@ -1686,6 +1687,9 @@ static int get_pref_llc(struct task_struct *p, struct sched_cache_group *grp)
 	int mm_sched_llc = -1, mm_sched_cpu;
 
 	if (!grp)
+		return -1;
+
+	if (READ_ONCE(grp->disabled))
 		return -1;
 
 	mm_sched_cpu = READ_ONCE(grp->cpu);
@@ -1777,6 +1781,9 @@ static void task_tick_cache(struct rq *rq, struct task_struct *p)
 
 	if (!grp || p->flags & PF_KTHREAD ||
 	    !grp->pcpu_sched)
+		return;
+
+	if (READ_ONCE(grp->disabled))
 		return;
 
 	epoch = rq->cpu_epoch;
