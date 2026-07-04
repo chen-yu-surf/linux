@@ -2399,12 +2399,17 @@ struct sched_cache_group {
 	unsigned long next_scan;
 	unsigned long footprint;
 	int cpu;
+	int disabled;
 	refcount_t refcnt;
 	struct rcu_head rcu;
 } ____cacheline_aligned_in_smp;
 
 void sched_cache_group_put(struct sched_cache_group *grp);
 void sched_cache_group_get(struct sched_cache_group *grp);
+void sched_cache_group_init(struct sched_cache_group *grp,
+			    struct sched_cache_time __percpu *pcpu_sched);
+int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
+		      unsigned long arg4);
 
 #else
 
