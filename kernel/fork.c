@@ -1594,6 +1594,11 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 
 	tsk->mm = mm;
 	tsk->active_mm = mm;
+#ifdef CONFIG_SCHED_CACHE
+	tsk->sched_cache_grp = mm->sched_cache_grp;
+	if (tsk->sched_cache_grp)
+		sched_cache_group_get(tsk->sched_cache_grp);
+#endif
 	return 0;
 }
 
