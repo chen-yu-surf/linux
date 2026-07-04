@@ -1595,7 +1595,15 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 	tsk->mm = mm;
 	tsk->active_mm = mm;
 #ifdef CONFIG_SCHED_CACHE
-	tsk->sched_cache_grp = mm->sched_cache_grp;
+	/*
+	 * For CLONE_VM (threads): inherit parent's sched_cache_grp, which
+	 * may be a cookie-based group different from mm->sched_cache_grp.
+	 * For new processes (own mm): use the new mm's group.
+	 */
+	if (clone_flags & CLONE_VM)
+		tsk->sched_cache_grp = current->sched_cache_grp;
+	else
+		tsk->sched_cache_grp = mm->sched_cache_grp;
 	if (tsk->sched_cache_grp)
 		sched_cache_group_get(tsk->sched_cache_grp);
 #endif
