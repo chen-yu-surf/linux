@@ -171,6 +171,8 @@ static inline void cache_alloc_hsw_probe(void)
 	hw_ctrl->r_ctrl.bitmap.shareable_bits = 0xc0000;
 	hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 2;
 	hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = false;
+	r->flags = 0;
+	hw_ctrl->r_ctrl.flags = 0;
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	hw_res->num_closid = 4;
@@ -209,6 +211,8 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.scalar.bw_gran = MAX_MBA_BW - max_delay;
 
 	r->bw_delay_linear = true;
+	r->flags = RESCTRL_CTRL_FLAG_LINEAR;
+	hw_ctrl->r_ctrl.flags = RESCTRL_CTRL_FLAG_LINEAR;
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->bw_throttle_mode = THREAD_THROTTLE_PER_THREAD;
 	else
@@ -261,6 +265,8 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 
 	/* AMD does not use delay */
 	r->bw_delay_linear = false;
+	r->flags = 0;
+	hw_ctrl->r_ctrl.flags = 0;
 
 	/*
 	 * AMD does not use memory delay throttle model to control
@@ -313,10 +319,16 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	hw_ctrl->r_ctrl.bitmap.shareable_bits = ebx & default_ctrl;
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL) {
 		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = ecx.split.noncont;
+		if (ecx.split.noncont) {
+			r->flags = RESCTRL_CTRL_FLAG_SPARSE_BITMASKS;
+			hw_ctrl->r_ctrl.flags = RESCTRL_CTRL_FLAG_SPARSE_BITMASKS;
+		}
 		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 1;
 	} else if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
 		   boot_cpu_data.x86_vendor == X86_VENDOR_HYGON) {
 		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = true;
+		r->flags = RESCTRL_CTRL_FLAG_SPARSE_BITMASKS;
+		hw_ctrl->r_ctrl.flags = RESCTRL_CTRL_FLAG_SPARSE_BITMASKS;
 		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 0;
 	} else {
 		return;
