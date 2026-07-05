@@ -167,10 +167,10 @@ static inline void cache_alloc_hsw_probe(void)
 	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
-	hw_ctrl->r_ctrl.cache.cbm_len = 20;
-	hw_ctrl->r_ctrl.cache.shareable_bits = 0xc0000;
-	hw_ctrl->r_ctrl.cache.min_cbm_bits = 2;
-	hw_ctrl->r_ctrl.cache.arch_has_sparse_bitmasks = false;
+	hw_ctrl->r_ctrl.bitmap.cbm_len = 20;
+	hw_ctrl->r_ctrl.bitmap.shareable_bits = 0xc0000;
+	hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 2;
+	hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = false;
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	hw_res->num_closid = 4;
@@ -308,16 +308,16 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
 
-	hw_ctrl->r_ctrl.cache.cbm_len = eax.split.cbm_len + 1;
+	hw_ctrl->r_ctrl.bitmap.cbm_len = eax.split.cbm_len + 1;
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;
-	hw_ctrl->r_ctrl.cache.shareable_bits = ebx & default_ctrl;
+	hw_ctrl->r_ctrl.bitmap.shareable_bits = ebx & default_ctrl;
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL) {
-		hw_ctrl->r_ctrl.cache.arch_has_sparse_bitmasks = ecx.split.noncont;
-		hw_ctrl->r_ctrl.cache.min_cbm_bits = 1;
+		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = ecx.split.noncont;
+		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 1;
 	} else if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
 		   boot_cpu_data.x86_vendor == X86_VENDOR_HYGON) {
-		hw_ctrl->r_ctrl.cache.arch_has_sparse_bitmasks = true;
-		hw_ctrl->r_ctrl.cache.min_cbm_bits = 0;
+		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = true;
+		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 0;
 	} else {
 		return;
 	}

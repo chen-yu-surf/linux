@@ -211,7 +211,7 @@ struct rdt_l3_mon_domain {
 };
 
 /**
- * struct resctrl_cache - Cache allocation related data
+ * struct resctrl_ctrl_bitmap - Bitmap control type properties
  * @cbm_len:		Length of the cache bit mask
  * @min_cbm_bits:	Minimum number of consecutive bits to be set.
  *			The value 0 means the architecture can support
@@ -220,7 +220,7 @@ struct rdt_l3_mon_domain {
  *			executing entities
  * @arch_has_sparse_bitmasks:	True if a bitmask like f00f is valid.
  */
-struct resctrl_cache {
+struct resctrl_ctrl_bitmap {
 	unsigned int	cbm_len;
 	unsigned int	min_cbm_bits;
 	unsigned int	shareable_bits;
@@ -369,7 +369,7 @@ enum resctrl_ctrl_name {
  *		Specifically, "rdt_resource_final::name"_"resctrl_ctrl::name".
  *		For example, with resource name "MB" and control name "MAX" the
  *		schema entry will be "MB_MAX".
- * @cache:	Cache allocation control properties.
+ * @bitmap:	Bitmap control properties.
  * @scalar:	Scalar control properties.
  */
 struct resctrl_ctrl {
@@ -379,7 +379,7 @@ struct resctrl_ctrl {
 	enum resctrl_ctrl_type	type;
 	enum resctrl_ctrl_name	name;
 	union {
-		struct resctrl_cache	cache;
+		struct resctrl_ctrl_bitmap	bitmap;
 		struct resctrl_ctrl_scalar	scalar;
 	};
 };
@@ -481,7 +481,7 @@ static inline u32 resctrl_get_default_ctrlval(struct resctrl_ctrl *ctrl)
 {
 	switch (ctrl->type) {
 	case RESCTRL_CTRL_BITMAP:
-		return BIT_MASK(ctrl->cache.cbm_len) - 1;
+		return BIT_MASK(ctrl->bitmap.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
 		return ctrl->scalar.max_bw;
 	}

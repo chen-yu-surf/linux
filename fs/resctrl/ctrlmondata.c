@@ -136,8 +136,8 @@ static int parse_bw(struct rdt_parse_data *data, struct rdt_resource_final *f,
  */
 static bool cbm_validate(char *buf, u32 *data, struct resctrl_ctrl *ctrl)
 {
-	u32 supported_bits = BIT_MASK(ctrl->cache.cbm_len) - 1;
-	unsigned int cbm_len = ctrl->cache.cbm_len;
+	u32 supported_bits = BIT_MASK(ctrl->bitmap.cbm_len) - 1;
+	unsigned int cbm_len = ctrl->bitmap.cbm_len;
 	unsigned long first_bit, zero_bit, val;
 	int ret;
 
@@ -147,7 +147,7 @@ static bool cbm_validate(char *buf, u32 *data, struct resctrl_ctrl *ctrl)
 		return false;
 	}
 
-	if ((ctrl->cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
+	if ((ctrl->bitmap.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
 		rdt_last_cmd_puts("Mask out of range\n");
 		return false;
 	}
@@ -156,15 +156,15 @@ static bool cbm_validate(char *buf, u32 *data, struct resctrl_ctrl *ctrl)
 	zero_bit = find_next_zero_bit(&val, cbm_len, first_bit);
 
 	/* Are non-contiguous bitmasks allowed? */
-	if (!ctrl->cache.arch_has_sparse_bitmasks &&
+	if (!ctrl->bitmap.arch_has_sparse_bitmasks &&
 	    (find_next_bit(&val, cbm_len, zero_bit) < cbm_len)) {
 		rdt_last_cmd_printf("The mask %lx has non-consecutive 1-bits\n", val);
 		return false;
 	}
 
-	if ((zero_bit - first_bit) < ctrl->cache.min_cbm_bits) {
+	if ((zero_bit - first_bit) < ctrl->bitmap.min_cbm_bits) {
 		rdt_last_cmd_printf("Need at least %d bits in the mask\n",
-				    ctrl->cache.min_cbm_bits);
+				    ctrl->bitmap.min_cbm_bits);
 		return false;
 	}
 

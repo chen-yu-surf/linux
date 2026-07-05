@@ -639,7 +639,7 @@ bool rdtgroup_cbm_overlaps_pseudo_locked(struct rdt_ctrl_domain *d, unsigned lon
 		return false;
 	}
 
-	cbm_len = ctrl->cache.cbm_len;
+	cbm_len = ctrl->bitmap.cbm_len;
 	cbm_b = d->plr->cbm;
 	if (bitmap_intersects(&cbm, &cbm_b, cbm_len))
 		return true;
