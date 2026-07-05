@@ -738,11 +738,11 @@ static void update_mba_bw(struct rdtgroup *rgrp, struct rdt_l3_mon_domain *dom_m
 	 * 40% would go past the limit by multiplying current bandwidth by
 	 * "(30 + 10) / 30".
 	 */
-	if (cur_msr_val > ctrl->membw.min_bw && user_bw < cur_bw) {
-		new_msr_val = cur_msr_val - ctrl->membw.bw_gran;
+	if (cur_msr_val > ctrl->scalar.min_bw && user_bw < cur_bw) {
+		new_msr_val = cur_msr_val - ctrl->scalar.bw_gran;
 	} else if (cur_msr_val < MAX_MBA_BW &&
-		   (user_bw > (cur_bw * (cur_msr_val + ctrl->membw.min_bw) / cur_msr_val))) {
-		new_msr_val = cur_msr_val + ctrl->membw.bw_gran;
+		   (user_bw > (cur_bw * (cur_msr_val + ctrl->scalar.min_bw) / cur_msr_val))) {
+		new_msr_val = cur_msr_val + ctrl->scalar.bw_gran;
 	} else {
 		return;
 	}

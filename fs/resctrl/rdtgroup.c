@@ -1179,7 +1179,7 @@ static int rdt_min_bw_show(struct kernfs_open_file *of,
 	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
 		return 0;
 
-	seq_printf(seq, "%u\n", ctrl->membw.min_bw);
+	seq_printf(seq, "%u\n", ctrl->scalar.min_bw);
 	return 0;
 }
 
@@ -1222,7 +1222,7 @@ static int rdt_bw_gran_show(struct kernfs_open_file *of,
 	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
 		return 0;
 
-	seq_printf(seq, "%u\n", ctrl->membw.bw_gran);
+	seq_printf(seq, "%u\n", ctrl->scalar.bw_gran);
 	return 0;
 }
 
@@ -1622,7 +1622,7 @@ bool is_mba_sc(struct rdt_resource *r, struct resctrl_ctrl *ctrl)
 			return false;
 	}
 
-	return ctrl->membw.mba_sc;
+	return ctrl->scalar.mba_sc;
 }
 
 /*
@@ -2256,7 +2256,7 @@ static int resctrl_ctrl_min_show(struct kernfs_open_file *of,
 {
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
-	seq_printf(seq, "%u\n", ctrl->membw.min_bw);
+	seq_printf(seq, "%u\n", ctrl->scalar.min_bw);
 
 	return 0;
 }
@@ -2266,7 +2266,7 @@ static int resctrl_ctrl_max_show(struct kernfs_open_file *of,
 {
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
-	seq_printf(seq, "%u\n", ctrl->membw.max_bw);
+	seq_printf(seq, "%u\n", ctrl->scalar.max_bw);
 
 	return 0;
 }
@@ -2276,7 +2276,7 @@ static int resctrl_ctrl_resolution_show(struct kernfs_open_file *of,
 {
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
-	seq_printf(seq, "%u\n", ctrl->membw.resolution);
+	seq_printf(seq, "%u\n", ctrl->scalar.resolution);
 
 	return 0;
 }
@@ -2286,7 +2286,7 @@ static int resctrl_ctrl_tolerance_show(struct kernfs_open_file *of,
 {
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
-	seq_printf(seq, "%d\n", ctrl->membw.tolerance);
+	seq_printf(seq, "%d\n", ctrl->scalar.tolerance);
 
 	return 0;
 }
@@ -2296,7 +2296,7 @@ static int resctrl_ctrl_scale_show(struct kernfs_open_file *of,
 {
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
-	seq_printf(seq, "%u\n", ctrl->membw.scale);
+	seq_printf(seq, "%u\n", ctrl->scalar.scale);
 
 	return 0;
 }
@@ -2306,7 +2306,7 @@ static int resctrl_ctrl_unit_show(struct kernfs_open_file *of,
 {
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
-	switch (ctrl->membw.unit) {
+	switch (ctrl->scalar.unit) {
 	case RESCTRL_CTRL_UNIT_ALL:
 		seq_puts(seq, "all\n");
 		return 0;
@@ -2901,7 +2901,7 @@ static int set_mba_sc(bool mba_sc)
 	if (!supports_mba_mbps(ctrl) || mba_sc == is_mba_sc(r, ctrl))
 		return -EINVAL;
 
-	ctrl->membw.mba_sc = mba_sc;
+	ctrl->scalar.mba_sc = mba_sc;
 
 	rdtgroup_default.mba_mbps_event = mba_mbps_default_event;
 

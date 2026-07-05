@@ -204,9 +204,9 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
 
-	hw_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
-	hw_ctrl->r_ctrl.membw.min_bw = MAX_MBA_BW - max_delay;
-	hw_ctrl->r_ctrl.membw.bw_gran = MAX_MBA_BW - max_delay;
+	hw_ctrl->r_ctrl.scalar.max_bw = MAX_MBA_BW;
+	hw_ctrl->r_ctrl.scalar.min_bw = MAX_MBA_BW - max_delay;
+	hw_ctrl->r_ctrl.scalar.bw_gran = MAX_MBA_BW - max_delay;
 
 	r->bw_delay_linear = true;
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
@@ -214,10 +214,10 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	else
 		r->bw_throttle_mode = THREAD_THROTTLE_MAX;
 
-	hw_ctrl->r_ctrl.membw.resolution = 100;
-	hw_ctrl->r_ctrl.membw.tolerance = 5;
-	hw_ctrl->r_ctrl.membw.scale = 1;
-	hw_ctrl->r_ctrl.membw.unit = RESCTRL_CTRL_UNIT_ALL;
+	hw_ctrl->r_ctrl.scalar.resolution = 100;
+	hw_ctrl->r_ctrl.scalar.tolerance = 5;
+	hw_ctrl->r_ctrl.scalar.scale = 1;
+	hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
 
 	hw_ctrl->msr_base = MSR_IA32_MBA_THRTL_BASE;
 	hw_ctrl->msr_update = mba_wrmsr_intel;
@@ -246,7 +246,7 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	if (!hw_ctrl)
 		return false;
 
-	if (BITS_PER_TYPE(hw_ctrl->r_ctrl.membw.max_bw) <= eax) {
+	if (BITS_PER_TYPE(hw_ctrl->r_ctrl.scalar.max_bw) <= eax) {
 		pr_warn("Unable to support hardware's maximum bandwidth\n");
 		kfree(hw_ctrl);
 		return false;
@@ -257,7 +257,7 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
 
-	hw_ctrl->r_ctrl.membw.max_bw = BIT(eax);
+	hw_ctrl->r_ctrl.scalar.max_bw = BIT(eax);
 
 	/* AMD does not use delay */
 	r->bw_delay_linear = false;
@@ -267,12 +267,12 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	 * the allocation like Intel does.
 	 */
 	r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-	hw_ctrl->r_ctrl.membw.min_bw = 0;
-	hw_ctrl->r_ctrl.membw.bw_gran = 1;
-	hw_ctrl->r_ctrl.membw.resolution = 8;
-	hw_ctrl->r_ctrl.membw.tolerance = 0;
-	hw_ctrl->r_ctrl.membw.scale = 1;
-	hw_ctrl->r_ctrl.membw.unit = RESCTRL_CTRL_UNIT_GBPS;
+	hw_ctrl->r_ctrl.scalar.min_bw = 0;
+	hw_ctrl->r_ctrl.scalar.bw_gran = 1;
+	hw_ctrl->r_ctrl.scalar.resolution = 8;
+	hw_ctrl->r_ctrl.scalar.tolerance = 0;
+	hw_ctrl->r_ctrl.scalar.scale = 1;
+	hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_GBPS;
 
 	if (r->rid == RDT_RESOURCE_MBA) {
 		hw_ctrl->msr_base = MSR_IA32_MBA_BW_BASE;

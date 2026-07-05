@@ -258,10 +258,10 @@ enum resctrl_ctrl_unit {
 };
 
 /**
- * struct resctrl_membw - Memory bandwidth allocation related data
- * @min_bw:		Minimum memory bandwidth percentage user can request
- * @max_bw:		Maximum memory bandwidth value, used as the reset value
- * @bw_gran:		Granularity at which the memory bandwidth is allocated
+ * struct resctrl_ctrl_scalar - Scalar control type properties
+ * @min_bw:		Minimum scalar control value user can request
+ * @max_bw:		Maximum scalar control value, used as the reset value
+ * @bw_gran:		Granularity at which the scalar control is allocated
  * @resolution:		If the control is proportional (for example, a
  *			percentage) this is the number of divisions that
  *			resource can be divided into. Otherwise, since this
@@ -284,7 +284,7 @@ enum resctrl_ctrl_unit {
  * the amount of resource allocated by this control is:
  * 		C * scale / resolution * unit
  */
-struct resctrl_membw {
+struct resctrl_ctrl_scalar {
 	u32				min_bw;
 	u32				max_bw;
 	u32				bw_gran;
@@ -370,7 +370,7 @@ enum resctrl_ctrl_name {
  *		For example, with resource name "MB" and control name "MAX" the
  *		schema entry will be "MB_MAX".
  * @cache:	Cache allocation control properties.
- * @membw:	Bandwidth control properties.
+ * @scalar:	Scalar control properties.
  */
 struct resctrl_ctrl {
 	struct list_head	entry;
@@ -380,7 +380,7 @@ struct resctrl_ctrl {
 	enum resctrl_ctrl_name	name;
 	union {
 		struct resctrl_cache	cache;
-		struct resctrl_membw	membw;
+		struct resctrl_ctrl_scalar	scalar;
 	};
 };
 
@@ -483,7 +483,7 @@ static inline u32 resctrl_get_default_ctrlval(struct resctrl_ctrl *ctrl)
 	case RESCTRL_CTRL_BITMAP:
 		return BIT_MASK(ctrl->cache.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
-		return ctrl->membw.max_bw;
+		return ctrl->scalar.max_bw;
 	}
 
 	return WARN_ON_ONCE(1);
