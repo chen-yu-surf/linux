@@ -1043,9 +1043,9 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 
 		r->bw_delay_linear = true;
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-		mpam_ctrl->r_ctrl.membw.min_bw = get_mba_min(cprops);
-		mpam_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
-		mpam_ctrl->r_ctrl.membw.bw_gran = get_mba_granularity(cprops);
+		mpam_ctrl->r_ctrl.scalar.min_bw = get_mba_min(cprops);
+		mpam_ctrl->r_ctrl.scalar.max_bw = MAX_MBA_BW;
+		mpam_ctrl->r_ctrl.scalar.bw_gran = get_mba_granularity(cprops);
 		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
 
 		r->name = "MB";
