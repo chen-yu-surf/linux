@@ -356,6 +356,10 @@ enum resctrl_ctrl_name {
 	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAX
 };
 
+/* Flags for rdt_resource::flags and resctrl_ctrl::flags */
+#define RESCTRL_CTRL_FLAG_LINEAR		BIT(0)
+#define RESCTRL_CTRL_FLAG_SPARSE_BITMASKS	BIT(1)
+
 /**
  * struct resctrl_ctrl - A resource control
  * @entry:	List entry of rdt_resource::controls
@@ -369,6 +373,9 @@ enum resctrl_ctrl_name {
  *		Specifically, "rdt_resource_final::name"_"resctrl_ctrl::name".
  *		For example, with resource name "MB" and control name "MAX" the
  *		schema entry will be "MB_MAX".
+ * @flags:	Optional flags describing properties of the control.
+ *		Duplicated from resource-level properties for per-control
+ *		visibility via the resource_schemata info directory.
  * @bitmap:	Bitmap control properties.
  * @scalar:	Scalar control properties.
  */
@@ -378,6 +385,7 @@ struct resctrl_ctrl {
 	struct list_head	domains;
 	enum resctrl_ctrl_type	type;
 	enum resctrl_ctrl_name	name;
+	unsigned long		flags;
 	union {
 		struct resctrl_ctrl_bitmap	bitmap;
 		struct resctrl_ctrl_scalar	scalar;
@@ -399,6 +407,8 @@ struct resctrl_ctrl {
  *			different memory bandwidths
  * @cache_io_alloc_capable:True if portion of the cache can be configured
  *			   for I/O traffic.
+ * @flags:		Resource-level flags (RESCTRL_CTRL_FLAG_*). Duplicated
+ *			into each control's flags field for per-control visibility.
  * @controls:		List of controls of an alloc_capable resource
  */
 struct rdt_resource {
@@ -413,6 +423,7 @@ struct rdt_resource {
 	bool				bw_delay_linear;
 	enum membw_throttle_mode	bw_throttle_mode;
 	bool				cache_io_alloc_capable;
+	unsigned long			flags;
 	struct list_head		controls;
 };
 
