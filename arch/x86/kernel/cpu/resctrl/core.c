@@ -53,8 +53,6 @@ bool rdt_alloc_capable;
 static void mba_wrmsr_intel(struct msr_param *m);
 static void cat_wrmsr(struct msr_param *m);
 static void mba_wrmsr_amd(struct msr_param *m);
-static void update_temporary_max(struct msr_param *m);
-static void update_temporary_min(struct msr_param *m);
 
 #define ctrl_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.controls)
 #define mon_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.mon_domains)
@@ -182,47 +180,10 @@ static inline void cache_alloc_hsw_probe(void)
 	rdt_alloc_capable = true;
 }
 
-static __init bool __temporary_multiple_mba_intel_controls(struct rdt_resource *r,
-							   struct resctrl_hw_ctrl *hw_ctrl,
-							   u32 ecx, u32 max_delay,
-							   enum resctrl_ctrl_name name)
-{
-	hw_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
-	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
-	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
-	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
-
-	hw_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
-	hw_ctrl->r_ctrl.membw.min_bw = MAX_MBA_BW - max_delay;
-	hw_ctrl->r_ctrl.membw.bw_gran = MAX_MBA_BW - max_delay;
-
-	hw_ctrl->r_ctrl.membw.resolution = 100;
-	hw_ctrl->r_ctrl.membw.tolerance = 5;
-	hw_ctrl->r_ctrl.membw.scale = 1;
-	hw_ctrl->r_ctrl.membw.unit = RESCTRL_CTRL_UNIT_ALL;
-
-	hw_ctrl->r_ctrl.name = name;
-
-	switch (name) {
-	case RESCTRL_CTRL_NAME_DEF:
-		hw_ctrl->msr_base = MSR_IA32_MBA_THRTL_BASE;
-		hw_ctrl->msr_update = mba_wrmsr_intel;
-		break;
-	case RESCTRL_CTRL_NAME_MIN:
-		hw_ctrl->msr_update = update_temporary_min;
-		break;
-	case RESCTRL_CTRL_NAME_MAX:
-		hw_ctrl->msr_update = update_temporary_max;
-		break;
-	}
-
-	return true;
-}
-
 static __init bool __get_mem_config_intel(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
-	struct resctrl_hw_ctrl *hw_ctrl0, *hw_ctrl1, *hw_ctrl2;
+	struct resctrl_hw_ctrl *hw_ctrl;
 	union cpuid_0x10_3_eax eax;
 	union cpuid_0x10_x_edx edx;
 	u32 ebx, ecx, max_delay;
@@ -234,50 +195,34 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	if (!(ecx & MBA_IS_LINEAR))
 		return false;
 
+	hw_ctrl = kzalloc_obj(*hw_ctrl);
+	if (!hw_ctrl)
+		return false;
+
+	hw_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
+	hw_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	hw_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
+	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+
+	hw_ctrl->r_ctrl.membw.max_bw = MAX_MBA_BW;
+	hw_ctrl->r_ctrl.membw.min_bw = MAX_MBA_BW - max_delay;
+	hw_ctrl->r_ctrl.membw.bw_gran = MAX_MBA_BW - max_delay;
+
 	r->bw_delay_linear = true;
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->bw_throttle_mode = THREAD_THROTTLE_PER_THREAD;
 	else
 		r->bw_throttle_mode = THREAD_THROTTLE_MAX;
 
-	hw_ctrl0 = kzalloc_obj(*hw_ctrl0);
-	if (!hw_ctrl0)
-		return false;
+	hw_ctrl->r_ctrl.membw.resolution = 100;
+	hw_ctrl->r_ctrl.membw.tolerance = 5;
+	hw_ctrl->r_ctrl.membw.scale = 1;
+	hw_ctrl->r_ctrl.membw.unit = RESCTRL_CTRL_UNIT_ALL;
 
-	if (!__temporary_multiple_mba_intel_controls(r, hw_ctrl0, ecx, max_delay, RESCTRL_CTRL_NAME_DEF)) {
-		kfree(hw_ctrl0);
-		return false;
-	}
+	hw_ctrl->msr_base = MSR_IA32_MBA_THRTL_BASE;
+	hw_ctrl->msr_update = mba_wrmsr_intel;
+	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
-	hw_ctrl1 = kzalloc_obj(*hw_ctrl1);
-	if (!hw_ctrl1) {
-		kfree(hw_ctrl0);
-		return false;
-	}
-
-	if (!__temporary_multiple_mba_intel_controls(r, hw_ctrl1, ecx, max_delay, RESCTRL_CTRL_NAME_MIN)) {
-		kfree(hw_ctrl0);
-		kfree(hw_ctrl1);
-		return false;
-	}
-
-	hw_ctrl2 = kzalloc_obj(*hw_ctrl2);
-	if (!hw_ctrl2) {
-		kfree(hw_ctrl0);
-		kfree(hw_ctrl1);
-		return false;
-	}
-
-	if (!__temporary_multiple_mba_intel_controls(r, hw_ctrl2, ecx, max_delay, RESCTRL_CTRL_NAME_MAX)) {
-		kfree(hw_ctrl0);
-		kfree(hw_ctrl1);
-		kfree(hw_ctrl2);
-		return false;
-	}
-
-	list_add(&hw_ctrl0->r_ctrl.entry, &r->controls);
-	list_add(&hw_ctrl1->r_ctrl.entry, &r->controls);
-	list_add(&hw_ctrl2->r_ctrl.entry, &r->controls);
 	r->alloc_capable = true;
 
 	return true;
@@ -432,24 +377,6 @@ static u32 delay_bw_map(unsigned long bw, struct rdt_resource *r)
 
 	pr_warn_once("Non Linear delay-bw map not supported but queried\n");
 	return MAX_MBA_BW;
-}
-
-static void update_temporary_max(struct msr_param *m)
-{
-	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
-
-	/* Any control properties available via m->ctrl */
-	pr_info("Updata temporary MAX control on domain %d with user value %i\n",
-		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
-}
-
-static void update_temporary_min(struct msr_param *m)
-{
-	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
-
-	/* Any control properties available via m->ctrl */
-	pr_info("Updata temporary MIN control on domain %d with user value %i\n",
-		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
 }
 
 static void mba_wrmsr_intel(struct msr_param *m)
