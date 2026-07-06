@@ -378,6 +378,7 @@ enum resctrl_ctrl_name {
  *		visibility via the resource_schemata info directory.
  * @bitmap:	Bitmap control properties.
  * @scalar:	Scalar control properties.
+ * @emul:	Current controller is emulated by emul.
  */
 struct resctrl_ctrl {
 	struct list_head	entry;
@@ -390,6 +391,7 @@ struct resctrl_ctrl {
 		struct resctrl_ctrl_bitmap	bitmap;
 		struct resctrl_ctrl_scalar	scalar;
 	};
+	struct resctrl_ctrl *emul;
 };
 
 /**
