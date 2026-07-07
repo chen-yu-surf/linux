@@ -137,12 +137,14 @@ static inline struct resctrl_hw_ctrl *resctrl_to_arch_ctrl(struct resctrl_ctrl *
  *			       a resource for a control function
  * @d_resctrl:	Properties exposed to the resctrl file system
  * @ctrl_val:	array of cache or mem ctrl values (indexed by CLOSID)
+ * @d_info:	ERDT table information of this domain (read-only)
  *
  * Members of this structure are accessed via helpers that provide abstraction.
  */
 struct rdt_hw_ctrl_domain {
 	struct rdt_ctrl_domain		d_resctrl;
 	u32				*ctrl_val;
+	struct erdt_domain_info		*d_info;
 };
 
 /**
@@ -325,6 +327,7 @@ static inline void intel_aet_mon_domain_setup(int cpu, int id, struct rdt_resour
 static inline bool intel_handle_aet_option(bool force_off, char *tok) { return false; }
 #endif
 
+struct erdt_domain_info *erdt_find_domain_info(int cpu);
 bool erdt_support(int flag);
 bool erdt_cpu_has(int flag);
 bool erdt_enable_mon(void);
