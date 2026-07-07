@@ -348,13 +348,42 @@ struct resctrl_mon {
  *				has the same name as the resource.
  * @RESCTRL_CTRL_NAME_MIN:	"MIN"
  * @RESCTRL_CTRL_NAME_MAX:	"MAX"
+ *
+ * The REGION* names describe the region based bandwidth allocation controls of
+ * each memory region has an optimal (OPT), minimum (MIN) andcmaximum (MAX) control.
+ * They are ordinary &struct resctrl_ctrl names, so all of the generic control machinery
+ * (display, parse, default value selection, ...) works for them unchanged. They are
+ * only ever assigned to a control when arch code adds a region control to
+ * rdt_resource::controls, which happens only when the hardware supports ERDT
+ * (erdt_cpu_has()); on other platforms these enumerators are simply unused.
  */
 enum resctrl_ctrl_name {
 	RESCTRL_CTRL_NAME_DEF,
 	RESCTRL_CTRL_NAME_MIN,
 	RESCTRL_CTRL_NAME_MAX,
-	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_MAX
+	RESCTRL_CTRL_NAME_REGION0_OPT,
+	RESCTRL_CTRL_NAME_REGION0_MIN,
+	RESCTRL_CTRL_NAME_REGION0_MAX,
+	RESCTRL_CTRL_NAME_REGION1_OPT,
+	RESCTRL_CTRL_NAME_REGION1_MIN,
+	RESCTRL_CTRL_NAME_REGION1_MAX,
+	RESCTRL_CTRL_NAME_REGION2_OPT,
+	RESCTRL_CTRL_NAME_REGION2_MIN,
+	RESCTRL_CTRL_NAME_REGION2_MAX,
+	RESCTRL_CTRL_NAME_REGION3_OPT,
+	RESCTRL_CTRL_NAME_REGION3_MIN,
+	RESCTRL_CTRL_NAME_REGION3_MAX,
+	RESCTRL_CTRL_NAME_LAST = RESCTRL_CTRL_NAME_REGION3_MAX
 };
+
+#define RESCTRL_CTRL_REGION_NR_CTRLS	3
+
+static inline enum resctrl_ctrl_name
+resctrl_ctrl_name_region(unsigned int region, unsigned int type)
+{
+	return RESCTRL_CTRL_NAME_REGION0_OPT +
+	       region * RESCTRL_CTRL_REGION_NR_CTRLS + type;
+}
 
 /* Flags for rdt_resource::flags and resctrl_ctrl::flags */
 #define RESCTRL_CTRL_FLAG_LINEAR		BIT(0)
