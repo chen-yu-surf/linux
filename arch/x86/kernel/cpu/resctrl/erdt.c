@@ -24,6 +24,7 @@
 static LIST_HEAD(domain_info_list);
 
 static bool __erdt_enabled;
+static u32 erdt_max_clos;
 
 #define ERDT_VALID_VERSION		1
 #define CMRC_SUPPORTED_INDEX_FN		1
@@ -48,6 +49,9 @@ bool erdt_support_features(int flag)
 
 	if (flag == X86_FEATURE_CQM_MBM_TOTAL)
 		return valid_subtbl_mask & BIT(ACPI_ERDT_TYPE_MMRC);
+
+	if (flag == X86_FEATURE_MBA)
+		return valid_subtbl_mask & BIT(ACPI_ERDT_TYPE_MARC);
 
 	return false;
 }
@@ -244,6 +248,67 @@ int erdt_mon_read(struct rdt_domain_hdr *hdr, int ev_id, int rmid, u64 *val)
 		return erdt_read_region_mbm(hdr, d, rmid, ev_id, val);
 
 	return -EIO;
+}
+
+static void marc_hw_update(struct hw_param *m)
+{
+}
+
+__init bool erdt_get_mem_config(struct rdt_resource *r)
+{
+	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
+	struct resctrl_hw_ctrl *hw_ctrl;
+	struct erdt_domain_info *d;
+	struct acpi_erdt_marc *marc;
+	int max_regions, region;
+	unsigned int type;
+
+	if (!erdt_cpu_has(X86_FEATURE_MBA))
+		return false;
+
+	/* Use the first domain's MARC to discover control properties. */
+	d = list_first_entry_or_null(&domain_info_list, struct erdt_domain_info, list);
+	if (!d || !d->marc)
+		return false;
+
+	marc = d->marc;
+	max_regions = acpi_mrrm_max_mem_region();
+	hw_res->num_closid = max(hw_res->num_closid, erdt_max_clos + 1);
+
+	for (region = 0; region < max_regions; region++) {
+		for (type = RESCTRL_CTRL_REGION_TYPE_OPT; type < RESCTRL_CTRL_REGION_NR_CTRLS; type++) {
+			if (type == RESCTRL_CTRL_REGION_TYPE_OPT && !(marc->flags & MARC_FLAG_OPT))
+				continue;
+			if (type == RESCTRL_CTRL_REGION_TYPE_MIN && !(marc->flags & MARC_FLAG_MIN))
+				continue;
+			if (type == RESCTRL_CTRL_REGION_TYPE_MAX && !(marc->flags & MARC_FLAG_MAX))
+				continue;
+
+			hw_ctrl = kzalloc_obj(*hw_ctrl);
+			if (!hw_ctrl)
+				return false;
+
+			hw_ctrl->r_ctrl.scope = RESCTRL_L3_CACHE;
+			hw_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+			hw_ctrl->r_ctrl.name = resctrl_ctrl_name_region(region, type);
+			INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
+
+			hw_ctrl->r_ctrl.scalar.max_bw = marc->mba_ctrl_range;
+			hw_ctrl->r_ctrl.scalar.min_bw = 1;
+			hw_ctrl->r_ctrl.scalar.bw_gran = 1;
+			hw_ctrl->r_ctrl.scalar.resolution = 1;
+			hw_ctrl->r_ctrl.scalar.tolerance = 0;
+			hw_ctrl->r_ctrl.scalar.scale = 1;
+			hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
+
+			hw_ctrl->hw_update = marc_hw_update;
+			list_add_tail(&hw_ctrl->r_ctrl.entry, &r->controls);
+		}
+	}
+
+	r->alloc_capable = true;
+
+	return true;
 }
 
 static void __iomem *erdt_ioremap(phys_addr_t base, u32 num_pages, const char *desc)
@@ -647,6 +712,7 @@ static __init int enumerate_erdt_table(struct acpi_table_header *table_hdr)
 	if (list_empty(&domain_info_list))
 		goto cleanup;
 
+	erdt_max_clos = erdt->max_clos;
 	__erdt_enabled = true;
 
 	return 0;

@@ -1067,6 +1067,9 @@ static __init bool get_rdt_alloc_resources(void)
 	if (get_mem_config())
 		ret = true;
 
+	if (erdt_get_mem_config(&rdt_resources_all[RDT_RESOURCE_MBA].r_resctrl))
+		ret = true;
+
 	if (get_slow_mem_config())
 		ret = true;
 

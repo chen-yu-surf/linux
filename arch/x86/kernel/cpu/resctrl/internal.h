@@ -30,6 +30,10 @@
  * @ERDT_MMIO_MARC_MIN:  MARC minimum BW register base address
  * @ERDT_MMIO_MARC_MAX:  MARC maximum BW register base address
  */
+#define RESCTRL_CTRL_REGION_TYPE_OPT	0
+#define RESCTRL_CTRL_REGION_TYPE_MIN	1
+#define RESCTRL_CTRL_REGION_TYPE_MAX	2
+
 enum erdt_mmio_type {
 	ERDT_MMIO_RMDD_CREG,
 	ERDT_MMIO_CMRC_BASE,
@@ -307,6 +311,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 bool erdt_support_features(int flag);
 bool erdt_cpu_has(int flag);
 bool erdt_enable_mon(void);
+bool __init erdt_get_mem_config(struct rdt_resource *r);
 int erdt_get_max_rmid(int cpu);
 int erdt_init(void);
 void erdt_exit(void);
