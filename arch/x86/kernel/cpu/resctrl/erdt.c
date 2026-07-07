@@ -28,8 +28,13 @@ static bool __erdt_enabled;
 #define ERDT_VALID_VERSION		1
 #define CMRC_SUPPORTED_INDEX_FN		1
 #define MMRC_SUPPORTED_INDEX_FN		1
+#define MARC_SUPPORTED_INDEX_FN		1
 #define UNAVAILABLE_COUNTER		BIT_ULL(63)
 #define RMDD_FLAG_CPU_L3_DOMAIN		BIT(0)
+
+#define MARC_FLAG_OPT			BIT(0)
+#define MARC_FLAG_MIN			BIT(1)
+#define MARC_FLAG_MAX			BIT(2)
 
 #define FIXPOINT_LOW_BITS		16
 
@@ -273,6 +278,7 @@ static void cleanup_one_domain(struct erdt_domain_info *d)
 	free_cpumask_var(d->cpu_mask);
 	kfree(d->cmrc);
 	kfree(d->mmrc);
+	kfree(d->marc);
 	kfree(d);
 }
 
@@ -371,6 +377,64 @@ static __init int mmrc_init(struct acpi_subtbl_hdr_16 *subtbl,
 	return 0;
 }
 
+static __init int marc_init(struct acpi_subtbl_hdr_16 *subtbl,
+			    struct erdt_domain_info *domain_info)
+{
+	struct acpi_erdt_marc *marc = (struct acpi_erdt_marc *)subtbl;
+
+	if (subtbl->length < sizeof(*marc)) {
+		pr_warn(FW_BUG "Truncated MARC subtable\n");
+		return -EIO;
+	}
+
+	if (marc->index_fn != MARC_SUPPORTED_INDEX_FN) {
+		pr_info("Unsupported MARC index function %d\n", marc->index_fn);
+		return -EIO;
+	}
+
+	if (marc->flags & MARC_FLAG_OPT) {
+		domain_info->base[ERDT_MMIO_MARC_OPT] =
+			erdt_ioremap(marc->reg_base_opt, marc->mba_reg_size, "MARC OPT base");
+		if (!domain_info->base[ERDT_MMIO_MARC_OPT])
+			return -EIO;
+	}
+
+	if (marc->flags & MARC_FLAG_MIN) {
+		domain_info->base[ERDT_MMIO_MARC_MIN] =
+			erdt_ioremap(marc->reg_base_min, marc->mba_reg_size, "MARC MIN base");
+		if (!domain_info->base[ERDT_MMIO_MARC_MIN])
+			goto unmap;
+	}
+
+	if (marc->flags & MARC_FLAG_MAX) {
+		domain_info->base[ERDT_MMIO_MARC_MAX] =
+			erdt_ioremap(marc->reg_base_max, marc->mba_reg_size, "MARC MAX base");
+		if (!domain_info->base[ERDT_MMIO_MARC_MAX])
+			goto unmap;
+	}
+
+	domain_info->marc = kmemdup(marc, subtbl->length, GFP_KERNEL);
+	if (!domain_info->marc)
+		goto unmap;
+
+	return 0;
+
+unmap:
+	if (domain_info->base[ERDT_MMIO_MARC_OPT]) {
+		iounmap(domain_info->base[ERDT_MMIO_MARC_OPT]);
+		domain_info->base[ERDT_MMIO_MARC_OPT] = NULL;
+	}
+	if (domain_info->base[ERDT_MMIO_MARC_MIN]) {
+		iounmap(domain_info->base[ERDT_MMIO_MARC_MIN]);
+		domain_info->base[ERDT_MMIO_MARC_MIN] = NULL;
+	}
+	if (domain_info->base[ERDT_MMIO_MARC_MAX]) {
+		iounmap(domain_info->base[ERDT_MMIO_MARC_MAX]);
+		domain_info->base[ERDT_MMIO_MARC_MAX] = NULL;
+	}
+	return -EIO;
+}
+
 static inline struct acpi_subtbl_hdr_16 *rmdd_subtbl(struct acpi_erdt_rmdd *rmdd)
 {
 	return (void *)rmdd + sizeof(*rmdd);
@@ -449,6 +513,12 @@ static __init bool parse_rmdd_entry(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 			if (!(subtbl_mask & BIT(ACPI_ERDT_TYPE_MMRC)) &&
 			    !mmrc_init(subtbl, domain_info))
 				subtbl_mask |= BIT(ACPI_ERDT_TYPE_MMRC);
+
+			break;
+		case ACPI_ERDT_TYPE_MARC:
+			if (!(subtbl_mask & BIT(ACPI_ERDT_TYPE_MARC)) &&
+			    !marc_init(subtbl, domain_info))
+				subtbl_mask |= BIT(ACPI_ERDT_TYPE_MARC);
 
 			break;
 		default:
