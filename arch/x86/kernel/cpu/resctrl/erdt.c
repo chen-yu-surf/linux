@@ -266,6 +266,45 @@ struct erdt_domain_info *erdt_find_domain_info(int cpu)
 
 static void marc_hw_update(struct hw_param *m)
 {
+	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
+	enum resctrl_ctrl_name name = hw_ctrl->r_ctrl.name;
+	unsigned int offset, region, type, region_offset_bits;
+	struct erdt_domain_info *d = hw_dom->d_info;
+	enum erdt_mmio_type mmio_type;
+	void __iomem *addr;
+	int closid_idx;
+	unsigned int i;
+	u64 val;
+
+	if (!d || !d->marc)
+		return;
+
+	offset = name - RESCTRL_CTRL_NAME_REGION0_OPT;
+	region = offset / RESCTRL_CTRL_REGION_NR_CTRLS;
+	type = offset % RESCTRL_CTRL_REGION_NR_CTRLS;
+	mmio_type = ERDT_MMIO_MARC_OPT + type;
+	region_offset_bits = (region % 4) * 16;
+
+	if (d->marc_buf_type != mmio_type) {
+		memset(d->marc_buf, 0,
+		       d->marc->mba_reg_size * 512 * sizeof(u64));
+		d->marc_buf_type = mmio_type;
+	}
+
+	for (i = m->low; i < m->high; i++) {
+		closid_idx = (region / 4) * 64 + i;
+		addr = d->base[mmio_type] + closid_idx * 8;
+
+		val = d->marc_buf[closid_idx];
+		if (!val)
+			val = readq(addr);
+
+		val &= ~(0x1ffULL << region_offset_bits);
+		val |= (u64)(hw_dom->ctrl_val[i] & 0x1ff) << region_offset_bits;
+		d->marc_buf[closid_idx] = val;
+		writeq(val, addr);
+	}
 }
 
 __init bool erdt_get_mem_config(struct rdt_resource *r)
@@ -355,6 +394,7 @@ static void cleanup_one_domain(struct erdt_domain_info *d)
 {
 	erdt_iounmap_domain(d);
 	free_cpumask_var(d->cpu_mask);
+	kfree(d->marc_buf);
 	kfree(d->cmrc);
 	kfree(d->mmrc);
 	kfree(d->marc);
@@ -495,6 +535,14 @@ static __init int marc_init(struct acpi_subtbl_hdr_16 *subtbl,
 	domain_info->marc = kmemdup(marc, subtbl->length, GFP_KERNEL);
 	if (!domain_info->marc)
 		goto unmap;
+
+	domain_info->marc_buf = kcalloc(marc->mba_reg_size * 512, sizeof(u64),
+					GFP_KERNEL);
+	if (!domain_info->marc_buf) {
+		kfree(domain_info->marc);
+		domain_info->marc = NULL;
+		goto unmap;
+	}
 
 	return 0;
 

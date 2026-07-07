@@ -51,6 +51,8 @@ struct erdt_domain_info {
 	struct acpi_erdt_cmrc	*cmrc;
 	struct acpi_erdt_mmrc	*mmrc;
 	struct acpi_erdt_marc	*marc;
+	u64			*marc_buf;
+	enum erdt_mmio_type	marc_buf_type;
 	cpumask_var_t		cpu_mask;
 	int			max_rmid;
 	struct list_head	list;
