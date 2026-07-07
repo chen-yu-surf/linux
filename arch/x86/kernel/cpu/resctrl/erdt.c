@@ -250,6 +250,20 @@ int erdt_mon_read(struct rdt_domain_hdr *hdr, int ev_id, int rmid, u64 *val)
 	return -EIO;
 }
 
+struct erdt_domain_info *erdt_find_domain_info(int cpu)
+{
+	struct erdt_domain_info *d;
+	struct list_head *pos;
+
+	list_for_each(pos, &domain_info_list) {
+		d = container_of(pos, struct erdt_domain_info, list);
+		if (cpumask_test_cpu(cpu, d->cpu_mask))
+			return d;
+	}
+
+	return NULL;
+}
+
 static void marc_hw_update(struct hw_param *m)
 {
 }
