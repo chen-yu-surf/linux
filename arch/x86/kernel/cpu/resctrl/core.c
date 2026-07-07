@@ -571,6 +571,7 @@ static void domain_add_cpu_ctrl(int cpu, struct rdt_resource *r,
 	d->hdr.type = RESCTRL_CTRL_DOMAIN;
 	d->hdr.rid = r->rid;
 	cpumask_set_cpu(cpu, &d->hdr.cpu_mask);
+	hw_dom->d_info = erdt_find_domain_info(cpu);
 
 	rdt_domain_reconfigure_cdp(r);
 

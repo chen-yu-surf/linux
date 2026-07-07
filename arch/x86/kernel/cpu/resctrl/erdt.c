@@ -236,6 +236,18 @@ int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 r
 	return -EIO;
 }
 
+struct erdt_domain_info *erdt_find_domain_info(int cpu)
+{
+	struct erdt_domain_info *d;
+
+	list_for_each_entry(d, &domain_info_list, entry) {
+		if (cpumask_test_cpu(cpu, &d->cpu_mask))
+			return d;
+	}
+
+	return NULL;
+}
+
 static void marc_hw_update(struct hw_param *m)
 {
 }
@@ -253,7 +265,7 @@ __init bool erdt_get_mem_config(struct rdt_resource *r)
 		return false;
 
 	/* Use the first domain's MARC to discover control properties. */
-	d = list_first_entry_or_null(&domain_info_list, struct erdt_domain_info, list);
+	d = list_first_entry_or_null(&domain_info_list, struct erdt_domain_info, entry);
 	if (!d || !d->marc)
 		return false;
 
