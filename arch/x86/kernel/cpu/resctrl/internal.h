@@ -26,12 +26,18 @@
  * @ERDT_MMIO_RMDD_CREG: RMDD control register base address
  * @ERDT_MMIO_CMRC_BASE: CMRC monitoring register base address
  * @ERDT_MMIO_MMRC_BASE: MMRC monitoring register base address
+ * @ERDT_MMIO_MARC_OPT:  MARC optimal BW register base address
+ * @ERDT_MMIO_MARC_MIN:  MARC minimum BW register base address
+ * @ERDT_MMIO_MARC_MAX:  MARC maximum BW register base address
  */
 enum erdt_mmio_type {
 	ERDT_MMIO_RMDD_CREG,
 	ERDT_MMIO_CMRC_BASE,
 	ERDT_MMIO_MMRC_BASE,
-	ERDT_MMIO_LAST = ERDT_MMIO_MMRC_BASE
+	ERDT_MMIO_MARC_OPT,
+	ERDT_MMIO_MARC_MIN,
+	ERDT_MMIO_MARC_MAX,
+	ERDT_MMIO_LAST = ERDT_MMIO_MARC_MAX
 };
 
 #define ERDT_MMIO_NUM_TYPES	(ERDT_MMIO_LAST + 1)
@@ -41,6 +47,7 @@ enum erdt_mmio_type {
  * @base:	Array of ioremapped MMIO region base addresses, indexed by ERDT_MMIO_* type
  * @cmrc:	Copy of the ACPI CMRC sub-table for this domain
  * @mmrc:	Copy of the ACPI MMRC sub-table for this domain
+ * @marc:	Copy of the ACPI MARC sub-table for this domain
  * @cpu_mask:	CPUs belonging to this resource management domain
  * @max_rmid:	Maximum RMID supported by this domain
  * @dom_id:	L3 cache ID shared by all CPUs in this domain (-1 if unset)
@@ -50,6 +57,7 @@ struct erdt_domain_info {
 	void __iomem		*base[ERDT_MMIO_NUM_TYPES];
 	struct acpi_erdt_cmrc	*cmrc;
 	struct acpi_erdt_mmrc	*mmrc;
+	struct acpi_erdt_marc	*marc;
 	struct cpumask		cpu_mask;
 	u32			max_rmid;
 	int			dom_id;
