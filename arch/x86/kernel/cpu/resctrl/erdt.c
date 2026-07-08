@@ -325,6 +325,7 @@ static void marc_hw_update(struct hw_param *m)
 __init bool erdt_get_mem_config(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
+	struct resctrl_ctrl *def_ctrl = NULL, *ctrl;
 	struct resctrl_hw_ctrl *hw_ctrl;
 	struct erdt_domain_info *d;
 	struct acpi_erdt_marc *marc;
@@ -342,6 +343,13 @@ __init bool erdt_get_mem_config(struct rdt_resource *r)
 	marc = d->marc;
 	max_regions = acpi_mrrm_max_mem_region();
 	hw_res->num_closid = max(hw_res->num_closid, erdt_max_clos + 1);
+
+	for_each_resource_ctrl(ctrl, r) {
+		if (ctrl->name == RESCTRL_CTRL_NAME_DEF) {
+			def_ctrl = ctrl;
+			break;
+		}
+	}
 
 	for (region = 0; region < max_regions; region++) {
 		for (type = RESCTRL_CTRL_REGION_TYPE_OPT; type < RESCTRL_CTRL_REGION_NR_CTRLS; type++) {
@@ -374,6 +382,16 @@ __init bool erdt_get_mem_config(struct rdt_resource *r)
 			/* MARC controls live in MMIO, program from any CPU. */
 			hw_ctrl->r_ctrl.flags |= RESCTRL_CTRL_FLAG_ANY_CPU;
 			list_add_tail(&hw_ctrl->r_ctrl.entry, &r->controls);
+
+			/*
+			 * Throttle memory bandwidth through the region MAX
+			 * controls rather than the legacy MBA MSR, so let the
+			 * MAX control of every region emulate the legacy MBA
+			 * control.
+			 */
+			if (def_ctrl && type == RESCTRL_CTRL_REGION_TYPE_MAX)
+				list_add_tail(&hw_ctrl->r_ctrl.emul_entry,
+					      &def_ctrl->emul);
 		}
 	}
 
