@@ -51,6 +51,9 @@ int proc_resctrl_show(struct seq_file *m,
 #define for_each_resource_ctrl(ctrl, r)					\
 	list_for_each_entry(ctrl, &r->controls, entry)
 
+#define for_each_emul_ctrl(emul, ctrl)					\
+	list_for_each_entry(emul, &ctrl->emul, emul_entry)
+
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
