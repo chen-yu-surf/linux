@@ -19,6 +19,21 @@
 
 #include "internal.h"
 
+/*
+ * Program the control's hardware for the config range described by @m. A
+ * control flagged RESCTRL_CTRL_FLAG_ANY_CPU (e.g. MMIO based) can be updated
+ * from the current CPU; otherwise the update must run on a CPU that belongs
+ * to the target domain, so it is issued via an IPI.
+ */
+static void ctrl_hw_update(struct resctrl_ctrl *ctrl, struct rdt_ctrl_domain *d,
+			   struct hw_param *m)
+{
+	if (ctrl->flags & RESCTRL_CTRL_FLAG_ANY_CPU)
+		rdt_ctrl_update(m);
+	else
+		smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, m, 1);
+}
+
 int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 			    struct rdt_ctrl_domain *d, u32 closid,
 			    enum resctrl_conf_type t, u32 cfg_val)
@@ -81,7 +96,7 @@ static void _resctrl_arch_update_domains(struct rdt_resource *r,
 			}
 		}
 		if (hw_param.res)
-			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &hw_param, 1);
+			ctrl_hw_update(ctrl, d, &hw_param);
 	}
 }
 
