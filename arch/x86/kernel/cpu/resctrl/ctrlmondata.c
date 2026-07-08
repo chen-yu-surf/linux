@@ -28,6 +28,48 @@ static void ctrl_hw_update(struct resctrl_ctrl *ctrl, struct rdt_ctrl_domain *d,
 		smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, m, 1);
 }
 
+static u32 emul_translate_val(struct resctrl_ctrl *src, struct resctrl_ctrl *dst,
+			      u32 val)
+{
+	return val * dst->scalar.max_bw / src->scalar.max_bw;
+}
+
+static void _resctrl_arch_update_emul(struct rdt_resource *r,
+				      struct resctrl_ctrl *ctrl,
+				      struct rdt_ctrl_domain *d, u32 low, u32 high)
+{
+	struct rdt_hw_ctrl_domain *emul_hw_dom;
+	struct rdt_hw_ctrl_domain *hw_dom;
+	struct rdt_ctrl_domain *emul_d;
+	struct resctrl_ctrl *emul;
+	struct rdt_domain_hdr *hdr;
+	struct hw_param emul_param;
+	unsigned int i;
+
+	hw_dom = resctrl_to_arch_ctrl_dom(d);
+
+	for_each_emul_ctrl(emul, ctrl) {
+		hdr = resctrl_find_domain(&emul->domains, d->hdr.id, NULL);
+		if (!hdr)
+			continue;
+
+		emul_d = container_of(hdr, struct rdt_ctrl_domain, hdr);
+		emul_hw_dom = resctrl_to_arch_ctrl_dom(emul_d);
+
+		for (i = low; i < high; i++)
+			emul_hw_dom->ctrl_val[i] = emul_translate_val(ctrl, emul,
+								      hw_dom->ctrl_val[i]);
+
+		emul_param.res = r;
+		emul_param.ctrl = emul;
+		emul_param.dom = emul_d;
+		emul_param.low = low;
+		emul_param.high = high;
+
+		ctrl_hw_update(emul, emul_d, &emul_param);
+	}
+}
+
 int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 			    struct rdt_ctrl_domain *d, u32 closid,
 			    enum resctrl_conf_type t, u32 cfg_val)
@@ -42,12 +84,20 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 
 	hw_dom->ctrl_val[idx] = cfg_val;
 
-	hw_param.res = r;
-	hw_param.ctrl = ctrl;
-	hw_param.dom = d;
-	hw_param.low = idx;
-	hw_param.high = idx + 1;
-	hw_ctrl->hw_update(&hw_param);
+	/*
+	 * When this control is emulated, program the emulation controllers'
+	 * hardware instead.
+	 */
+	if (!list_empty(&ctrl->emul)) {
+		_resctrl_arch_update_emul(r, ctrl, d, idx, idx + 1);
+	} else {
+		hw_param.res = r;
+		hw_param.ctrl = ctrl;
+		hw_param.dom = d;
+		hw_param.low = idx;
+		hw_param.high = idx + 1;
+		hw_ctrl->hw_update(&hw_param);
+	}
 
 	return 0;
 }
@@ -89,8 +139,17 @@ static void _resctrl_arch_update_domains(struct rdt_resource *r,
 				hw_param.high = max(hw_param.high, idx + 1);
 			}
 		}
-		if (hw_param.res)
-			ctrl_hw_update(ctrl, d, &hw_param);
+		if (hw_param.res) {
+			/*
+			 * When this control is emulated, program the emulation
+			 * controllers' hardware instead.
+			 */
+			if (!list_empty(&ctrl->emul))
+				_resctrl_arch_update_emul(r, ctrl, d,
+							  hw_param.low, hw_param.high);
+			else
+				ctrl_hw_update(ctrl, d, &hw_param);
+		}
 	}
 }
 
