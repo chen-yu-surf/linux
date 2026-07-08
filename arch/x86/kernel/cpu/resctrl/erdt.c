@@ -347,6 +347,23 @@ __init bool erdt_get_mem_config(struct rdt_resource *r)
 
 	r->alloc_capable = true;
 
+	/* Legacy MBA default controller is emulated by REGION0_MAX. */
+	{
+		struct resctrl_ctrl *def_ctrl, *ctrl;
+
+		def_ctrl = NULL;
+		for_each_resource_ctrl(ctrl, r) {
+			if (ctrl->name == RESCTRL_CTRL_NAME_DEF) {
+				def_ctrl = ctrl;
+			} else if (ctrl->name == RESCTRL_CTRL_NAME_REGION0_MAX) {
+				if (def_ctrl) {
+					def_ctrl->emul = ctrl;
+					break;
+				}
+			}
+		}
+	}
+
 	return true;
 }
 
