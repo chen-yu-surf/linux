@@ -405,16 +405,16 @@ static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
 size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
 {
 	struct resctrl_ctrl *ctrl;
-	size_t total = 0;
+	size_t max = 0;
 	size_t len;
 
 	for_each_resource_ctrl(ctrl,r) {
 		len = strlen(resctrl_ctrl_name_str(ctrl->name));
 		if (len)
-			total += 1 + len;
+			max = max_t(size_t, max, 1 + len);
 	}
 
-	return total;
+	return max;
 }
 
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
