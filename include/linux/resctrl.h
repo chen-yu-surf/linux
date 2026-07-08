@@ -388,6 +388,11 @@ resctrl_ctrl_name_region(unsigned int region, unsigned int type)
 /* Flags for rdt_resource::flags and resctrl_ctrl::flags */
 #define RESCTRL_CTRL_FLAG_LINEAR		BIT(0)
 #define RESCTRL_CTRL_FLAG_SPARSE_BITMASKS	BIT(1)
+/*
+ * The control's hardware can be programmed from any CPU (e.g. it lives in
+ * MMIO space) and therefore does not require a domain-local IPI to update.
+ */
+#define RESCTRL_CTRL_FLAG_ANY_CPU		BIT(2)
 
 /**
  * struct resctrl_ctrl - A resource control
