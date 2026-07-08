@@ -355,6 +355,8 @@ __init bool erdt_get_mem_config(struct rdt_resource *r)
 			hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
 
 			hw_ctrl->hw_update = marc_hw_update;
+			/* MARC controls live in MMIO, program from any CPU. */
+			hw_ctrl->r_ctrl.flags |= RESCTRL_CTRL_FLAG_ANY_CPU;
 			list_add_tail(&hw_ctrl->r_ctrl.entry, &r->controls);
 		}
 	}
