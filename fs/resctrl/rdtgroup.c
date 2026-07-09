@@ -1653,6 +1653,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 	struct resctrl_ctrl *ctrl;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
+	char ctrl_full_name[20];
 	unsigned int size;
 	u32 ctrl_val;
 	int ret = 0;
@@ -1693,11 +1694,11 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 		type = f->conf_type;
 		for_each_resource_ctrl(ctrl, r) {
 			sep = false;
-			seq_printf(s, "%*s", max_name_width, f->name);
-			if (!resctrl_ctrl_is_default(ctrl))
-				seq_printf(s, "_%s:", resctrl_ctrl_name_str(ctrl->name));
-			else
-				seq_putc(s, ':');
+			snprintf(ctrl_full_name, sizeof(ctrl_full_name), "%s%s%s", f->name,
+				 resctrl_ctrl_is_default(ctrl) ? "" : "_",
+				 resctrl_ctrl_is_default(ctrl) ?
+				  "" : resctrl_ctrl_name_str(ctrl->name));
+			seq_printf(s, "%*s:", max_name_width, ctrl_full_name);
 			list_for_each_entry(d, &ctrl->domains, hdr.list) {
 				if (sep)
 					seq_putc(s, ';');
