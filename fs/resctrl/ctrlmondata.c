@@ -405,16 +405,16 @@ static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
 size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
 {
 	struct resctrl_ctrl *ctrl;
-	size_t total = 0;
+	size_t max = 0;
 	size_t len;
 
 	for_each_resource_ctrl(ctrl,r) {
 		len = strlen(resctrl_ctrl_name_str(ctrl->name));
 		if (len)
-			total += 1 + len;
+			max = max_t(size_t, max, 1 + len);
 	}
 
-	return total;
+	return max;
 }
 
 static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
@@ -522,6 +522,7 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 		      bool print_ctrl, int closid, struct resctrl_ctrl *ctrl)
 {
 	struct rdt_resource *r = f->res;
+	char ctrl_full_name[20];
 	struct rdt_ctrl_domain *dom;
 	bool sep = false;
 	u32 ctrl_val;
@@ -529,11 +530,13 @@ static void show_doms(struct seq_file *s, struct rdt_resource_final *f,
 	/* Walking r->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	if (print_ctrl)
-		seq_printf(s, "%*s%s%s:", max_name_width, f->name,
-				resctrl_ctrl_is_default(ctrl) ? "" : "_",
-				resctrl_ctrl_is_default(ctrl) ?
-				 "" : resctrl_ctrl_name_str(ctrl->name));
+	if (print_ctrl) {
+		snprintf(ctrl_full_name, sizeof(ctrl_full_name), "%s%s%s", f->name,
+			 resctrl_ctrl_is_default(ctrl) ? "" : "_",
+			 resctrl_ctrl_is_default(ctrl) ?
+			  "" : resctrl_ctrl_name_str(ctrl->name));
+		seq_printf(s, "%*s:", max_name_width, ctrl_full_name);
+	}
 	list_for_each_entry(dom, &ctrl->domains, hdr.list) {
 		if (sep)
 			seq_puts(s, ";");
