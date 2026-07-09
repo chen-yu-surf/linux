@@ -2742,13 +2742,44 @@ static int resctrl_mkdir_schemata_dir(struct kernfs_node *kn,
 		if (IS_ERR(kn_ctrl))
 			return PTR_ERR(kn_ctrl);
 
-		ret = rdtgroup_kn_set_ugid(kn_subdir);
+		ret = rdtgroup_kn_set_ugid(kn_ctrl);
 		if (ret)
 			return ret;
 
-		ret = resctrl_add_ctrl_files(kn_ctrl, ctrl);
-		if (ret)
-			return ret;
+		/*
+		 * A control that is emulated by another control has no
+		 * hardware of its own, so do not expose this control's
+		 * properties. Instead create a sub-directory named after the
+		 * emulation controller and expose the emulation controller's
+		 * properties there.
+		 */
+		if (ctrl->emul) {
+			struct resctrl_ctrl *emul = ctrl->emul;
+			struct kernfs_node *kn_emul;
+
+			ret = snprintf(ctrl_full_name, sizeof(ctrl_full_name), "%s%s%s",
+				       f->name, resctrl_ctrl_is_default(emul) ? "" : "_",
+				       resctrl_ctrl_is_default(emul) ? "" : resctrl_ctrl_name_str(emul->name));
+			if (ret >= sizeof(ctrl_full_name))
+				return -ENOSPC;
+
+			kn_emul = kernfs_create_dir(kn_ctrl, ctrl_full_name,
+						    kn_ctrl->mode, emul);
+			if (IS_ERR(kn_emul))
+				return PTR_ERR(kn_emul);
+
+			ret = rdtgroup_kn_set_ugid(kn_emul);
+			if (ret)
+				return ret;
+
+			ret = resctrl_add_ctrl_files(kn_emul, emul);
+			if (ret)
+				return ret;
+		} else {
+			ret = resctrl_add_ctrl_files(kn_ctrl, ctrl);
+			if (ret)
+				return ret;
+		}
 	}
 
 	kernfs_activate(kn_subdir);
