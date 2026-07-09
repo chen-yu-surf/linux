@@ -2741,13 +2741,36 @@ static int resctrl_mkdir_schemata_dir(struct kernfs_node *kn,
 		if (IS_ERR(kn_ctrl))
 			return PTR_ERR(kn_ctrl);
 
-		ret = rdtgroup_kn_set_ugid(kn_subdir);
+		ret = rdtgroup_kn_set_ugid(kn_ctrl);
 		if (ret)
 			return ret;
 
-		ret = resctrl_add_ctrl_files(kn_ctrl, ctrl);
-		if (ret)
-			return ret;
+		if (!list_empty(&ctrl->emul)) {
+			struct kernfs_node *kn_emul;
+			struct resctrl_ctrl *emul;
+
+			for_each_emul_ctrl(emul, ctrl) {
+				snprintf(ctrl_full_name, sizeof(ctrl_full_name), "%s_%s",
+					 f->name, resctrl_ctrl_name_str(emul->name));
+
+				kn_emul = kernfs_create_dir(kn_ctrl, ctrl_full_name,
+							    kn_ctrl->mode, emul);
+				if (IS_ERR(kn_emul))
+					return PTR_ERR(kn_emul);
+
+				ret = rdtgroup_kn_set_ugid(kn_emul);
+				if (ret)
+					return ret;
+
+				ret = resctrl_add_ctrl_files(kn_emul, emul);
+				if (ret)
+					return ret;
+			}
+		} else {
+			ret = resctrl_add_ctrl_files(kn_ctrl, ctrl);
+			if (ret)
+				return ret;
+		}
 	}
 
 	kernfs_activate(kn_subdir);
