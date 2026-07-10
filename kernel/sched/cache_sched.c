@@ -131,7 +131,8 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 	struct pid *pid_grp;
 	int err = 0;
 
-	if (arg2 >= PR_SCHED_CACHE_MAX || (long)arg3 < 0)
+	if ((arg2 >= PR_SCHED_CACHE_MAX && arg2 != PR_SCHED_CACHE_DISABLE &&
+	     arg2 != PR_SCHED_CACHE_ENABLE) || (long)arg3 < 0)
 		return -EINVAL;
 
 	if (arg2 != PR_SCHED_CACHE_GET && arg4)
@@ -157,6 +158,24 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 	}
 
 	switch (arg2) {
+	case PR_SCHED_CACHE_DISABLE:
+	case PR_SCHED_CACHE_ENABLE:
+		scoped_guard(rcu) {
+			/*
+			 * RCU holds off the kfree_rcu() in
+			 * sched_cache_group_put().
+			 */
+			struct sched_cache_group *g;
+
+			g = rcu_dereference(task->sched_cache_grp);
+			if (!g)
+				err = -ENOENT;
+			else
+				WRITE_ONCE(g->disabled,
+					   arg2 == PR_SCHED_CACHE_DISABLE);
+		}
+		break;
+
 	case PR_SCHED_CACHE_GET: {
 		unsigned long id = 0;
 
