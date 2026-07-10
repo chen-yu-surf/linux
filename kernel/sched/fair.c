@@ -1695,6 +1695,9 @@ static int get_pref_llc(struct task_struct *p, struct sched_cache_group *grp)
 	if (!grp)
 		return -1;
 
+	if (READ_ONCE(grp->disabled))
+		return -1;
+
 	mm_sched_cpu = READ_ONCE(grp->cpu);
 	if (mm_sched_cpu != -1) {
 		mm_sched_llc = llc_id(mm_sched_cpu);
@@ -1784,6 +1787,9 @@ static void task_tick_cache(struct rq *rq, struct task_struct *p)
 
 	if (!grp || p->flags & PF_KTHREAD ||
 	    !grp->pcpu_sched)
+		return;
+
+	if (READ_ONCE(grp->disabled))
 		return;
 
 	epoch = rq->cpu_epoch;
