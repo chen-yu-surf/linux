@@ -882,12 +882,19 @@ static int exec_mmap(struct linux_binprm *bprm)
 	tsk->mm = mm;
 #ifdef CONFIG_SCHED_CACHE
 	{
-		struct sched_cache_group *old_grp, *new_grp;
+		struct sched_cache_group *old_grp, *new_grp = mm->sched_cache_grp;
 
-		old_grp = rcu_dereference_protected(tsk->sched_cache_grp, true);
-		new_grp = mm->sched_cache_grp;
-
+		/*
+		 * pi_lock serializes the exchange against a concurrent
+		 * prctl(PR_SCHED_CACHE) writer targeting this task. IRQs are
+		 * already disabled here, so a plain raw_spin_lock() suffices.
+		 */
+		raw_spin_lock(&tsk->pi_lock);
+		old_grp = rcu_dereference_protected(tsk->sched_cache_grp,
+						    lockdep_is_held(&tsk->pi_lock));
 		rcu_assign_pointer(tsk->sched_cache_grp, new_grp);
+		raw_spin_unlock(&tsk->pi_lock);
+
 		if (new_grp)
 			sched_cache_group_get(new_grp);
 		if (old_grp)
