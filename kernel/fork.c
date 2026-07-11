@@ -1594,6 +1594,19 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 
 	tsk->mm = mm;
 	tsk->active_mm = mm;
+#ifdef CONFIG_SCHED_CACHE
+	{
+		struct sched_cache_group *grp = mm->sched_cache_grp;
+
+		/*
+		 * A task holds its own reference on the group, separate from
+		 * the reference held by its mm_struct.
+		 */
+		rcu_assign_pointer(tsk->sched_cache_grp, grp);
+		if (grp)
+			sched_cache_group_get(grp);
+	}
+#endif
 	return 0;
 }
 
