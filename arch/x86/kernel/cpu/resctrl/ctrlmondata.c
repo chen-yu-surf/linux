@@ -41,6 +41,7 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	hw_dom->ctrl_val[idx] = cfg_val;
 
 	msr_param.res = r;
+	msr_param.ctrl = ctrl;
 	msr_param.dom = d;
 	msr_param.low = idx;
 	msr_param.high = idx + 1;
@@ -62,6 +63,7 @@ static void _resctrl_arch_update_domains(struct rdt_resource *r,
 	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
+	msr_param.ctrl = ctrl;
 	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 		hw_dom = resctrl_to_arch_ctrl_dom(d);
 		msr_param.res = NULL;

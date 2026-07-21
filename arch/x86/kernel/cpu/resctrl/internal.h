@@ -101,12 +101,14 @@ struct rdt_perf_pkg_mon_domain {
 /**
  * struct msr_param - set a range of MSRs from a domain
  * @res:       The resource to use
+ * @ctrl:      Properties of the control being updated
  * @dom:       The domain to update
  * @low:       Beginning index from base MSR
  * @high:      End index
  */
 struct msr_param {
 	struct rdt_resource	*res;
+	struct resctrl_ctrl	*ctrl;
 	struct rdt_ctrl_domain	*dom;
 	u32			low;
 	u32			high;

@@ -328,7 +328,7 @@ static void mba_wrmsr_intel(struct msr_param *m)
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
 	unsigned int i;
 
-	if (!m->res->ctrl.scalar.linear) {
+	if (!m->ctrl->scalar.linear) {
 		pr_warn_once("Non-linear MBA delay values not supported\n");
 		return;
 	}
@@ -409,6 +409,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 	setup_default_ctrlval(r, ctrl, dc);
 
 	m.res = r;
+	m.ctrl = ctrl;
 	m.dom = d;
 	m.low = 0;
 	m.high = hw_res->num_closid;
