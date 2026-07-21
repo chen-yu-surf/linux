@@ -178,7 +178,6 @@ static inline void cache_alloc_hsw_probe(void)
 	hw_ctrl->r_ctrl.bitmap.cbm_len = 20;
 	hw_ctrl->r_ctrl.bitmap.shareable_bits = 0xc0000;
 	hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 2;
-	hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = false;
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
 	hw_res->num_closid = 4;
@@ -213,7 +212,7 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
 	hw_ctrl->r_ctrl.scalar.min = MAX_MBA_BW - max_delay;
 	hw_ctrl->r_ctrl.scalar.gran = MAX_MBA_BW - max_delay;
-	hw_ctrl->r_ctrl.scalar.linear = true;
+	__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, hw_ctrl->r_ctrl.scalar.flags);
 
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->bw_throttle_mode = THREAD_THROTTLE_PER_THREAD;
@@ -257,9 +256,6 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 
 	hw_ctrl->r_ctrl.scalar.max = BIT(eax);
 
-	/* AMD does not use delay */
-	hw_ctrl->r_ctrl.scalar.linear = false;
-
 	/*
 	 * AMD does not use memory delay throttle model to control
 	 * the allocation like Intel does.
@@ -297,11 +293,12 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	default_ctrl = BIT_MASK(eax.split.cbm_len + 1) - 1;
 	hw_ctrl->r_ctrl.bitmap.shareable_bits = ebx & default_ctrl;
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL) {
-		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = ecx.split.noncont;
+		if (ecx.split.noncont)
+			__set_bit(RESCTRL_BITMAP_FLAG_SPARSE, hw_ctrl->r_ctrl.bitmap.flags);
 		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 1;
 	} else if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD ||
 		   boot_cpu_data.x86_vendor == X86_VENDOR_HYGON) {
-		hw_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = true;
+		__set_bit(RESCTRL_BITMAP_FLAG_SPARSE, hw_ctrl->r_ctrl.bitmap.flags);
 		hw_ctrl->r_ctrl.bitmap.min_cbm_bits = 0;
 	} else {
 		return;
@@ -353,7 +350,7 @@ static void mba_wrmsr_intel(struct msr_param *m)
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
 	unsigned int i;
 
-	if (!m->ctrl->scalar.linear) {
+	if (!test_bit(RESCTRL_SCALAR_FLAG_LINEAR, m->ctrl->scalar.flags)) {
 		pr_warn_once("Non-linear bandwidth delay not supported\n");
 		return;
 	}

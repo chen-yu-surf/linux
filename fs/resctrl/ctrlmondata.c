@@ -156,7 +156,7 @@ static bool cbm_validate(char *buf, u32 *data, struct resctrl_ctrl *ctrl)
 	zero_bit = find_next_zero_bit(&val, cbm_len, first_bit);
 
 	/* Are non-contiguous bitmasks allowed? */
-	if (!ctrl->bitmap.arch_has_sparse_bitmasks &&
+	if (!test_bit(RESCTRL_BITMAP_FLAG_SPARSE, ctrl->bitmap.flags) &&
 	    (find_next_bit(&val, cbm_len, zero_bit) < cbm_len)) {
 		rdt_last_cmd_printf("The mask %lx has non-consecutive 1-bits\n", val);
 		return false;
