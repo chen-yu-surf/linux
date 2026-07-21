@@ -211,6 +211,17 @@ struct rdt_l3_mon_domain {
 };
 
 /**
+ * enum resctrl_bitmap_flag - Possible bitmap control flags
+ * @RESCTRL_BITMAP_FLAG_SPARSE:	Set if bitmap like f00f is valid.
+ */
+enum resctrl_bitmap_flag {
+	RESCTRL_BITMAP_FLAG_SPARSE,
+	RESCTRL_BITMAP_FLAG_LAST = RESCTRL_BITMAP_FLAG_SPARSE
+};
+
+#define RESCTRL_BITMAP_NUM_FLAGS	(RESCTRL_BITMAP_FLAG_LAST + 1)
+
+/**
  * struct resctrl_ctrl_bitmap - A bitmap control
  * @cbm_len:		Length of the bit mask
  * @min_cbm_bits:	Minimum number of consecutive bits to be set.
@@ -218,13 +229,14 @@ struct rdt_l3_mon_domain {
  *			zero CBM.
  * @shareable_bits:	Bitmask of shareable resource with other
  *			executing entities
- * @arch_has_sparse_bitmasks:	True if a bitmask like f00f is valid.
+ * @flags:		Flags that describe relationship between control
+ *			value and amount of resource allocated.
  */
 struct resctrl_ctrl_bitmap {
 	unsigned int	cbm_len;
 	unsigned int	min_cbm_bits;
 	unsigned int	shareable_bits;
-	bool		arch_has_sparse_bitmasks;
+	DECLARE_BITMAP(flags, RESCTRL_BITMAP_NUM_FLAGS);
 };
 
 /**
@@ -242,19 +254,31 @@ enum membw_throttle_mode {
 };
 
 /**
+ * enum resctrl_scalar_flag - Possible scalar control flags
+ * @RESCTRL_SCALAR_FLAG_LINEAR:	The scalar control values are linearly spaced.
+ */
+enum resctrl_scalar_flag {
+	RESCTRL_SCALAR_FLAG_LINEAR,
+	RESCTRL_SCALAR_FLAG_LAST = RESCTRL_SCALAR_FLAG_LINEAR
+};
+
+#define RESCTRL_SCALAR_NUM_FLAGS	(RESCTRL_SCALAR_FLAG_LAST + 1)
+
+/**
  * struct resctrl_ctrl_scalar - Scalar control properties
  * @min:		Minimum control value user can request
  * @max:		Maximum control value, used as the reset value
  * @gran:		Granularity at which the control values are allocated
- * @linear:		True if scalar control is in linear scale
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
+ * @flags:		Flags that describe relationship between control
+ *			value and amount of resource allocated.
  */
 struct resctrl_ctrl_scalar {
 	u32				min;
 	u32				max;
 	u32				gran;
-	u32				linear;
 	bool				mba_sc;
+	DECLARE_BITMAP(flags, RESCTRL_SCALAR_NUM_FLAGS);
 };
 
 enum resctrl_scope {

@@ -1297,7 +1297,10 @@ static int rdt_delay_linear_show(struct kernfs_open_file *of,
 	if (!ctrl || ctrl->type != RESCTRL_CTRL_SCALAR)
 		goto out_unlock;
 
-	seq_printf(seq, "%u\n", ctrl->scalar.linear);
+	if (test_bit(RESCTRL_SCALAR_FLAG_LINEAR, ctrl->scalar.flags))
+		seq_puts(seq, "1\n");
+	else
+		seq_puts(seq, "0\n");
 
 out_unlock:
 	info_kn_unlock(of->kn);
@@ -1424,7 +1427,10 @@ static int rdt_has_sparse_bitmasks_show(struct kernfs_open_file *of,
 	if (!ctrl)
 		goto out_unlock;
 
-	seq_printf(seq, "%u\n", ctrl->bitmap.arch_has_sparse_bitmasks);
+	if (test_bit(RESCTRL_BITMAP_FLAG_SPARSE, ctrl->bitmap.flags))
+		seq_puts(seq, "1\n");
+	else
+		seq_puts(seq, "0\n");
 
 out_unlock:
 	info_kn_unlock(of->kn);
@@ -2304,6 +2310,32 @@ static struct rftype res_common_files[] = {
 	},
 };
 
+static const char * const resctrl_scalar_flag[] = {
+	[RESCTRL_SCALAR_FLAG_LINEAR]	= "linear",
+};
+
+static __maybe_unused const char *resctrl_scalar_flag_str(enum resctrl_scalar_flag flag)
+{
+	if (flag < RESCTRL_SCALAR_FLAG_LINEAR || flag > RESCTRL_SCALAR_FLAG_LAST) {
+		pr_warn("Unknown scalar control flag\n");
+		return NULL;
+	}
+	return resctrl_scalar_flag[flag];
+}
+
+static const char * const resctrl_bitmap_flag[] = {
+	[RESCTRL_BITMAP_FLAG_SPARSE]	= "sparse",
+};
+
+static __maybe_unused const char *resctrl_bitmap_flag_str(enum resctrl_bitmap_flag flag)
+{
+	if (flag < RESCTRL_BITMAP_FLAG_SPARSE || flag > RESCTRL_BITMAP_FLAG_LAST) {
+		pr_warn("Unknown bitmap control flag\n");
+		return NULL;
+	}
+	return resctrl_bitmap_flag[flag];
+}
+
 static int rdtgroup_add_files(struct kernfs_node *kn, unsigned long fflags)
 {
 	struct rftype *rfts, *rft;
@@ -2725,7 +2757,8 @@ static bool supports_mba_mbps(struct resctrl_ctrl *ctrl)
 			return false;
 	}
 
-	return (resctrl_is_mbm_enabled() && ctrl->scalar.linear &&
+	return (resctrl_is_mbm_enabled() &&
+		test_bit(RESCTRL_SCALAR_FLAG_LINEAR, ctrl->scalar.flags) &&
 		r->ctrl_scope == rmbm->mon_scope &&
 		!rmbm->mon.mbm_cntr_assignable);
 }
@@ -3836,7 +3869,7 @@ static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r,
 	unsigned long first_bit, zero_bit;
 	unsigned long val;
 
-	if (!_val || ctrl->bitmap.arch_has_sparse_bitmasks)
+	if (!_val || test_bit(RESCTRL_BITMAP_FLAG_SPARSE, ctrl->bitmap.flags))
 		return _val;
 
 	val = _val;

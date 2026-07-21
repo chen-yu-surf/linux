@@ -1013,9 +1013,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
-
-		mpam_ctrl->r_ctrl.bitmap.arch_has_sparse_bitmasks = true;
-
+		__set_bit(RESCTRL_BITMAP_FLAG_SPARSE, mpam_ctrl->r_ctrl.bitmap.flags);
 		mpam_ctrl->r_ctrl.bitmap.cbm_len = class->props.cpbm_wd;
 		/* mpam_devices will reject empty bitmaps */
 		mpam_ctrl->r_ctrl.bitmap.min_cbm_bits = 1;
@@ -1047,7 +1045,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
 
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-		mpam_ctrl->r_ctrl.scalar.linear = true;
+		__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, mpam_ctrl->r_ctrl.scalar.flags);
 		mpam_ctrl->r_ctrl.scalar.min = get_mba_min(cprops);
 		mpam_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
 		mpam_ctrl->r_ctrl.scalar.gran = get_mba_granularity(cprops);
