@@ -1037,7 +1037,7 @@ static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.cache.min_cbm_bits);
+	seq_printf(seq, "%u\n", r->ctrl.bitmap.min_cbm_bits);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1052,7 +1052,7 @@ static int rdt_shareable_bits_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%x\n", r->ctrl.cache.shareable_bits);
+	seq_printf(seq, "%x\n", r->ctrl.bitmap.shareable_bits);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1095,7 +1095,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 	list_for_each_entry_rcu(dom, &r->ctrl.domains, hdr.list, lockdep_is_cpus_held()) {
 		if (sep)
 			seq_putc(seq, ';');
-		hw_shareable = r->ctrl.cache.shareable_bits;
+		hw_shareable = r->ctrl.bitmap.shareable_bits;
 		sw_shareable = 0;
 		exclusive = 0;
 		seq_printf(seq, "%d=", dom->hdr.id);
@@ -1145,7 +1145,7 @@ static int rdt_bit_usage_show(struct kernfs_open_file *of,
 			hw_shareable |= ctrl_val;
 		}
 
-		for (i = r->ctrl.cache.cbm_len - 1; i >= 0; i--) {
+		for (i = r->ctrl.bitmap.cbm_len - 1; i >= 0; i--) {
 			pseudo_locked = dom->plr ? dom->plr->cbm : 0;
 			hwb = test_bit(i, &hw_shareable);
 			swb = test_bit(i, &sw_shareable);
@@ -1366,7 +1366,7 @@ static int rdt_has_sparse_bitmasks_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.cache.arch_has_sparse_bitmasks);
+	seq_printf(seq, "%u\n", r->ctrl.bitmap.arch_has_sparse_bitmasks);
 
 	info_kn_unlock(of->kn);
 
@@ -1404,8 +1404,8 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 
 	/* Check for any overlap with regions used by hardware directly */
 	if (!exclusive) {
-		ctrl_b = r->ctrl.cache.shareable_bits;
-		if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.cache.cbm_len))
+		ctrl_b = r->ctrl.bitmap.shareable_bits;
+		if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.bitmap.cbm_len))
 			return true;
 	}
 
@@ -1415,7 +1415,7 @@ static bool __rdtgroup_cbm_overlaps(struct rdt_resource *r, struct rdt_ctrl_doma
 		mode = rdtgroup_mode_by_closid(i);
 		if (closid_allocated(i) && i != closid &&
 		    mode != RDT_MODE_PSEUDO_LOCKSETUP) {
-			if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.cache.cbm_len)) {
+			if (bitmap_intersects(&cbm, &ctrl_b, r->ctrl.bitmap.cbm_len)) {
 				if (exclusive) {
 					if (mode == RDT_MODE_EXCLUSIVE)
 						return true;
@@ -1613,10 +1613,10 @@ unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r,
 	if (WARN_ON_ONCE(r->ctrl_scope != RESCTRL_L2_CACHE && r->ctrl_scope != RESCTRL_L3_CACHE))
 		return size;
 
-	num_b = bitmap_weight(&cbm, r->ctrl.cache.cbm_len);
+	num_b = bitmap_weight(&cbm, r->ctrl.bitmap.cbm_len);
 	ci = get_cpu_cacheinfo_level(cpumask_any(&d->hdr.cpu_mask), r->ctrl_scope);
 	if (ci)
-		size = ci->size / r->ctrl.cache.cbm_len * num_b;
+		size = ci->size / r->ctrl.bitmap.cbm_len * num_b;
 
 	return size;
 }
@@ -3697,11 +3697,11 @@ out_destroy:
  */
 static u32 cbm_ensure_valid(u32 _val, struct rdt_resource *r)
 {
-	unsigned int cbm_len = r->ctrl.cache.cbm_len;
+	unsigned int cbm_len = r->ctrl.bitmap.cbm_len;
 	unsigned long first_bit, zero_bit;
 	unsigned long val;
 
-	if (!_val || r->ctrl.cache.arch_has_sparse_bitmasks)
+	if (!_val || r->ctrl.bitmap.arch_has_sparse_bitmasks)
 		return _val;
 
 	val = _val;
@@ -3734,8 +3734,8 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 
 	cfg = &d->staged_config[t];
 	cfg->have_new_ctrl = false;
-	cfg->new_ctrl = r->ctrl.cache.shareable_bits;
-	used_b = r->ctrl.cache.shareable_bits;
+	cfg->new_ctrl = r->ctrl.bitmap.shareable_bits;
+	used_b = r->ctrl.bitmap.shareable_bits;
 	for (i = 0; i < closids_supported(); i++) {
 		if (closid_allocated(i) && i != closid) {
 			mode = rdtgroup_mode_by_closid(i);
@@ -3765,8 +3765,8 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 	}
 	if (d->plr && d->plr->cbm > 0)
 		used_b |= d->plr->cbm;
-	unused_b = used_b ^ (BIT_MASK(r->ctrl.cache.cbm_len) - 1);
-	unused_b &= BIT_MASK(r->ctrl.cache.cbm_len) - 1;
+	unused_b = used_b ^ (BIT_MASK(r->ctrl.bitmap.cbm_len) - 1);
+	unused_b &= BIT_MASK(r->ctrl.bitmap.cbm_len) - 1;
 	cfg->new_ctrl |= unused_b;
 	/*
 	 * Force the initial CBM to be valid, user can
@@ -3778,7 +3778,7 @@ static int __init_one_rdt_domain(struct rdt_ctrl_domain *d, struct rdt_resource_
 	 * bitmap_weight() does not access out-of-bound memory.
 	 */
 	tmp_cbm = cfg->new_ctrl;
-	if (bitmap_weight(&tmp_cbm, r->ctrl.cache.cbm_len) < r->ctrl.cache.min_cbm_bits) {
+	if (bitmap_weight(&tmp_cbm, r->ctrl.bitmap.cbm_len) < r->ctrl.bitmap.min_cbm_bits) {
 		rdt_last_cmd_printf("No space on %s:%d\n", f->name, d->hdr.id);
 		return -ENOSPC;
 	}
