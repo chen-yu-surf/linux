@@ -84,9 +84,9 @@ static bool bw_validate(char *buf, u32 *data, struct rdt_resource *r)
 		return true;
 	}
 
-	if (bw < r->ctrl.membw.min_bw || bw > r->ctrl.membw.max_bw) {
+	if (bw < r->ctrl.scalar.min_bw || bw > r->ctrl.scalar.max_bw) {
 		rdt_last_cmd_printf("MB value %u out of range [%d,%d]\n",
-				    bw, r->ctrl.membw.min_bw, r->ctrl.membw.max_bw);
+				    bw, r->ctrl.scalar.min_bw, r->ctrl.scalar.max_bw);
 		return false;
 	}
 

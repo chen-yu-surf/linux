@@ -1180,7 +1180,7 @@ static int rdt_min_bw_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.membw.min_bw);
+	seq_printf(seq, "%u\n", r->ctrl.scalar.min_bw);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1231,7 +1231,7 @@ static int rdt_bw_gran_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.membw.bw_gran);
+	seq_printf(seq, "%u\n", r->ctrl.scalar.bw_gran);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1246,7 +1246,7 @@ static int rdt_delay_linear_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.membw.delay_linear);
+	seq_printf(seq, "%u\n", r->ctrl.scalar.delay_linear);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1633,7 +1633,7 @@ bool is_mba_sc(struct rdt_resource *r)
 	if (r->rid != RDT_RESOURCE_MBA)
 		return false;
 
-	return r->ctrl.membw.mba_sc;
+	return r->ctrl.scalar.mba_sc;
 }
 
 /*
@@ -2616,7 +2616,7 @@ static bool supports_mba_mbps(void)
 	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
 
 	return (resctrl_is_mbm_enabled() &&
-		r->alloc_capable && r->ctrl.membw.delay_linear &&
+		r->alloc_capable && r->ctrl.scalar.delay_linear &&
 		r->ctrl_scope == rmbm->mon_scope &&
 		!rmbm->mon.mbm_cntr_assignable);
 }
@@ -2636,7 +2636,7 @@ static int set_mba_sc(bool mba_sc)
 	if (!supports_mba_mbps() || mba_sc == is_mba_sc(r))
 		return -EINVAL;
 
-	r->ctrl.membw.mba_sc = mba_sc;
+	r->ctrl.scalar.mba_sc = mba_sc;
 
 	rdtgroup_default.mba_mbps_event = mba_mbps_default_event;
 

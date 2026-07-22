@@ -199,14 +199,14 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	cpuid_count(0x00000010, 3, &eax.full, &ebx, &ecx, &edx.full);
 	hw_res->num_closid = edx.split.cos_max + 1;
 	max_delay = eax.split.max_delay + 1;
-	r->ctrl.membw.max_bw = MAX_MBA_BW;
+	r->ctrl.scalar.max_bw = MAX_MBA_BW;
 
 	if (!(ecx & MBA_IS_LINEAR))
 		return false;
-	r->ctrl.membw.delay_linear = true;
+	r->ctrl.scalar.delay_linear = true;
 
-	r->ctrl.membw.min_bw = MAX_MBA_BW - max_delay;
-	r->ctrl.membw.bw_gran = MAX_MBA_BW - max_delay;
+	r->ctrl.scalar.min_bw = MAX_MBA_BW - max_delay;
+	r->ctrl.scalar.bw_gran = MAX_MBA_BW - max_delay;
 
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
 		r->bw_throttle_mode = THREAD_THROTTLE_PER_THREAD;
@@ -231,22 +231,22 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 
 	cpuid_count(0x80000020, subleaf, &eax, &ebx, &ecx, &edx);
 	hw_res->num_closid = edx + 1;
-	if (BITS_PER_TYPE(r->ctrl.membw.max_bw) <= eax) {
+	if (BITS_PER_TYPE(r->ctrl.scalar.max_bw) <= eax) {
 		pr_warn("Unable to support hardware's maximum bandwidth\n");
 		return false;
 	}
-	r->ctrl.membw.max_bw = BIT(eax);
+	r->ctrl.scalar.max_bw = BIT(eax);
 
 	/* AMD does not use delay */
-	r->ctrl.membw.delay_linear = false;
+	r->ctrl.scalar.delay_linear = false;
 
 	/*
 	 * AMD does not use memory delay throttle model to control
 	 * the allocation like Intel does.
 	 */
 	r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
-	r->ctrl.membw.min_bw = 0;
-	r->ctrl.membw.bw_gran = 1;
+	r->ctrl.scalar.min_bw = 0;
+	r->ctrl.scalar.bw_gran = 1;
 
 	r->alloc_capable = true;
 
@@ -312,7 +312,7 @@ static void mba_wrmsr_intel(struct msr_param *m)
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
 	unsigned int i;
 
-	if (!m->res->ctrl.membw.delay_linear) {
+	if (!m->res->ctrl.scalar.delay_linear) {
 		pr_warn_once("Non-linear bandwidth delay not supported\n");
 		return;
 	}
