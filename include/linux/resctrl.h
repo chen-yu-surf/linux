@@ -240,17 +240,17 @@ enum membw_throttle_mode {
 
 /**
  * struct resctrl_ctrl_scalar - Scalar control properties
- * @min_bw:		Minimum control value user can request
- * @max_bw:		Maximum control value, used as the reset value
- * @bw_gran:		Granularity at which the control values are allocated
- * @delay_linear:	True if scalar control is in linear scale
+ * @min:		Minimum control value user can request
+ * @max:		Maximum control value, used as the reset value
+ * @gran:		Granularity at which the control values are allocated
+ * @linear:		True if scalar control is in linear scale
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
  */
 struct resctrl_ctrl_scalar {
-	u32				min_bw;
-	u32				max_bw;
-	u32				bw_gran;
-	u32				delay_linear;
+	u32				min;
+	u32				max;
+	u32				gran;
+	u32				linear;
 	bool				mba_sc;
 };
 
@@ -418,7 +418,7 @@ static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
 	case RESCTRL_CTRL_BITMAP:
 		return BIT_MASK(r->ctrl.bitmap.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
-		return r->ctrl.scalar.max_bw;
+		return r->ctrl.scalar.max;
 	}
 
 	return WARN_ON_ONCE(1);

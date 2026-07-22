@@ -1180,7 +1180,7 @@ static int rdt_min_bw_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.scalar.min_bw);
+	seq_printf(seq, "%u\n", r->ctrl.scalar.min);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1231,7 +1231,7 @@ static int rdt_bw_gran_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.scalar.bw_gran);
+	seq_printf(seq, "%u\n", r->ctrl.scalar.gran);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -1246,7 +1246,7 @@ static int rdt_delay_linear_show(struct kernfs_open_file *of,
 	if (!info_kn_lock(of->kn))
 		return -ENOENT;
 	r = f->res;
-	seq_printf(seq, "%u\n", r->ctrl.scalar.delay_linear);
+	seq_printf(seq, "%u\n", r->ctrl.scalar.linear);
 	info_kn_unlock(of->kn);
 
 	return 0;
@@ -2616,7 +2616,7 @@ static bool supports_mba_mbps(void)
 	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
 
 	return (resctrl_is_mbm_enabled() &&
-		r->alloc_capable && r->ctrl.scalar.delay_linear &&
+		r->alloc_capable && r->ctrl.scalar.linear &&
 		r->ctrl_scope == rmbm->mon_scope &&
 		!rmbm->mon.mbm_cntr_assignable);
 }
