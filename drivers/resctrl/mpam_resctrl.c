@@ -1001,11 +1001,11 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 	case RDT_RESOURCE_L2:
 	case RDT_RESOURCE_L3:
 		r->ctrl.type = RESCTRL_CTRL_BITMAP;
-		r->ctrl.cache.arch_has_sparse_bitmasks = true;
+		r->ctrl.bitmap.arch_has_sparse_bitmasks = true;
 
-		r->ctrl.cache.cbm_len = class->props.cpbm_wd;
+		r->ctrl.bitmap.cbm_len = class->props.cpbm_wd;
 		/* mpam_devices will reject empty bitmaps */
-		r->ctrl.cache.min_cbm_bits = 1;
+		r->ctrl.bitmap.min_cbm_bits = 1;
 
 		if (r->rid == RDT_RESOURCE_L2) {
 			r->name = "L2";
@@ -1023,7 +1023,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		 * we have configured the SMMU and GIC not to do this 'all the
 		 * bits' is the correct answer here.
 		 */
-		r->ctrl.cache.shareable_bits = resctrl_get_default_ctrl(r);
+		r->ctrl.bitmap.shareable_bits = resctrl_get_default_ctrl(r);
 		r->alloc_capable = true;
 		break;
 	case RDT_RESOURCE_MBA:
