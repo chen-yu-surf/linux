@@ -1031,10 +1031,10 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		r->ctrl_scope = RESCTRL_L3_CACHE;
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
 
-		r->ctrl.membw.delay_linear = true;
-		r->ctrl.membw.min_bw = get_mba_min(cprops);
-		r->ctrl.membw.max_bw = MAX_MBA_BW;
-		r->ctrl.membw.bw_gran = get_mba_granularity(cprops);
+		r->ctrl.scalar.delay_linear = true;
+		r->ctrl.scalar.min_bw = get_mba_min(cprops);
+		r->ctrl.scalar.max_bw = MAX_MBA_BW;
+		r->ctrl.scalar.bw_gran = get_mba_granularity(cprops);
 
 		r->name = "MB";
 		r->alloc_capable = true;
