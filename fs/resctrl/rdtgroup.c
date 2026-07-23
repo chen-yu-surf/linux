@@ -2383,7 +2383,14 @@ static int resctrl_ctrl_max_show(struct kernfs_open_file *of,
 {
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
-	seq_printf(seq, "%u\n", ctrl->scalar.max);
+	switch (ctrl->type) {
+	case RESCTRL_CTRL_SCALAR:
+		seq_printf(seq, "%u\n", ctrl->scalar.max);
+		break;
+	case RESCTRL_CTRL_BITMAP:
+		seq_printf(seq, "0x%lx\n", BIT_MASK(ctrl->bitmap.cbm_len) - 1);
+		break;
+	}
 
 	return 0;
 }
@@ -2414,6 +2421,16 @@ static int resctrl_ctrl_scale_show(struct kernfs_open_file *of,
 	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
 
 	seq_printf(seq, "%u\n", ctrl->scalar.scale);
+
+	return 0;
+}
+
+static int resctrl_ctrl_min_bits_show(struct kernfs_open_file *of,
+				   struct seq_file *seq, void *v)
+{
+	struct resctrl_ctrl *ctrl = rdt_kn_parent_priv(of->kn);
+
+	seq_printf(seq, "%u\n", ctrl->bitmap.min_cbm_bits);
 
 	return 0;
 }
@@ -2455,7 +2472,7 @@ static struct rftype ctrl_files[] = {
 		.mode		= 0444,
 		.kf_ops		= &rdtgroup_kf_single_ops,
 		.seq_show	= resctrl_ctrl_max_show,
-		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
+		.fflags		= BIT(RESCTRL_CTRL_SCALAR) | BIT(RESCTRL_CTRL_BITMAP),
 	},
 	{
 		.name		= "resolution",
@@ -2485,6 +2502,14 @@ static struct rftype ctrl_files[] = {
 		.seq_show	= resctrl_ctrl_unit_show,
 		.fflags		= BIT(RESCTRL_CTRL_SCALAR),
 	},
+	{
+		.name		= "min_bits",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_ctrl_min_bits_show,
+		.fflags		= BIT(RESCTRL_CTRL_BITMAP),
+	},
+
 };
 
 static int resctrl_add_ctrl_files(struct kernfs_node *kn, struct resctrl_ctrl *ctrl)
