@@ -283,7 +283,7 @@ enum resctrl_scalar_flag {
 /**
  * struct resctrl_ctrl_scalar - Scalar control properties
  * @min:		Minimum control value user can request
- * @max:		Maximum control value, used as the reset value
+ * @max:		Maximum control value user can request
  * @gran:		Granularity at which the control values are allocated
  * @resolution:		If the control is proportional (for example, a
  *			percentage) this is the number of divisions that
@@ -304,6 +304,7 @@ enum resctrl_scalar_flag {
  * @mba_sc:		True if MBA software controller(mba_sc) is enabled
  * @flags:		Flags that describe relationship between control
  *			value and amount of resource allocated.
+ * @reset_val:		Control value used as reset value.
  *
  * With a control value "C" written to the schemata file, min_bw <= C <= max_bw,
  * the amount of resource allocated by this control is:
@@ -319,6 +320,7 @@ struct resctrl_ctrl_scalar {
 	enum resctrl_ctrl_unit		unit;
 	bool				mba_sc;
 	DECLARE_BITMAP(flags, RESCTRL_SCALAR_NUM_FLAGS);
+	u32				reset_val;
 };
 
 enum resctrl_scope {
@@ -502,9 +504,13 @@ static inline u32 resctrl_get_default_ctrlval(struct resctrl_ctrl *ctrl)
 {
 	switch (ctrl->type) {
 	case RESCTRL_CTRL_BITMAP:
+		/*
+		 * Should map to 100% allocation as exposed to user space
+		 * via "cbm_mask".
+		 */
 		return BIT_MASK(ctrl->bitmap.cbm_len) - 1;
 	case RESCTRL_CTRL_SCALAR:
-		return ctrl->scalar.max;
+		return ctrl->scalar.reset_val;
 	}
 
 	return WARN_ON_ONCE(1);
