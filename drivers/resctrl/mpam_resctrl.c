@@ -1048,6 +1048,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, mpam_ctrl->r_ctrl.scalar.flags);
 		mpam_ctrl->r_ctrl.scalar.min = get_mba_min(cprops);
 		mpam_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
+		mpam_ctrl->r_ctrl.scalar.reset_val = MAX_MBA_BW;
 		mpam_ctrl->r_ctrl.scalar.gran = get_mba_granularity(cprops);
 		list_add(&mpam_ctrl->r_ctrl.entry, &r->controls);
 

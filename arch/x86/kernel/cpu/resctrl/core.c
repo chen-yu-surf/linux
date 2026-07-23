@@ -208,6 +208,7 @@ static __init bool __get_mem_config_intel(struct rdt_resource *r)
 	hw_ctrl->r_ctrl.scalar.max = MAX_MBA_BW;
 	hw_ctrl->r_ctrl.scalar.min = MAX_MBA_BW - max_delay;
 	hw_ctrl->r_ctrl.scalar.gran = MAX_MBA_BW - max_delay;
+	hw_ctrl->r_ctrl.scalar.reset_val = MAX_MBA_BW;
 	__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, hw_ctrl->r_ctrl.scalar.flags);
 
 	if (boot_cpu_has(X86_FEATURE_PER_THREAD_MBA))
@@ -258,6 +259,7 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 	INIT_LIST_HEAD(&hw_ctrl->r_ctrl.domains);
 
 	hw_ctrl->r_ctrl.scalar.max = BIT(eax);
+	hw_ctrl->r_ctrl.scalar.reset_val = BIT(eax);
 
 	/*
 	 * AMD does not use memory delay throttle model to control
@@ -408,11 +410,7 @@ static void setup_default_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *c
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	int i;
 
-	/*
-	 * Initialize the Control MSRs to having no control.
-	 * For Cache Allocation: Set all bits in cbm
-	 * For Memory Allocation: Set b/w requested to 100%
-	 */
+	/* Initialize the control MSRs to their reset values. */
 	for (i = 0; i < hw_res->num_closid; i++, dc++)
 		*dc = resctrl_get_default_ctrlval(ctrl);
 }
