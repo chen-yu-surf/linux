@@ -248,7 +248,7 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 
 	/*
 	 * Disable resource control for this resource by setting all
-	 * control values in all control domains to the maximum value.
+	 * control values in all control domains to their reset value.
 	 * Pick one CPU from each domain to update the MSRs below.
 	 */
 	for_each_resource_ctrl(ctrl, r) {
