@@ -175,7 +175,11 @@ struct rdt_perf_pkg_mon_domain {
  *			resctrl_arch_get_num_closid() to avoid confusion
  *			with struct rdt_resource_final's property of the same
  *			name, which has been corrected for features like CDP.
- * @mon_scale:		cqm counter * mon_scale = occupancy in bytes
+ * @mon_scale:		Scale factor applied to a raw counter value on the
+ *			MSR-based read path: CMT occupancy counter * mon_scale =
+ *			occupancy in bytes, and MBM chunk count * mon_scale = bytes
+ *			transferred. ERDT reads occupancy via MMIO and applies its
+ *			own firmware-provided scale instead.
  * @mbm_width:		Monitor width, to detect and correct for overflow.
  * @cdp_enabled:	CDP state of this resource
  * @has_per_cpu_cache_cfg:	True if QOS_CFG register for this cache resource
@@ -308,6 +312,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 bool erdt_support(int flag);
 bool erdt_cpu_has(int flag);
 int erdt_get_max_rmid(void);
+int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid, u64 *val);
 int erdt_init(void);
 void erdt_exit(void);
 
