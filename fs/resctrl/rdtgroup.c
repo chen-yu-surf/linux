@@ -3354,7 +3354,7 @@ int resctrl_prefix_width_adjust(struct resctrl_ctrl *ctrl)
  */
 static int ctrl_max_suffix_len(struct rdt_resource *r)
 {
-	struct resctrl_ctrl *ctrl;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
 	int max_ctrl_len = 0;
 	int cl;
 
@@ -3362,6 +3362,11 @@ static int ctrl_max_suffix_len(struct rdt_resource *r)
 		cl = strlen(ctrl->schema_suf);
 		if (cl > max_ctrl_len)
 			max_ctrl_len = cl;
+		list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+			cl = strlen(em_ctrl->schema_suf);
+			if (cl > max_ctrl_len)
+				max_ctrl_len = cl;
+		}
 	}
 
 	return max_ctrl_len;
@@ -5387,18 +5392,41 @@ static int gen_ctrl_suffix(struct rdt_resource *r, struct resctrl_ctrl *ctrl)
 
 /*
  * Verify and initialize the controls provided by architecture.
+ *
+ * Require architecture to initialize legacy resources with legacy control
+ * mode active and that controls have the same scope as the controls they
+ * are emulated by.
  */
 static int controls_init(void)
 {
-	struct resctrl_ctrl *ctrl;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
 	struct rdt_resource *r;
 	int ret = 0;
 
 	for_each_alloc_capable_rdt_resource(r) {
+		/* Require legacy resources to start with legacy mode active. */
+		if (r->rid == RDT_RESOURCE_L3 || r->rid == RDT_RESOURCE_L2 ||
+		    r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA) {
+			if (r->ctrl_mode != RESCTRL_CTRL_MODE_LEGACY) {
+				WARN_ONCE(1, "%s is not in default legacy mode\n", r->name);
+				return -EINVAL;
+			}
+		}
+
+		/* Generate control schema suffixes. */
 		for_each_resource_ctrl(ctrl, r) {
 			ret = gen_ctrl_suffix(r, ctrl);
 			if (ret >= sizeof(ctrl->schema_suf))
 				return -EINVAL;
+			list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+				if (ctrl->scope != em_ctrl->scope) {
+					WARN_ONCE(1, "Control can only be emulated by control of same scope\n");
+					return -EINVAL;
+				}
+				ret = gen_ctrl_suffix(r, em_ctrl);
+				if (ret >= sizeof(em_ctrl->schema_suf))
+					return -EINVAL;
+			}
 		}
 	}
 
