@@ -1218,6 +1218,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_BITMAP;
 		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+		INIT_LIST_HEAD(&hw_ctrl->r_ctrl.emulated_by);
 		__set_bit(RESCTRL_BITMAP_FLAG_SPARSE, mpam_ctrl->r_ctrl.bitmap.flags);
 		mpam_ctrl->r_ctrl.bitmap.cbm_len = class->props.cpbm_wd;
 		/* mpam_devices will reject empty bitmaps */
@@ -1248,6 +1249,7 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		mpam_ctrl->r_ctrl.type = RESCTRL_CTRL_SCALAR;
 		mpam_ctrl->r_ctrl.name = RESCTRL_CTRL_NAME_DEF;
 		INIT_LIST_HEAD_RCU(&mpam_ctrl->r_ctrl.domains);
+		INIT_LIST_HEAD(&hw_ctrl->r_ctrl.emulated_by);
 
 		r->bw_throttle_mode = THREAD_THROTTLE_UNDEFINED;
 		__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, mpam_ctrl->r_ctrl.scalar.flags);
