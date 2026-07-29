@@ -494,39 +494,40 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 	u32 closid;
 
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
-	if (rdtgrp) {
-		if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
-			list_for_each_entry(f, &rdt_resource_final_all, list) {
-				for_each_resource_ctrl(ctrl, f->res)
-					seq_printf(s, "%*s%s:uninitialized\n",
-						   resctrl_prefix_width_adjust(ctrl),
-						   f->name, ctrl->schema_suf);
-			}
-		} else if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
-			if (!rdtgrp->plr->d) {
-				rdt_last_cmd_puts("Cache domain offline\n");
-				ret = -ENODEV;
-			} else {
-				ctrl = resctrl_get_pseudo_lock_ctrl(rdtgrp->plr->f->res);
-				if (ctrl)
-					seq_printf(s, "%*s%s:%d=%x\n",
-						   resctrl_prefix_width_adjust(ctrl),
-						   rdtgrp->plr->f->name,
-						   ctrl->schema_suf,
-						   rdtgrp->plr->d->hdr.id,
-						   rdtgrp->plr->cbm);
-			}
+	if (!rdtgrp) {
+		rdtgroup_kn_unlock(of->kn);
+		return -ENOENT;
+	}
+
+	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
+		list_for_each_entry(f, &rdt_resource_final_all, list) {
+			for_each_resource_ctrl(ctrl, f->res)
+				seq_printf(s, "%*s%s:uninitialized\n",
+					   resctrl_prefix_width_adjust(ctrl),
+					   f->name, ctrl->schema_suf);
+		}
+	} else if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKED) {
+		if (!rdtgrp->plr->d) {
+			rdt_last_cmd_puts("Cache domain offline\n");
+			ret = -ENODEV;
 		} else {
-			closid = rdtgrp->closid;
-			list_for_each_entry(f, &rdt_resource_final_all, list) {
-				if (closid >= f->num_closid)
-					continue;
-				for_each_resource_ctrl(ctrl, f->res)
-					show_doms(s, f, true, closid, ctrl);
-			}
+			ctrl = resctrl_get_pseudo_lock_ctrl(rdtgrp->plr->f->res);
+			if (ctrl)
+				seq_printf(s, "%*s%s:%d=%x\n",
+					   resctrl_prefix_width_adjust(ctrl),
+					   rdtgrp->plr->f->name,
+					   ctrl->schema_suf,
+					   rdtgrp->plr->d->hdr.id,
+					   rdtgrp->plr->cbm);
 		}
 	} else {
-		ret = -ENOENT;
+		closid = rdtgrp->closid;
+		list_for_each_entry(f, &rdt_resource_final_all, list) {
+			if (closid >= f->num_closid)
+				continue;
+			for_each_resource_ctrl(ctrl, f->res)
+				show_doms(s, f, true, closid, ctrl);
+		}
 	}
 	rdtgroup_kn_unlock(of->kn);
 	return ret;
