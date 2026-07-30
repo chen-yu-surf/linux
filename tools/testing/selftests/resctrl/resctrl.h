@@ -67,10 +67,13 @@
  *			buffer will be flushed. User can change value via
  *			command line (via integers with 0 interpreted as
  *			false and anything else as true).
+ * @parallel:		If true the buffer is filled from every CPU sharing
+ *			the L3 domain instead of a single CPU.
  */
 struct fill_buf_param {
 	size_t		buf_size;
 	bool		memflush;
+	bool		parallel;
 };
 
 /*
@@ -181,6 +184,11 @@ int perf_event_open(struct perf_event_attr *hw_event, pid_t pid, int cpu,
 unsigned char *alloc_buffer(size_t buf_size, bool memflush);
 void mem_flush(unsigned char *buf, size_t buf_size);
 void fill_cache_read(unsigned char *buf, size_t buf_size, bool once);
+void fill_cache_write(unsigned char *buf, size_t buf_size, bool once);
+int fill_cache_parallel(unsigned char *buf, size_t buf_size,
+			const int *cpus, int ncpus);
+int get_domain_shared_cpus(const char *resource, int cpu_no, int *cpus,
+			   int max_cpus);
 ssize_t get_fill_buf_size(int cpu_no, const char *cache_type);
 int initialize_read_mem_bw_imc(void);
 int measure_read_mem_bw(const struct user_params *uparams,
