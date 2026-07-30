@@ -159,6 +159,54 @@ int get_domain_id(const char *resource, int cpu_no, int *domain_id)
 }
 
 /*
+ * Fill @cpus with the CPUs sharing @cpu_no's @resource cache domain, L3 in the
+ * CMT test, parsed from shared_cpu_list (e.g. "0-5,12,14-15"). Returns the CPU
+ * count or < 0.
+ */
+int get_domain_shared_cpus(const char *resource, int cpu_no, int *cpus,
+			   int max_cpus)
+{
+	char path[1024], list[1024], *tok, *saveptr = NULL;
+	int cache_num, n = 0;
+	FILE *fp;
+
+	cache_num = get_resource_cache_level(resource);
+	if (cache_num < 0)
+		return cache_num;
+
+	snprintf(path, sizeof(path), "%s%d/cache/index%d/shared_cpu_list",
+		 PHYS_ID_PATH, cpu_no, cache_num);
+
+	fp = fopen(path, "r");
+	if (!fp) {
+		ksft_perror("Failed to open shared_cpu_list");
+		return -1;
+	}
+	if (fscanf(fp, "%1023s", list) != 1) {
+		ksft_perror("Failed to read shared_cpu_list");
+		fclose(fp);
+		return -1;
+	}
+	fclose(fp);
+
+	for (tok = strtok_r(list, ",", &saveptr); tok;
+	     tok = strtok_r(NULL, ",", &saveptr)) {
+		int a, b;
+
+		/* Each token is a single CPU "a" or a range "a-b". */
+		if (sscanf(tok, "%d-%d", &a, &b) != 2) {
+			if (sscanf(tok, "%d", &a) != 1)
+				continue;
+			b = a;
+		}
+		for (; a <= b && n < max_cpus; a++)
+			cpus[n++] = a;
+	}
+
+	return n;
+}
+
+/*
  * Count number of CPUs in a /sys bitmap
  */
 static unsigned int count_sys_bitmap_bits(char *name)
