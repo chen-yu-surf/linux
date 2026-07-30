@@ -595,6 +595,18 @@ close_fp:
 	return ret;
 }
 
+static void minimize_l2_all_domains(const char *ctrlgrp, const int *cpus,
+				    int ncpus)
+{
+	int i;
+
+	if (!resctrl_resource_exists("L2"))
+		return;
+
+	for (i = 0; i < ncpus; i++)
+		write_schemata(ctrlgrp, "0x1", cpus[i], "L2");
+}
+
 /*
  * resctrl_val:	execute benchmark and measure memory bandwidth on
  *			the benchmark
@@ -610,6 +622,8 @@ int resctrl_val(const struct resctrl_test *test,
 {
 	unsigned char *buf = NULL;
 	cpu_set_t old_affinity;
+	int cpus[1024];
+	int ncpus = 0;
 	int domain_id;
 	int ret = 0;
 	pid_t ppid;
@@ -651,6 +665,17 @@ int resctrl_val(const struct resctrl_test *test,
 	 * memory only.
 	 */
 	if (param->fill_buf) {
+		if (param->fill_buf->parallel) {
+			ncpus = get_domain_shared_cpus(test->resource,
+						       uparams->cpu, cpus,
+						       1024);
+			if (ncpus < 0)
+				ncpus = 0;
+			if (ncpus > 1)
+				minimize_l2_all_domains(param->ctrlgrp, cpus,
+							ncpus);
+		}
+
 		buf = alloc_buffer(param->fill_buf->buf_size,
 				   param->fill_buf->memflush);
 		if (!buf) {
@@ -672,10 +697,15 @@ int resctrl_val(const struct resctrl_test *test,
 	 * terminated.
 	 */
 	if (bm_pid == 0) {
-		if (param->fill_buf)
-			fill_cache_read(buf, param->fill_buf->buf_size, false);
-		else if (uparams->benchmark_cmd[0])
+		if (param->fill_buf) {
+			if (param->fill_buf->parallel && ncpus > 1)
+				fill_cache_parallel(buf, param->fill_buf->buf_size,
+						    cpus, ncpus);
+			else
+				fill_cache_read(buf, param->fill_buf->buf_size, false);
+		} else if (uparams->benchmark_cmd[0]) {
 			execvp(uparams->benchmark_cmd[0], (char **)uparams->benchmark_cmd);
+		}
 		exit(EXIT_SUCCESS);
 	}
 
