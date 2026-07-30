@@ -29,6 +29,8 @@ static u32 erdt_max_clos;
 #define MARC_SUPPORTED_INDEX_FN		1
 #define RMDD_FLAG_CPU_L3_DOMAIN		BIT(0)
 
+#define RDT_CTRL_LEGACY_MODE		BIT(2)
+
 #define MARC_FLAG_OPT			BIT(0)
 #define MARC_FLAG_MIN			BIT(1)
 #define MARC_FLAG_MAX			BIT(2)
@@ -406,8 +408,23 @@ static void erdt_iounmap_domain(struct erdt_domain_info *domain)
 	}
 }
 
+static void region_aware_enable(void __iomem *addr, bool enable)
+{
+	u64 rdt_ctrl = readq(addr);
+
+	if (enable)
+		rdt_ctrl &= ~RDT_CTRL_LEGACY_MODE;
+	else
+		rdt_ctrl |= RDT_CTRL_LEGACY_MODE;
+
+	writeq(rdt_ctrl, addr);
+}
+
 static void cleanup_one_domain(struct erdt_domain_info *d)
 {
+	if (d->base[ERDT_MMIO_RMDD_CREG])
+		region_aware_enable(d->base[ERDT_MMIO_RMDD_CREG], false);
+
 	erdt_iounmap_domain(d);
 	kfree(d->marc_buf);
 	kfree(d->cmrc);
@@ -804,6 +821,7 @@ static __init int enumerate_erdt_table(struct acpi_table_header *table_hdr)
 {
 	struct acpi_table_erdt *erdt = (struct acpi_table_erdt *)table_hdr;
 	struct acpi_subtbl_hdr_16 *subtbl;
+	struct erdt_domain_info *d;
 	void *table_end;
 
 	if (erdt->header.revision != ERDT_VALID_VERSION) {
@@ -830,6 +848,9 @@ static __init int enumerate_erdt_table(struct acpi_table_header *table_hdr)
 
 	if (list_empty(&domain_info_list))
 		goto cleanup;
+
+	list_for_each_entry(d, &domain_info_list, entry)
+		region_aware_enable(d->base[ERDT_MMIO_RMDD_CREG], true);
 
 	erdt_max_clos = erdt->max_clos;
 	erdt_enabled = true;
