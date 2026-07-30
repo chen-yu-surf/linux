@@ -183,10 +183,12 @@ static int cmt_run_test(const struct resctrl_test *test, const struct user_param
 	if (uparams->fill_buf) {
 		fill_buf.buf_size = span * 2;
 		fill_buf.memflush = uparams->fill_buf->memflush;
+		fill_buf.parallel = true;
 		param.fill_buf = &fill_buf;
 	} else if (!uparams->benchmark_cmd[0]) {
 		fill_buf.buf_size = span * 2;
 		fill_buf.memflush = true;
+		fill_buf.parallel = true;
 		param.fill_buf = &fill_buf;
 	}
 
