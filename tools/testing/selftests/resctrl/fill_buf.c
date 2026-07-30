@@ -15,6 +15,8 @@
 #include <sys/wait.h>
 #include <inttypes.h>
 #include <string.h>
+#include <pthread.h>
+#include <sched.h>
 
 #include "resctrl.h"
 
@@ -100,6 +102,82 @@ void fill_cache_read(unsigned char *buf, size_t buf_size, bool once)
 
 	/* Consume read result so that reading memory is not optimized out. */
 	*value_sink = ret;
+}
+
+static void fill_one_span_write(unsigned char *buf, size_t buf_size,
+				unsigned char val)
+{
+	unsigned int size = buf_size / (CL_SIZE / 2);
+	unsigned int i, idx = 0;
+
+	for (i = 0; i < size; i++) {
+		buf[idx * (CL_SIZE / 2)] = val;
+
+		idx += FILL_IDX_MULT;
+		while (idx >= size)
+			idx -= size;
+	}
+}
+
+void fill_cache_write(unsigned char *buf, size_t buf_size, bool once)
+{
+	unsigned char val = 1;
+
+	while (1) {
+		fill_one_span_write(buf, buf_size, val++);
+		if (once)
+			break;
+	}
+}
+
+struct fill_thread {
+	pthread_t	tid;		/* worker thread handle */
+	unsigned char	*buf;		/* start of this thread's buffer slice */
+	size_t		buf_size;	/* size of this thread's slice in bytes */
+	int		cpu;		/* CPU this thread is pinned to */
+};
+
+static void *fill_thread_fn(void *arg)
+{
+	struct fill_thread *ft = arg;
+	cpu_set_t set;
+
+	CPU_ZERO(&set);
+	CPU_SET(ft->cpu, &set);
+	sched_setaffinity(0, sizeof(set), &set);
+
+	fill_cache_write(ft->buf, ft->buf_size, false);
+
+	return NULL;
+}
+
+int fill_cache_parallel(unsigned char *buf, size_t buf_size,
+			const int *cpus, int ncpus)
+{
+	struct fill_thread *ft;
+	size_t chunk;
+	int i;
+
+	ft = calloc(ncpus, sizeof(*ft));
+	if (!ft)
+		return -ENOMEM;
+
+	chunk = (buf_size / ncpus) & ~((size_t)CL_SIZE - 1);
+
+	for (i = 0; i < ncpus; i++) {
+		/* Give each thread a disjoint slice; the last takes the remainder. */
+		ft[i].buf = buf + i * chunk;
+		ft[i].buf_size = (i == ncpus - 1) ? buf_size - i * chunk : chunk;
+		ft[i].cpu = cpus[i];
+		if (pthread_create(&ft[i].tid, NULL, fill_thread_fn, &ft[i]))
+			break;
+	}
+
+	while (--i >= 0)
+		pthread_join(ft[i].tid, NULL);
+
+	free(ft);
+	return 0;
 }
 
 unsigned char *alloc_buffer(size_t buf_size, bool memflush)
