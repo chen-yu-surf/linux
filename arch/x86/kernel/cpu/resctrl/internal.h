@@ -52,6 +52,8 @@ enum erdt_mmio_type {
  * @cmrc:	Copy of the ACPI CMRC sub-table for this domain
  * @mmrc:	Copy of the ACPI MMRC sub-table for this domain
  * @marc:	Copy of the ACPI MARC sub-table for this domain
+ * @marc_buf:	Shadow copy of the MARC MMIO registers for read-modify-write
+ * @marc_buf_type:	MARC MMIO region currently cached in @marc_buf
  * @cpu_mask:	CPUs belonging to this resource management domain
  * @max_rmid:	Maximum RMID supported by this domain
  * @dom_id:	L3 cache ID shared by all CPUs in this domain (-1 if unset)
@@ -62,6 +64,8 @@ struct erdt_domain_info {
 	struct acpi_erdt_cmrc	*cmrc;
 	struct acpi_erdt_mmrc	*mmrc;
 	struct acpi_erdt_marc	*marc;
+	u64			*marc_buf;
+	enum erdt_mmio_type	marc_buf_type;
 	struct cpumask		cpu_mask;
 	u32			max_rmid;
 	int			dom_id;
