@@ -44,6 +44,11 @@ static int erdt_max_rmid;
  */
 static int erdt_scale;
 
+bool erdt_support(int flag)
+{
+	return false;
+}
+
 int erdt_get_max_rmid(void)
 {
 	return erdt_max_rmid;
