@@ -42,6 +42,10 @@ enum erdt_mmio_type {
 
 #define ERDT_MMIO_NUM_TYPES	(ERDT_MMIO_LAST + 1)
 
+#define RESCTRL_CTRL_REGION_TYPE_OPT	0
+#define RESCTRL_CTRL_REGION_TYPE_MIN	1
+#define RESCTRL_CTRL_REGION_TYPE_MAX	2
+
 /**
  * struct erdt_domain_info - Per-domain ERDT information
  * @base:	Array of ioremapped MMIO region base addresses, indexed by ERDT_MMIO_*
@@ -329,6 +333,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 
 bool erdt_support(int flag);
 bool erdt_enable_mon(void);
+bool __init erdt_get_mem_config(struct rdt_resource *r);
 unsigned int erdt_get_max_rmid(void);
 int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid,
 		  u64 *val, bool first);
