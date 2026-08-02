@@ -14,6 +14,7 @@
 #include <linux/sizes.h>
 
 #include <asm/apic.h>
+#include <asm/resctrl.h>
 
 #include "internal.h"
 
@@ -60,9 +61,29 @@ bool erdt_support(int flag)
 	switch (flag) {
 	case X86_FEATURE_CQM_OCCUP_LLC:
 		return valid_subtbl_mask & BIT(ACPI_ERDT_TYPE_CMRC);
+	case X86_FEATURE_CQM_MBM_TOTAL:
+		return valid_subtbl_mask & BIT(ACPI_ERDT_TYPE_MMRC);
 	default:
 		return false;
 	}
+}
+
+bool erdt_enable_mon(void)
+{
+	int i, max_regions;
+
+	if (!erdt_cpu_has(X86_FEATURE_CQM_MBM_TOTAL))
+		return false;
+
+	max_regions = acpi_mrrm_max_mem_region();
+	for_each_rmbm_event_id(i) {
+		if (!max_regions--)
+			break;
+
+		resctrl_enable_mon_event(i, true, 0, NULL);
+	}
+
+	return true;
 }
 
 unsigned int erdt_get_max_rmid(void)
@@ -151,9 +172,9 @@ static u64 apply_correction_factor(u64 val, u32 factor)
 
 static int erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 				const struct erdt_domain_info *d, int rmid,
-				int eventid, u64 *val)
+				int eventid, u64 *val, bool first)
 {
-	int region_idx = eventid - QOS_L3_MBM_R0_EVENT_ID;
+	int region_idx = RMBM_STATE_IDX(eventid);
 	int corr_factor_len, corr_factor = 0;
 	struct rdt_hw_l3_mon_domain *hw_dom;
 	u64 mbm_rmid_count = 0, chunks = 0;
@@ -184,6 +205,23 @@ static int erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 	    (mbm_rmid_count & UNAVAILABLE_COUNTER))
 		return -EINVAL;
 
+	am = get_arch_mbm_state(hw_dom, rmid, eventid);
+
+	/*
+	 * The first read only records the initial, non-zero count value so
+	 * that later reads can compute a delta from it. Nothing is reported
+	 * to the caller, and the software state must not accumulate the
+	 * absolute counter value as if it had been consumed.
+	 */
+	if (first) {
+		if (am)
+			am->prev_mon_val = mbm_rmid_count;
+
+		*val = 0;
+
+		return 0;
+	}
+
 	corr_factor_len = mmrc->corr_factor_list_len;
 	if (corr_factor_len) {
 		/*
@@ -202,7 +240,6 @@ static int erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 			return -EINVAL;
 	}
 
-	am = get_arch_mbm_state(hw_dom, rmid, eventid);
 	if (am) {
 		am->chunks += mbm_overflow_count(am->prev_mon_val, mbm_rmid_count,
 						mmrc->counter_width);
@@ -216,7 +253,8 @@ static int erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
 	return 0;
 }
 
-int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid, u64 *val)
+int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid,
+		  u64 *val, bool first)
 {
 	struct rdt_hw_l3_mon_domain *hw_dom;
 	const struct erdt_domain_info *d;
@@ -230,7 +268,7 @@ int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 r
 		return erdt_read_l3_occupancy(d, rmid, val);
 
 	if (rmbm_event(evtid))
-		return erdt_read_region_mbm(hdr, d, rmid, evtid, val);
+		return erdt_read_region_mbm(hdr, d, rmid, evtid, val, first);
 
 	return -EIO;
 }
