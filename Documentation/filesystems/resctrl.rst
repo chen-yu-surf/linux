@@ -228,6 +228,10 @@ related to allocation:
 		written to /sys/fs/resctrl/info/L3DATA/io_alloc_cbm may be reflected by
 		/sys/fs/resctrl/info/L3CODE/io_alloc_cbm and vice versa.
 
+"control_mode":
+		Specifies which resource controls are exposed via the
+		schemata file. See "Resource controls".
+
 Memory bandwidth(MB) subdirectory contains the following files
 with respect to allocation:
 
@@ -258,6 +262,245 @@ with respect to allocation:
 		"per-thread":
 			bandwidth percentages are directly applied to
 			the threads running on the core
+
+"control_mode":
+		Specifies which resource controls are exposed via the
+		schemata file. See "Resource controls".
+
+Resource controls
+-----------------
+Hardware may support multiple controls that can be used to allocate
+portions of a resource or provide per-resource group control over different
+aspects of resource allocation.
+
+Hardware may not have the legacy resource allocation controls but instead
+back the legacy controls with its finer grained controls. These finer grained
+controls should be accessible to the user to take advantage of its improved
+capabilities.
+
+User interacts with the supported controls via the schemata file. The schema
+name of a control is constructed as:
+<resource>_<resource_scope><control_scope>_<control name>,
+<control_scope> is dropped when resource_scope == control_scope.
+
+The resource name is <resource>_<resource_scope> but this is not consistent
+for legacy resources:
+
+* For backward compatibility all legacy resources have a default control
+  that has no control name, and when the control scope of the default
+  control is the same as the resource then the control schema is just the
+  resource name.
+* MB resource has resource name "MB" with implicit L3 scope, any new
+  control of the MB resource contains the control scope as part of the control
+  schema. For example, a new "MAX" control with L3 scope will have schema
+  MB_L3_MAX, or a new default control at NODE scope will have schema MB_L3NODE.
+  Similar for SMBA.
+* L2 resource has L2 scope as part of resource, neither resource nor
+  control scope need to be displayed as part of schema.
+* L3 resource has L3 scope as part of resource, neither resource nor
+  control scope need to be displayed as part of schema.
+
+Non-legacy resources are not required to have a default control and user should
+thus not assume that there will be a control with the same schema as the
+resource name. Instead, user should parse info/<resource>_<resource_scope>/schemata
+to discover which controls are supported by the resource.
+
+The controls supported by the underlying hardware can be found in the
+resource's info/<resource>/schemata directory. The directory name is the
+schema name of the control as it appears in the schemata file and the files
+within the directory contain the control's properties.
+
+For example, below shows MB, MB_L3_MIN, and MB_L3_MAX as controls for the "MB" resource::
+
+	 info/
+	 └─ MB/
+	    └─ schemata/
+	       ├─ MB/
+	       ├─ MB_L3_MIN/
+	       ├─ MB_L3_MAX/
+	       ┆
+
+Below example shows hardware that uses a finer grained control named "MB_L3_MAX"
+to back the legacy "MB" control. By default the legacy control is exposed via
+"schemata" file, user space can interact with the "MB_L3_MAX" control backing the
+legacy "MB" control by switching the control mode. See "Resource control mode"::
+
+	 info/
+	 └─ MB/
+	    └─ schemata/
+	       ├─ MB/
+	       ┆   └─MB_L3_MAX/
+	       ├─ MB_L3_MIN/
+	       ┆
+
+
+Resource control mode
+~~~~~~~~~~~~~~~~~~~~~
+
+A resource needing to maintain a legacy interface, for example the "MB"
+resource, may have one or more finer grained controls that are used to back
+the legacy interface.
+
+Consider below example where the legacy "MB" interface is backed by the finer
+grained "MB_L3_MAX" and "MB_L3_MIN" controls::
+
+	 info/
+	 └─ MB/
+	    └─ schemata/
+	       └─ MB/
+	          ├─ MB_L3_MIN/
+	          └─ MB_L3_MAX/
+
+By default only the "MB" control is shown in the schemata files of control
+groups. User space can provide the legacy control values to the "MB"
+control while the MB_L3_MIN and MB_L3_MAX controls are programmed to do the
+actual resource allocation. This is "legacy" control mode and exposed via
+the resource's "control_mode" file::
+
+		# cat /sys/fs/resctrl/info/MB/control_mode
+		[legacy] native
+		# cat /sys/fs/resctrl/schemata
+		MB:0=100;1=100
+
+The architecture defines how a legacy control value is translated to its
+backing controls.
+
+If user space is familiar with the finer grained controls then the legacy
+interface can be disabled that will let the backing controls appear in the
+schemata file::
+
+		# echo "native" > /sys/fs/resctrl/info/MB/control_mode
+		# cat /sys/fs/resctrl/info/MB/control_mode
+		legacy [native]
+		# cat /sys/fs/resctrl/schemata
+		MB_L3_MIN:0=1;1=1
+		MB_L3_MAX:0=1000;1=1000
+
+The info/<resource>/schemata hierarchy is static and determined by the
+architecture, the hierarchy does not change when the control mode is
+switched.
+
+The control values active at the time of the control mode switch may be
+reset by the architecture. It may thus be possible for the user to program
+the legacy control values, and then switch control mode to see what those
+legacy control values translate to on the native controls, but user should
+not rely on this behavior on all platforms.
+
+Switching the control mode to native may impact the legacy control's
+properties exposed via resctrl. For example, when the "MB" control is
+emulated and the user switches to "native" mode then reading the "MB" control's
+legacy files (info/MB/min_bandwidth, info/MB/bandwidth_gran,
+info/MB/delay_linear) succeeds but returns no content. When in "native" mode
+user should refer to the backing controls' properties as found in
+info/MB/schemata directory.
+
+Resource control properties
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Every control directory contains a file named "type" that specifies which
+other property files a user space may expect in the same directory. The current
+supported control types are:
+
+                * "scalar": A single-valued numeric control
+                * "bitmap": A bitmap control
+
+The following properties that are exposed with individual files:
+
+"type":
+	When "type" == "scalar":
+		Contains "scalar" as well as optional flag specifiers that
+		indicate how the control value written to the schemata file
+		is converted to an amount of resource for hardware regulation.
+
+		Possible flags are:
+		"linear": The control values provide a linear mapping.
+
+		The properties associated with the "scalar" control relate
+		to the control value "C" written to schemata file by user space
+		as follows:
+		* min <= C <= max
+		* resource allocation = C * scale / resolution * unit
+		* effective resource allocation is within ±tolerance
+
+	When "type" == "bitmap":
+		Contains "bitmap" as well as optional flag specifiers that
+		indicate how the control value written to the schemata file
+		is converted to an amount of resource for hardware regulation.
+
+		Each bit controls access to a specific chunk of resource in
+		the hardware, such as a group of cache lines. All chunks are
+		equally sized.
+
+		Possible flags are:
+		"sparse": Present if the control accepts sparse bitmaps.
+
+		The properties associated with the "bitmap" control are:
+		* min
+		* max
+
+"scope":
+	The scope at which the control allocates portions of the associated
+	resource. This may be different from the resource scope.
+	The control scope determines what a domain ID in the schemata file
+	represents:
+
+	* "L2": The domain ID is the L2 cache ID. See "Cache IDs".
+	* "L3": The domain ID is the L3 cache ID. See "Cache IDs".
+	* "NODE": The domain ID is the NUMA node ID.
+
+	Other scopes may be added in the future.
+
+"min":
+	When "type" == "scalar":
+		The minimum value that can be written to the control when writing
+		the schemata file.
+
+	When "type" == "bitmap":
+		The minimum number of consecutive bits (in decimal) which must
+		be set when writing a bitmap.
+
+"max":
+	When "type" == "scalar":
+		The maximum value supported by each domain that can be written
+		to the control when writing the schemata file.
+
+	When "type" == "bitmap":
+		The bitmap supported by each domain (in hexadecimal without 0x prefix)
+		with all bits set.
+
+"tolerance":
+	When "type" == "scalar":
+		The effective control value is within ±tolerance of the control
+		value written to the schemata file.
+
+"resolution":
+	When "type" == "scalar":
+		For a proportional scalar schema: the number of divisions that
+		the whole resource is divided into. Typically, this will be the same as
+		the "max" value.
+
+		For an absolute scalar schema: the divisor applied to the control value.
+
+"scale":
+	When "type" == "scalar":
+		The scale-up multiplier applied to "unit".
+
+"unit":
+	When "type" == "scalar":
+		The base unit of the quantity measured by the control value.
+
+		The special unit "all" denotes a proportional schema.  In this
+		case, the resource is a finite, physical thing such as a cache
+		or maxed-out data throughput of a memory controller.  The
+		entire physical resource is available for allocation, and the
+		control value indicates what proportion of it is allocated.
+
+		Absolute schemata specifies the base unit, for example, "MBps".
+		The "scale" parameter could be used to avoid proliferation of
+		unit strings:
+
+		For example, {scale=1000, unit="MBps"} would be equivalent to
+		{scale=1, unit="GBps"}.
+
 
 If L3 monitoring is available there will be an "L3_MON" directory
 with the following files:
