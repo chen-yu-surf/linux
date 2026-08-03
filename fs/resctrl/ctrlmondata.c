@@ -418,7 +418,7 @@ static int rdtgroup_parse_ctrl(char *ctrlname, char *tok,
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		if (!strstarts(ctrlname, f->name))
 			continue;
-		for_each_resource_ctrl(ctrl, f->res) {
+		for_each_enabled_ctrl(ctrl, f->res) {
 			if (!strcmp(ctrlname + strlen(f->name), ctrl->schema_suf) &&
 			    rdtgrp->closid < f->num_closid)
 				return parse_line(tok, f, ctrl, rdtgrp);
@@ -554,7 +554,7 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 		list_for_each_entry(f, &rdt_resource_final_all, list) {
-			for_each_resource_ctrl(ctrl, f->res)
+			for_each_enabled_ctrl(ctrl, f->res)
 				seq_printf(s, "%*s%s:uninitialized\n",
 					   resctrl_prefix_width_adjust(ctrl),
 					   f->name, ctrl->schema_suf);
@@ -578,7 +578,7 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 		list_for_each_entry(f, &rdt_resource_final_all, list) {
 			if (closid >= f->num_closid)
 				continue;
-			for_each_resource_ctrl(ctrl, f->res)
+			for_each_enabled_ctrl(ctrl, f->res)
 				show_doms(s, f, true, closid, ctrl);
 		}
 	}
