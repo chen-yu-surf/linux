@@ -853,8 +853,12 @@ DEFINE_STATIC_KEY_FALSE(sched_cache_present);
  * is active, used by the scheduler.
  */
 DEFINE_STATIC_KEY_FALSE(sched_cache_active);
-/* user wants cache aware scheduling [0 or 1] */
-int sysctl_sched_cache_user = 1;
+DEFINE_STATIC_KEY_FALSE(sched_cache_adv);
+/*
+ * User provided cache aware scheduling modes:
+ * always, advise, never.
+ */
+int sysctl_sched_cache_mode = SC_ENABLED_ADVISE;
 
 /*
  * Get the effective LLC size in bytes that @cpu's bottom sched_domain
@@ -941,7 +945,7 @@ err:
 }
 
 /*
- * Enable/disable cache aware scheduling according to
+ * Enable/disable cache aware scheduling keys according to
  * user input and the presence of hardware support.
  */
 static void _sched_cache_active_set(void)
@@ -952,25 +956,41 @@ static void _sched_cache_active_set(void)
 	/* hardware does not support */
 	if (!static_branch_likely(&sched_cache_present)) {
 		static_branch_disable_cpuslocked(&sched_cache_active);
+		static_branch_disable_cpuslocked(&sched_cache_adv);
 		if (sched_debug())
 			pr_info("%s: cache aware scheduling not supported on this platform\n", __func__);
 		return;
 	}
 
 	/*
-	 * user wants it or not ?
+	 * user asks for a specific mode
 	 * TBD: read before writing the static key.
 	 * It is not in the critical path, leave as-is
 	 * for now.
 	 */
-	if (sysctl_sched_cache_user) {
+	switch (sysctl_sched_cache_mode) {
+	case SC_ENABLED_ALWAYS:
+		static_branch_disable_cpuslocked(&sched_cache_adv);
 		static_branch_enable_cpuslocked(&sched_cache_active);
 		if (sched_debug())
-			pr_info("%s: enabling cache aware scheduling\n", __func__);
-	} else {
-		static_branch_disable_cpuslocked(&sched_cache_active);
+			pr_info("%s: cache aware scheduling switch to [always]\n", __func__);
+		break;
+	case SC_ENABLED_ADVISE:
+		static_branch_enable_cpuslocked(&sched_cache_adv);
+		static_branch_enable_cpuslocked(&sched_cache_active);
 		if (sched_debug())
-			pr_info("%s: disabling cache aware scheduling\n", __func__);
+			pr_info("%s: cache aware scheduling switch to [advise]\n", __func__);
+		break;
+	case SC_ENABLED_NEVER:
+		static_branch_disable_cpuslocked(&sched_cache_active);
+		static_branch_disable_cpuslocked(&sched_cache_adv);
+		if (sched_debug())
+			pr_info("%s: cache aware scheduling switch to [never]\n", __func__);
+		break;
+	default:
+		if (sched_debug())
+			pr_info("%s: Invalid cache aware scheduling mode\n", __func__);
+		break;
 	}
 }
 

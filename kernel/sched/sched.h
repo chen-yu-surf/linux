@@ -4092,9 +4092,17 @@ static inline void mm_cid_switch_to(struct task_struct *prev, struct task_struct
 #endif /* !CONFIG_SCHED_MM_CID */
 
 #ifdef CONFIG_SCHED_CACHE
+enum sc_modes {
+	SC_ENABLED_ALWAYS	= 0,
+	SC_ENABLED_ADVISE	= 1,
+	SC_ENABLED_NEVER	= 2,
+	SC_ENABLED_NR,
+};
+
 DECLARE_STATIC_KEY_FALSE(sched_cache_present);
 DECLARE_STATIC_KEY_FALSE(sched_cache_active);
-extern int sysctl_sched_cache_user;
+DECLARE_STATIC_KEY_FALSE(sched_cache_adv);
+extern int sysctl_sched_cache_mode;
 extern unsigned int llc_aggr_tolerance;
 extern unsigned int llc_epoch_period;
 extern unsigned int llc_epoch_affinity_timeout;
@@ -4104,6 +4112,17 @@ extern unsigned int llc_overaggr_pct;
 static inline bool sched_cache_enabled(void)
 {
 	return static_branch_unlikely(&sched_cache_active);
+}
+
+static inline bool sched_cache_group_enabled(struct sched_cache_group *grp)
+{
+	if (!static_branch_unlikely(&sched_cache_active))
+		return false;
+
+	if (!static_branch_likely(&sched_cache_adv))
+		return true;
+
+	return !READ_ONCE(grp->disabled);
 }
 
 extern void sched_cache_active_set(void);
