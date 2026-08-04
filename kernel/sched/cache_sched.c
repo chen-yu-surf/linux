@@ -77,3 +77,214 @@ sched_cache_alloc_group(struct sched_cache_time __percpu *_pcpu_sched)
 	sched_cache_group_init(grp, _pcpu_sched);
 	return grp;
 }
+
+static struct sched_cache_group *sched_cache_alloc_all(void)
+{
+	struct sched_cache_time __percpu *pcpu_sched;
+
+	pcpu_sched = alloc_percpu(struct sched_cache_time);
+	if (!pcpu_sched)
+		return NULL;
+
+	return sched_cache_alloc_group(pcpu_sched);
+}
+
+static void __sched_cache_set(struct task_struct *p,
+			      struct sched_cache_group *grp)
+{
+	struct sched_cache_group *old_grp;
+	unsigned long flags;
+
+	if (grp)
+		sched_cache_group_get(grp);
+
+	/*
+	 * p->pi_lock serializes the exchange against concurrent writers
+	 * (other prctl callers as well as exec_mmap()/exit_mm()). Without
+	 * it two writers could fetch the same old pointer and each drop a
+	 * reference, over-decrementing the refcount. The put() is done
+	 * outside the lock to keep the critical section short.
+	 */
+	raw_spin_lock_irqsave(&p->pi_lock, flags);
+	old_grp = rcu_dereference_protected(p->sched_cache_grp,
+					    lockdep_is_held(&p->pi_lock));
+	rcu_assign_pointer(p->sched_cache_grp, grp);
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+
+	if (old_grp)
+		sched_cache_group_put(old_grp);
+}
+
+static struct sched_cache_group *sched_cache_clone_group(struct task_struct *p)
+{
+	/*
+	 * RCU keeps the group alive here; refcount_inc_not_zero() in
+	 * sched_cache_group_get() handles a concurrent last put. No
+	 * pi_lock needed.
+	 */
+	guard(rcu)();
+	return sched_cache_group_get(rcu_dereference(p->sched_cache_grp));
+}
+
+static struct task_struct *sched_cache_find_get_task(unsigned long vpid)
+{
+	struct task_struct *p;
+
+	guard(rcu)();
+	p = vpid ? find_task_by_vpid(vpid) : current;
+	if (p)
+		get_task_struct(p);
+
+	return p;
+}
+
+/*
+ * arg2: subcommand, arg3: target pid (0 = self),
+ * arg4: cookie out ptr for GET, the other pid for SHARE_TO/SHARE_FROM
+ *	 (0 = self), else 0
+ * arg5: pid type, the scope of the destination
+ *
+ * SHARE_TO: arg3 = dst, arg4 = src. SHARE_FROM: arg3 = src, arg4 = dst.
+ */
+int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
+		      unsigned long arg4, unsigned long arg5)
+{
+	struct task_struct *dst = NULL, *src = NULL, *p;
+	struct sched_cache_group *grp = NULL;
+	unsigned long dst_pid, src_pid = 0;
+	enum pid_type type = arg5;
+	bool share = false;
+	struct pid *pid_grp;
+	int err = 0;
+
+	if (arg2 >= PR_SCHED_CACHE_MAX || (long)arg3 < 0)
+		return -EINVAL;
+
+	if (arg5 > PIDTYPE_PGID)
+		return -EINVAL;
+
+	switch (arg2) {
+	case PR_SCHED_CACHE_SHARE_TO:
+		if ((long)arg4 < 0)
+			return -EINVAL;
+		dst_pid = arg3;
+		src_pid = arg4;
+		share = true;
+		break;
+
+	case PR_SCHED_CACHE_SHARE_FROM:
+		if ((long)arg4 < 0)
+			return -EINVAL;
+		src_pid = arg3;
+		dst_pid = arg4;
+		share = true;
+		break;
+
+	case PR_SCHED_CACHE_GET:
+		/* arg4 is the cookie output pointer */
+		dst_pid = arg3;
+		break;
+
+	default:
+		if (arg4)
+			return -EINVAL;
+		dst_pid = arg3;
+		break;
+	}
+
+	dst = sched_cache_find_get_task(dst_pid);
+	if (!dst)
+		return -ESRCH;
+
+	if (share) {
+		src = sched_cache_find_get_task(src_pid);
+		if (!src) {
+			err = -ESRCH;
+			goto out;
+		}
+	}
+
+	if (!ptrace_may_access(dst, PTRACE_MODE_READ_REALCREDS) ||
+	    (src && !ptrace_may_access(src, PTRACE_MODE_READ_REALCREDS))) {
+		err = -EPERM;
+		goto out;
+	}
+
+	switch (arg2) {
+	case PR_SCHED_CACHE_GET: {
+		unsigned long id = 0;
+
+		/* GET only reports a single thread's cookie */
+		if (type != PIDTYPE_PID) {
+			err = -EINVAL;
+			goto out;
+		}
+
+		/* must be 8 byes aligned */
+		if (arg4 & 7) {
+			err = -EINVAL;
+			goto out;
+		}
+		grp = sched_cache_clone_group(dst);
+		if (grp)
+			ptr_to_hashval((void *)grp, &id);
+
+		if (arg4)
+			err = put_user((u64)id, (u64 __user *)arg4);
+
+		/* GET never modifies the task, so it never falls through. */
+		goto out;
+	}
+
+	case PR_SCHED_CACHE_CREATE:
+		/*
+		 * Allocator owns ref 1, __sched_cache_set() acquires ref 2.
+		 * The sched_cache_group_put() at out: drops ref 1, leaving
+		 * ref 1 held by the task.
+		 */
+		grp = sched_cache_alloc_all();
+		if (!grp) {
+			err = -ENOMEM;
+			goto out;
+		}
+		break;
+
+	case PR_SCHED_CACHE_SHARE_TO:
+	case PR_SCHED_CACHE_SHARE_FROM:
+		/* share the group of src to dst */
+		grp = sched_cache_clone_group(src);
+		break;
+
+	default:
+		err = -EINVAL;
+		goto out;
+	}
+
+	if (type == PIDTYPE_PID) {
+		__sched_cache_set(dst, grp);
+		goto out;
+	}
+
+	read_lock(&tasklist_lock);
+	pid_grp = task_pid_type(dst, type);
+
+	do_each_pid_thread(pid_grp, type, p) {
+		if (!ptrace_may_access(p, PTRACE_MODE_READ_REALCREDS)) {
+			err = -EPERM;
+			goto out_tasklist;
+		}
+	} while_each_pid_thread(pid_grp, type, p);
+
+	do_each_pid_thread(pid_grp, type, p) {
+		__sched_cache_set(p, grp);
+	} while_each_pid_thread(pid_grp, type, p);
+out_tasklist:
+	read_unlock(&tasklist_lock);
+
+out:
+	sched_cache_group_put(grp);
+	if (src)
+		put_task_struct(src);
+	put_task_struct(dst);
+	return err;
+}
