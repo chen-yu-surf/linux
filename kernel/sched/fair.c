@@ -1652,7 +1652,7 @@ static int get_pref_llc(struct task_struct *p, struct sched_cache_group *grp)
 	if (!grp)
 		return -1;
 
-	if (!READ_ONCE(grp->enabled))
+	if (!sched_cache_group_enabled(grp))
 		return -1;
 
 	mm_sched_cpu = READ_ONCE(grp->cpu);
@@ -1746,7 +1746,7 @@ static void task_tick_cache(struct rq *rq, struct task_struct *p)
 	    !grp->pcpu_sched)
 		return;
 
-	if (!READ_ONCE(grp->enabled))
+	if (!sched_cache_group_enabled(grp))
 		return;
 
 	epoch = rq->cpu_epoch;
@@ -10599,6 +10599,9 @@ static enum llc_mig can_migrate_llc_task(int src_cpu, int dst_cpu,
 
 	grp = rcu_dereference_all(p->sched_cache_grp);
 	if (!grp)
+		return mig_unrestricted;
+
+	if (!sched_cache_group_enabled(grp))
 		return mig_unrestricted;
 
 	cpu = READ_ONCE(grp->cpu);

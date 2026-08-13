@@ -6751,6 +6751,9 @@ Kernel parameters
 			solution to mutex-based priority inversion.
 			Format: <bool>
 
+	sched_cache=	[KNL] Set the cache aware scheduling mode.
+			Format: { "always" | "advise" | "never" }
+
 	sched_verbose	[KNL,EARLY] Enables verbose scheduler debug messages.
 
 	schedstats=	[KNL,X86] Enable or disable scheduled statistics.
