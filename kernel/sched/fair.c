@@ -1484,7 +1484,11 @@ static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 {
 	int scale;
 
-	if (get_nr_threads(p) <= 1)
+	/*
+	 * A single-thread process has a refcount of 2: from the mm and task
+	 * respectively.  Skip the single-thread process.
+	 */
+	if (refcount_read(&grp->refcnt) <= 2 && get_nr_threads(p) <= 1)
 		return true;
 
 	/*
