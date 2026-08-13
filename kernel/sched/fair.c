@@ -1484,7 +1484,7 @@ static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 {
 	int scale;
 
-	if (get_nr_threads(p) <= 1)
+	if (!READ_ONCE(grp->user_set) && get_nr_threads(p) <= 1)
 		return true;
 
 	/*
