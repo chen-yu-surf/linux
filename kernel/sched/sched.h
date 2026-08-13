@@ -4146,6 +4146,9 @@ static inline bool sched_cache_enabled(void)
 
 extern void sched_cache_active_set(void);
 
+struct sched_cache_group *
+sched_cache_alloc_group(struct sched_cache_time __percpu *pcpu_sched);
+
 #endif
 
 void sched_domains_free_llc_id(int cpu);
