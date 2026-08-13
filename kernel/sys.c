@@ -2907,6 +2907,11 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		if (arg3 & PR_CFI_LOCK && !(arg3 & PR_CFI_DISABLE))
 			error = arch_prctl_lock_branch_landing_pad_state(me);
 		break;
+#ifdef CONFIG_SCHED_CACHE
+	case PR_SCHED_CACHE:
+		error = sched_cache_prctl(option, arg2, arg3, arg4, arg5);
+		break;
+#endif
 	default:
 		trace_task_prctl_unknown(option, arg2, arg3, arg4, arg5);
 		error = -EINVAL;
