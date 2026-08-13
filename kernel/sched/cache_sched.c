@@ -196,6 +196,19 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 	}
 
 	switch (arg2) {
+	case PR_SCHED_CACHE_DISABLE:
+	case PR_SCHED_CACHE_ENABLE:
+		{
+			guard(rcu)();
+			grp = rcu_dereference(dst->sched_cache_grp);
+			if (!grp) {
+				err = -ENOENT;
+				goto out_task;
+			}
+			WRITE_ONCE(grp->disabled, arg2 == PR_SCHED_CACHE_DISABLE);
+
+			goto out_task;
+		}
 	case PR_SCHED_CACHE_GET: {
 		unsigned long id = 0;
 
