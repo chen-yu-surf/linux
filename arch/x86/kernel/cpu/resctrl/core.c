@@ -51,14 +51,14 @@ DEFINE_PER_CPU(struct resctrl_pqr_state, pqr_state);
  */
 bool rdt_alloc_capable;
 
-static void mba_wrmsr_intel(struct msr_param *m);
-static void cat_wrmsr(struct msr_param *m);
-static void mba_wrmsr_amd(struct msr_param *m);
-static void update_temporary_legacy_MB(struct msr_param *m);
-static void update_temporary_max(struct msr_param *m);
-static void update_temporary_min(struct msr_param *m);
-static void update_temporary_region_max(struct msr_param *m);
-static void update_temporary_region_min(struct msr_param *m);
+static void mba_wrmsr_intel(struct hw_param *m);
+static void cat_wrmsr(struct hw_param *m);
+static void mba_wrmsr_amd(struct hw_param *m);
+static void update_temporary_legacy_MB(struct hw_param *m);
+static void update_temporary_max(struct hw_param *m);
+static void update_temporary_min(struct hw_param *m);
+static void update_temporary_region_max(struct hw_param *m);
+static void update_temporary_region_min(struct hw_param *m);
 
 #define ctrl_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.controls)
 #define mon_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.mon_domains)
@@ -242,7 +242,7 @@ __temporary_multiple_mba_emulated_controls(struct rdt_resource *r,
 	em_hw_ctrl0->r_ctrl.scalar.scale = 1;
 	em_hw_ctrl0->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
 	em_hw_ctrl0->msr_base = 0;
-	em_hw_ctrl0->msr_update = update_temporary_region_min;
+	em_hw_ctrl0->hw_update = update_temporary_region_min;
 	em_hw_ctrl0->emulate_val = legacy_mba_to_fgmin;
 
 	em_hw_ctrl1->r_ctrl.type = RESCTRL_CTRL_SCALAR;
@@ -261,7 +261,7 @@ __temporary_multiple_mba_emulated_controls(struct rdt_resource *r,
 	em_hw_ctrl1->r_ctrl.scalar.scale = 1;
 	em_hw_ctrl1->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
 	em_hw_ctrl1->msr_base = 0;
-	em_hw_ctrl1->msr_update = update_temporary_region_max;
+	em_hw_ctrl1->hw_update = update_temporary_region_max;
 	em_hw_ctrl1->emulate_val = legacy_mba_to_fgmax;
 
 	list_add(&em_hw_ctrl0->r_ctrl.entry, &hw_ctrl->r_ctrl.emulated_by);
@@ -298,13 +298,13 @@ static __init bool __temporary_multiple_mba_intel_controls(struct rdt_resource *
 	switch (name) {
 	case RESCTRL_CTRL_NAME_DEF:
 		hw_ctrl->msr_base = 0;
-		hw_ctrl->msr_update = NULL;
+		hw_ctrl->hw_update = NULL;
 		return __temporary_multiple_mba_emulated_controls(r, hw_ctrl);
 	case RESCTRL_CTRL_NAME_MIN:
-		hw_ctrl->msr_update = update_temporary_min;
+		hw_ctrl->hw_update = update_temporary_min;
 		break;
 	case RESCTRL_CTRL_NAME_MAX:
-		hw_ctrl->msr_update = update_temporary_max;
+		hw_ctrl->hw_update = update_temporary_max;
 		break;
 	default:
 		return false;
@@ -422,10 +422,10 @@ static __init bool __rdt_get_mem_config_amd(struct rdt_resource *r)
 
 	if (r->rid == RDT_RESOURCE_MBA) {
 		hw_ctrl->msr_base = MSR_IA32_MBA_BW_BASE;
-		hw_ctrl->msr_update = mba_wrmsr_amd;
+		hw_ctrl->hw_update = mba_wrmsr_amd;
 	} else { /* r->rid == RDT_RESOURCE_SMBA */
 		hw_ctrl->msr_base = MSR_IA32_SMBA_BW_BASE;
-		hw_ctrl->msr_update = mba_wrmsr_amd;
+		hw_ctrl->hw_update = mba_wrmsr_amd;
 	}
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
@@ -470,7 +470,7 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	}
 
 	hw_ctrl->msr_base = idx == 1 ? MSR_IA32_L3_CBM_BASE: MSR_IA32_L2_CBM_BASE;
-	hw_ctrl->msr_update = cat_wrmsr;
+	hw_ctrl->hw_update = cat_wrmsr;
 
 	list_add(&hw_ctrl->r_ctrl.entry, &r->controls);
 
@@ -502,7 +502,7 @@ static void rdt_get_cdp_l2_config(void)
 	rdt_get_cdp_config(RDT_RESOURCE_L2);
 }
 
-static void mba_wrmsr_amd(struct msr_param *m)
+static void mba_wrmsr_amd(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
@@ -512,7 +512,7 @@ static void mba_wrmsr_amd(struct msr_param *m)
 		wrmsrq(hw_ctrl->msr_base + i, hw_dom->ctrl_val[i]);
 }
 
-static void update_temporary_max(struct msr_param *m)
+static void update_temporary_max(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 
@@ -521,7 +521,7 @@ static void update_temporary_max(struct msr_param *m)
 		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
 }
 
-static void update_temporary_min(struct msr_param *m)
+static void update_temporary_min(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 
@@ -530,7 +530,7 @@ static void update_temporary_min(struct msr_param *m)
 		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
 }
 
-static void update_temporary_legacy_MB(struct msr_param *m)
+static void update_temporary_legacy_MB(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 
@@ -539,7 +539,7 @@ static void update_temporary_legacy_MB(struct msr_param *m)
 		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
 }
 
-static void update_temporary_region_max(struct msr_param *m)
+static void update_temporary_region_max(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 
@@ -548,7 +548,7 @@ static void update_temporary_region_max(struct msr_param *m)
 		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
 }
 
-static void update_temporary_region_min(struct msr_param *m)
+static void update_temporary_region_min(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 
@@ -557,7 +557,7 @@ static void update_temporary_region_min(struct msr_param *m)
 		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
 }
 
-static void mba_wrmsr_intel(struct msr_param *m)
+static void mba_wrmsr_intel(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
@@ -573,7 +573,7 @@ static void mba_wrmsr_intel(struct msr_param *m)
 		wrmsrq(hw_ctrl->msr_base + i, MAX_MBA_BW - hw_dom->ctrl_val[i]);
 }
 
-static void cat_wrmsr(struct msr_param *m)
+static void cat_wrmsr(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
@@ -596,10 +596,10 @@ int resctrl_arch_control_mode_set(struct rdt_resource *r,
 		for_each_resource_ctrl(ctrl, r) {
 			if (ctrl->name == RESCTRL_CTRL_NAME_DEF) {
 				hw_ctrl = resctrl_to_arch_ctrl(ctrl);
-				hw_ctrl->msr_update = update_temporary_legacy_MB;
+				hw_ctrl->hw_update = update_temporary_legacy_MB;
 				list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
 					hw_ctrl = resctrl_to_arch_ctrl(em_ctrl);
-					hw_ctrl->msr_update = NULL;
+					hw_ctrl->hw_update = NULL;
 				}
 			}
 		}
@@ -607,13 +607,13 @@ int resctrl_arch_control_mode_set(struct rdt_resource *r,
 		for_each_resource_ctrl(ctrl, r) {
 			if (ctrl->name == RESCTRL_CTRL_NAME_DEF) {
 				hw_ctrl = resctrl_to_arch_ctrl(ctrl);
-				hw_ctrl->msr_update = NULL;
+				hw_ctrl->hw_update = NULL;
 				list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
 					hw_ctrl = resctrl_to_arch_ctrl(em_ctrl);
 					if (em_ctrl->name == RESCTRL_CTRL_NAME_REGION0_MIN)
-						hw_ctrl->msr_update = update_temporary_region_min;
+						hw_ctrl->hw_update = update_temporary_region_min;
 					else
-						hw_ctrl->msr_update = update_temporary_region_max;
+						hw_ctrl->hw_update = update_temporary_region_max;
 				}
 			}
 		}
@@ -629,10 +629,10 @@ u32 resctrl_arch_get_num_closid(struct rdt_resource *r)
 void rdt_ctrl_update(void *arg)
 {
 	struct resctrl_hw_ctrl *hw_ctrl;
-	struct msr_param *m = arg;
+	struct hw_param *m = arg;
 
 	hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
-	hw_ctrl->msr_update(m);
+	hw_ctrl->hw_update(m);
 }
 
 static void setup_default_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
@@ -667,7 +667,7 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(ctrl);
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
-	struct msr_param m;
+	struct hw_param m;
 	u32 *dc;
 
 	dc = kmalloc_array(hw_res->num_closid, sizeof(*hw_dom->ctrl_val),
@@ -679,13 +679,13 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 	setup_default_ctrlval(r, ctrl, dc);
 
 	/* Only update underlying hardware if control is not emulated. */
-	if (hw_ctrl->msr_update) {
+	if (hw_ctrl->hw_update) {
 		m.res = r;
 		m.ctrl = ctrl;
 		m.dom = d;
 		m.low = 0;
 		m.high = hw_res->num_closid;
-		hw_ctrl->msr_update(&m);
+		hw_ctrl->hw_update(&m);
 	}
 	return 0;
 }
