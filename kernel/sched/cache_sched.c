@@ -60,6 +60,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->next_scan = jiffies;
 	grp->nr_running_avg = 0;
 	grp->footprint = 0;
+	grp->enabled = 1;
 	refcount_set(&grp->refcnt, 1);
 	/*
 	 * The update to grp->pcpu_sched should not be reordered
@@ -244,6 +245,20 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 	}
 
 	switch (arg2) {
+	case PR_SCHED_CACHE_DISABLE:
+	case PR_SCHED_CACHE_ENABLE:
+		/*
+		 * Setting a single task is OK, because the sched_cache_group is
+		 * shared by multiple tasks, setting one equals to setting all.
+		 */
+		grp = task_cache_group_get(dst);
+		if (!grp) {
+			err = -ENOENT;
+			goto out_task;
+		}
+		WRITE_ONCE(grp->enabled, arg2 == PR_SCHED_CACHE_ENABLE);
+
+		goto out_group;
 	case PR_SCHED_CACHE_GET: {
 		unsigned long id = 0;
 
