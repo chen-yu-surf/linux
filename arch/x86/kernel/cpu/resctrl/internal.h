@@ -127,12 +127,16 @@ struct hw_param {
  * @emulate_val:Function pointer to return control value matching the
  *		provided legacy control value. Set if this is a control
  *		used to emulate a legacy control.
+ * @any_cpu:	True if @hw_update can be called from any CPU. Set when the
+ *		control does not live in domain local register space, for
+ *		example an MMIO based control.
  */
 struct resctrl_hw_ctrl {
 	struct resctrl_ctrl	r_ctrl;
 	unsigned int		msr_base;
 	void			(*hw_update)(struct hw_param *m);
 	u32			(*emulate_val)(u32 legacy_val);
+	bool			any_cpu;
 };
 
 static inline struct resctrl_hw_ctrl *resctrl_to_arch_ctrl(struct resctrl_ctrl *c)
