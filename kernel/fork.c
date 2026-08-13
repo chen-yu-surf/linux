@@ -1601,15 +1601,25 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 	tsk->active_mm = mm;
 #ifdef CONFIG_SCHED_CACHE
 	{
-		struct sched_cache_group *grp = mm->sched_cache_grp;
+		struct sched_cache_group *grp;
 
 		/*
-		 * A task holds its own reference on the group, separate from
-		 * the reference held by its mm_struct. Acquire it before
-		 * publishing the pointer.
+		 * For CLONE_VM (threads): inherit parent's sched_cache_grp, which
+		 * may be a cookie-based group different from mm->sched_cache_grp.
+		 * For new processes (own mm): use the new mm's group.
 		 */
-		if (grp)
-			sched_cache_group_get(grp);
+		if (clone_flags & CLONE_VM) {
+			grp = task_cache_group_get(current);
+		} else {
+			/*
+			 * A task holds its own reference on the group, separate from
+			 * the reference held by its mm_struct. Acquire it before
+			 * publishing the pointer.
+			 */
+			grp = mm->sched_cache_grp;
+			if (grp)
+				sched_cache_group_get(grp);
+		}
 
 		rcu_assign_pointer(tsk->sched_cache_grp, grp);
 	}
