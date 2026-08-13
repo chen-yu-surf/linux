@@ -1601,13 +1601,28 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 	tsk->active_mm = mm;
 #ifdef CONFIG_SCHED_CACHE
 	{
+		struct sched_cache_group *grp;
+
 		/*
-		 * A task holds its own reference on the group, separate from
-		 * the reference held by its mm_struct. Acquire it before
-		 * publishing the pointer.
+		 * For CLONE_VM (threads): inherit the parent's
+		 * sched_cache_grp, which may be a cookie-based group different
+		 * from mm->sched_cache_grp. For kernel thread, don't assign
+		 * it a sched cache group.
+		 *
+		 * For new processes (own mm): use the new mm's group. The mm
+		 * has just been created and is not visible to anyone else, so
+		 * there is no race against a concurrent writer and the mm's
+		 * own reference keeps the group alive. Take the refcount
+		 * directly, without RCU.
 		 */
-		struct sched_cache_group *grp =
-			sched_cache_group_get(mm->sched_cache_grp);
+		if (clone_flags & CLONE_VM) {
+			if (tsk->flags & PF_KTHREAD)
+				grp = NULL;
+			else
+				grp = task_cache_group_get(current);
+		} else {
+			grp = sched_cache_group_get(mm->sched_cache_grp);
+		}
 
 		rcu_assign_pointer(tsk->sched_cache_grp, grp);
 	}

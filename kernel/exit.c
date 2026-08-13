@@ -592,10 +592,17 @@ static void exit_mm(void)
 
 #ifdef CONFIG_SCHED_CACHE
 	{
-		struct sched_cache_group *grp =
-			rcu_dereference_protected(current->sched_cache_grp, true);
+		struct sched_cache_group *grp;
+		unsigned long flags;
 
-		rcu_assign_pointer(current->sched_cache_grp, NULL);
+		/*
+		 * pi_lock serializes the clear against a concurrent
+		 * prctl(PR_SCHED_CACHE) writer targeting this task, so the
+		 * reference is dropped exactly once.
+		 */
+		raw_spin_lock_irqsave(&current->pi_lock, flags);
+		grp = sched_cache_grp_replace(current, NULL);
+		raw_spin_unlock_irqrestore(&current->pi_lock, flags);
 
 		if (grp)
 			sched_cache_group_put(grp);
