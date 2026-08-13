@@ -1484,7 +1484,13 @@ static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 {
 	int scale;
 
-	if (get_nr_threads(p) <= 1)
+	/*
+	 * Single threaded process that is not grouped with other threads
+	 * do not need cache aware scheduling.
+	 * A single-threaded process has a refcount of 2: from the mm and task
+	 * respectively.
+	 */
+	if (refcount_read(&grp->refcnt) <= 2 && get_nr_threads(p) <= 1)
 		return true;
 
 	/*
