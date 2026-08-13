@@ -60,7 +60,10 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->next_scan = jiffies;
 	grp->nr_running_avg = 0;
 	grp->footprint = 0;
-	grp->disabled = 0;
+	if (static_branch_unlikely(&sched_cache_adv))
+		grp->disabled = 1;
+	else
+		grp->disabled = 0;
 	refcount_set(&grp->refcnt, 1);
 	/*
 	 * The update to grp->pcpu_sched should not be reordered
