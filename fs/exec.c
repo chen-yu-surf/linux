@@ -882,16 +882,27 @@ static int exec_mmap(struct linux_binprm *bprm)
 	tsk->mm = mm;
 #ifdef CONFIG_SCHED_CACHE
 	{
-		struct sched_cache_group *old_grp, *new_grp;
+		struct sched_cache_group *old_grp, *new_grp = mm->sched_cache_grp;
 
-		old_grp = rcu_dereference_protected(tsk->sched_cache_grp, true);
-		new_grp = mm->sched_cache_grp;
-
-		/* Acquire the reference before publishing the pointer. */
+		/*
+		 * Acquire the reference before publishing the pointer: once
+		 * tsk->sched_cache_grp is visible, a concurrent
+		 * prctl(PR_SCHED_CACHE) writer may pick the group up as its
+		 * old_grp and drop a reference we have not taken yet.
+		 *
+		 * pi_lock serializes the exchange against such a writer. IRQs
+		 * are already disabled here, so a plain raw_spin_lock()
+		 * suffices.
+		 */
 		if (new_grp)
 			sched_cache_group_get(new_grp);
 
+		raw_spin_lock(&tsk->pi_lock);
+		old_grp = rcu_dereference_protected(tsk->sched_cache_grp,
+						    lockdep_is_held(&tsk->pi_lock));
 		rcu_assign_pointer(tsk->sched_cache_grp, new_grp);
+		raw_spin_unlock(&tsk->pi_lock);
+
 		if (old_grp)
 			sched_cache_group_put(old_grp);
 	}
