@@ -2405,6 +2405,8 @@ struct sched_cache_group {
 
 void sched_cache_group_put(struct sched_cache_group *grp);
 struct sched_cache_group *sched_cache_group_get(struct sched_cache_group *grp);
+struct sched_cache_group *
+sched_cache_alloc_group(struct sched_cache_time __percpu *pcpu_sched);
 
 #else
 
