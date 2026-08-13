@@ -1531,7 +1531,13 @@ static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 {
 	int scale;
 
-	if (get_nr_threads(p) <= 1)
+	/*
+	 * Single threaded process that is not grouped with other threads
+	 * do not need cache aware scheduling.
+	 * A single-threaded process has a refcount of 2: from the mm and task
+	 * respectively.
+	 */
+	if (refcount_read(&grp->refcnt) <= 2 && get_nr_threads(p) <= 1)
 		return true;
 
 	/*
@@ -1678,7 +1684,7 @@ static void sched_cache_group_free_rcu(struct rcu_head *rcu)
 	kfree(grp);
 }
 
-static void sched_cache_group_put(struct sched_cache_group *grp)
+void sched_cache_group_put(struct sched_cache_group *grp)
 {
 	if (!grp || !refcount_dec_and_test(&grp->refcnt))
 		return;
@@ -1689,15 +1695,22 @@ static void sched_cache_group_put(struct sched_cache_group *grp)
 DEFINE_FREE(sched_cache_group_put, struct sched_cache_group *,
 	    sched_cache_group_put(_T));
 
-#define rcu_deref_sched_cache_grp(tsk) \
-	rcu_dereference_check((tsk)->sched_cache_grp, (tsk) == current)
-
-static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
-							 struct sched_cache_group *new)
+/*
+ * Swap a task's cache group pointer and return the previous one.
+ *
+ * p->pi_lock serializes the exchange against concurrent writers
+ * (prctl(PR_SCHED_CACHE) callers as well as exec_mmap()/exit_mm()).
+ * Without it two writers could fetch the same old pointer and each drop
+ * a reference, over-decrementing the refcount.
+ */
+struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
+						  struct sched_cache_group *new)
 {
 	struct sched_cache_group *old;
 
-	old = rcu_deref_sched_cache_grp(p);
+	lockdep_assert_held(&p->pi_lock);
+	old = rcu_dereference_protected(p->sched_cache_grp,
+					lockdep_is_held(&p->pi_lock));
 	rcu_assign_pointer(p->sched_cache_grp, new);
 
 	return old;
@@ -1724,13 +1737,32 @@ struct sched_cache_group *task_cache_group_get(struct task_struct *p)
 
 void sched_cache_fork(struct task_struct *p)
 {
+	struct sched_cache_group *grp;
+
 	/*
-	 * The child takes its own reference on the mm's cache group, separate
-	 * from the reference held by the mm. @p is not yet visible to readers,
-	 * so a plain initializing store is enough.
+	 * For CLONE_VM (threads): inherit the parent's sched_cache_grp, which
+	 * may be a cookie-based group different from mm->sched_cache_grp. For
+	 * kernel thread, don't assign it a sched cache group.
+	 *
+	 * For new processes (own mm): use the new mm's group. The mm has just
+	 * been created and is not visible to anyone else, so there is no race
+	 * against a concurrent writer and the mm's own reference keeps the
+	 * group alive. Take the refcount directly, without RCU.
+	 *
+	 * Either way the child takes its own reference, separate from the
+	 * reference held by the mm. @p is not yet visible to readers, so a
+	 * plain initializing store is enough.
 	 */
-	RCU_INIT_POINTER(p->sched_cache_grp,
-			 sched_cache_group_get(p->mm->sched_cache_grp));
+	if (p->mm == current->mm) {
+		if (p->flags & PF_KTHREAD)
+			grp = NULL;
+		else
+			grp = task_cache_group_get(current);
+	} else {
+		grp = sched_cache_group_get(p->mm->sched_cache_grp);
+	}
+
+	RCU_INIT_POINTER(p->sched_cache_grp, grp);
 }
 
 void sched_cache_fork_cleanup(struct task_struct *p)
@@ -1746,19 +1778,38 @@ void sched_cache_fork_cleanup(struct task_struct *p)
 
 void sched_cache_exec_mmap(struct task_struct *p, struct mm_struct *mm)
 {
-	struct sched_cache_group *old;
+	struct sched_cache_group *old, *new;
 
 	/*
-	 * Acquire the new reference before publishing the pointer, then drop
-	 * the old one. @p is current and the only writer of its own pointer.
+	 * Acquire the new reference before publishing the pointer: once
+	 * p->sched_cache_grp is visible, a concurrent prctl(PR_SCHED_CACHE)
+	 * writer may pick the group up as its old group and drop a reference
+	 * we have not taken yet.
+	 *
+	 * IRQs are already disabled here, so a plain raw_spin_lock() on
+	 * pi_lock suffices.
 	 */
-	old = sched_cache_replace_grp(p, sched_cache_group_get(mm->sched_cache_grp));
+	new = sched_cache_group_get(mm->sched_cache_grp);
+
+	raw_spin_lock(&p->pi_lock);
+	old = sched_cache_replace_grp(p, new);
+	raw_spin_unlock(&p->pi_lock);
+
 	sched_cache_group_put(old);
 }
 
 void sched_cache_exit_mm(struct task_struct *p)
 {
-	struct sched_cache_group *grp = sched_cache_replace_grp(p, NULL);
+	struct sched_cache_group *grp;
+	unsigned long flags;
+
+	/*
+	 * pi_lock serializes the clear against a concurrent prctl(PR_SCHED_CACHE)
+	 * writer targeting this task, so the reference is dropped exactly once.
+	 */
+	raw_spin_lock_irqsave(&p->pi_lock, flags);
+	grp = sched_cache_replace_grp(p, NULL);
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 
 #ifdef CONFIG_NUMA_BALANCING
 	/*
