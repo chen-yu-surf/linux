@@ -245,6 +245,20 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 	}
 
 	switch (arg2) {
+	case PR_SCHED_CACHE_DISABLE:
+	case PR_SCHED_CACHE_ENABLE:
+		/*
+		 * Setting a single task is OK, because the sched_cache_group is
+		 * shared by multiple tasks, setting one equals to setting all.
+		 */
+		grp = task_cache_group_get(dst);
+		if (!grp) {
+			err = -ENOENT;
+			goto out_task;
+		}
+		WRITE_ONCE(grp->disabled, arg2 == PR_SCHED_CACHE_DISABLE);
+
+		goto out_group;
 	case PR_SCHED_CACHE_GET: {
 		unsigned long id = 0;
 
