@@ -211,19 +211,46 @@ static const struct file_operations sched_scaling_fops = {
 };
 
 #ifdef CONFIG_SCHED_CACHE
+
+static const char * const sc_modes_names[] = {
+	[SC_ENABLED_ALWAYS] = "always",
+	[SC_ENABLED_ADVISE] = "advise",
+	[SC_ENABLED_NEVER] = "never",
+};
+
+static int sched_cache_set_mode(const char *str)
+{
+	int mode;
+
+	mode = match_string(sc_modes_names, ARRAY_SIZE(sc_modes_names), str);
+	if (mode < 0)
+		return mode;
+
+	WRITE_ONCE(sysctl_sched_cache_mode, mode);
+
+	return 0;
+}
+
 static ssize_t
 sched_cache_enable_write(struct file *filp, const char __user *ubuf,
 			 size_t cnt, loff_t *ppos)
 {
-	bool val;
+	char buf[16];
 	int ret;
 
-	ret = kstrtobool_from_user(ubuf, cnt, &val);
-	if (ret)
+	if (cnt > sizeof(buf) - 1)
+		cnt = sizeof(buf) - 1;
+
+	if (copy_from_user(buf, ubuf, cnt))
+		return -EFAULT;
+
+	buf[cnt] = 0;
+	/* 1. parse user provide mode */
+	ret = sched_cache_set_mode(strstrip(buf));
+	if (ret < 0)
 		return ret;
 
-	sysctl_sched_cache_user = val;
-
+	/* 2. adjust the static keys */
 	sched_cache_active_set();
 
 	*ppos += cnt;
@@ -233,7 +260,17 @@ sched_cache_enable_write(struct file *filp, const char __user *ubuf,
 
 static int sched_cache_enable_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, "%d\n", sysctl_sched_cache_user);
+	int mode = READ_ONCE(sysctl_sched_cache_mode);
+	int i;
+
+	for (i = 0; i < SC_ENABLED_NR; i++) {
+		if (i == mode)
+			seq_printf(m, "[%s] ", sc_modes_names[i]);
+		else
+			seq_printf(m, "%s ", sc_modes_names[i]);
+	}
+	seq_puts(m, "\n");
+
 	return 0;
 }
 
