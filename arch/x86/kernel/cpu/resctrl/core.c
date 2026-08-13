@@ -219,8 +219,6 @@ static __init bool __temporary_multiple_mba_intel_controls(struct rdt_resource *
 	case RESCTRL_CTRL_NAME_MAX:
 		hw_ctrl->hw_update = update_temporary_max;
 		break;
-	default:
-		return false;
 	}
 
 	return true;
