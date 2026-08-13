@@ -2401,6 +2401,7 @@ struct sched_cache_group {
 	int cpu;
 	/* the group's membership is managed by prctl(PR_SCHED_CACHE) */
 	int user_set;
+	int disabled;
 	refcount_t refcnt;
 	struct rcu_head rcu;
 } ____cacheline_aligned_in_smp;
