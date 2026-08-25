@@ -295,7 +295,7 @@ struct erdt_domain_info *erdt_find_domain_info(int cpu)
 	return NULL;
 }
 
-static void marc_hw_update(struct hw_param *m)
+void erdt_marc_hw_update(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
@@ -411,7 +411,7 @@ __init bool erdt_get_mem_config(struct rdt_resource *r)
 			hw_ctrl->r_ctrl.scalar.scale = 1;
 			hw_ctrl->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
 
-			hw_ctrl->hw_update = marc_hw_update;
+			hw_ctrl->hw_update = erdt_marc_hw_update;
 			/* MARC controls live in MMIO, program from any CPU. */
 			hw_ctrl->any_cpu = true;
 			list_add_tail(&hw_ctrl->r_ctrl.entry,
@@ -465,8 +465,12 @@ static void region_aware_enable(void __iomem *addr, bool enable)
 /*
  * Region-aware MBM and MBA must be enabled or disabled together and
  * consistently across all RMDDs, so switch every domain at once.
+ *
+ * The ERDT domains are enumerated during boot and the list is read-only
+ * afterwards, so no additional serialization is needed here. Callers are
+ * responsible for serializing the read-modify-write of RDT_CTRL.
  */
-static void region_aware_enable_all(bool enable)
+void erdt_region_aware_enable_all(bool enable)
 {
 	struct erdt_domain_info *d;
 
@@ -946,7 +950,7 @@ static __init int enumerate_erdt_table(struct acpi_table_header *table_hdr)
 	if (list_empty(&domain_info_list))
 		goto cleanup;
 
-	region_aware_enable_all(true);
+	erdt_region_aware_enable_all(true);
 
 	erdt_max_clos = erdt->max_clos;
 	erdt_enabled = true;
