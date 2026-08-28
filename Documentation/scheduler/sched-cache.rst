@@ -50,15 +50,15 @@ with ``option`` set to ``PR_SCHED_CACHE``. The remaining arguments are:
     The task the operation applies to. ``0`` means the calling task.
 
 ``arg4``
-    Only used by ``PR_SCHED_CACHE_GET`` (output pointer) and
-    ``PR_SCHED_CACHE_SHARE_FROM`` (source pid). Must be ``0`` for every
-    other sub-operation.
+    Only used by ``PR_SCHED_CACHE_GET`` and ``PR_SCHED_CACHE_GET_ENABLED``
+    (output pointer) and ``PR_SCHED_CACHE_SHARE_FROM`` (source pid). Must be
+    ``0`` for every other sub-operation.
 
 ``pid_type``
     One of ``PIDTYPE_PID``, ``PIDTYPE_TGID`` or ``PIDTYPE_PGID`` (0, 1, 2).
     It selects whether the operation affects just the named thread, its whole
-    thread group, or its process group. ``PR_SCHED_CACHE_GET`` requires
-    ``PIDTYPE_PID``.
+    thread group, or its process group. ``PR_SCHED_CACHE_GET`` and
+    ``PR_SCHED_CACHE_GET_ENABLED`` require ``PIDTYPE_PID``.
 
 The cache group itself is a kernel object. User space never invents or
 passes a group id; it only names tasks by pid and asks the kernel to create
@@ -90,6 +90,16 @@ Sub-operations
     the flag lives on the (shared) group, changing it for one member changes
     it for every task in the group.
 
+``PR_SCHED_CACHE_GET_ENABLED``
+    Read back the flag set by the two sub-operations above. ``arg4`` is a
+    ``__u64 __user *`` that must be non-NULL and 8-byte aligned; the kernel
+    writes 1 if the target's cache group is opted in and 0 if it is opted
+    out. ``pid_type`` must be ``PIDTYPE_PID``.
+
+    Note that this reports the per-group flag only, not whether aggregation
+    is actually in effect: in the ``always`` and ``never`` system-wide modes
+    the flag is ignored (see below).
+
 Permissions
 -----------
 
@@ -109,9 +119,9 @@ Returns 0 on success. On error one of:
 
 ``-EINVAL``
     Unknown sub-operation, out-of-range ``pid``/``pid_type``, ``arg4`` given
-    for a sub-operation that does not take one, misaligned ``GET`` pointer,
-    ``GET`` with a ``pid_type`` other than ``PIDTYPE_PID``, or the target is
-    a kernel thread.
+    for a sub-operation that does not take one, misaligned ``GET`` or
+    ``GET_ENABLED`` pointer, ``GET`` or ``GET_ENABLED`` with a ``pid_type``
+    other than ``PIDTYPE_PID``, or the target is a kernel thread.
 
 ``-ESRCH``
     The target (or, for ``SHARE_FROM``, the source) task does not exist.
@@ -120,14 +130,14 @@ Returns 0 on success. On error one of:
     The caller is not allowed to access the target (or source) task.
 
 ``-ENOENT``
-    The source task (``SHARE_FROM``) or target task (``DISABLE``/``ENABLE``)
-    has no cache group.
+    The source task (``SHARE_FROM``) or target task
+    (``DISABLE``/``ENABLE``/``GET_ENABLED``) has no cache group.
 
 ``-ENOMEM``
     ``CREATE`` could not allocate a new group.
 
 ``-EFAULT``
-    ``GET`` could not write to the ``arg4`` pointer.
+    ``GET`` or ``GET_ENABLED`` could not write to the ``arg4`` pointer.
 
 Interaction with the system-wide policy
 =======================================

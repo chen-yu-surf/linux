@@ -423,6 +423,7 @@ struct prctl_mm_map {
 # define PR_SCHED_CACHE_SHARE_FROM	2
 # define PR_SCHED_CACHE_DISABLE		3
 # define PR_SCHED_CACHE_ENABLE		4
-# define PR_SCHED_CACHE_MAX		5
+# define PR_SCHED_CACHE_GET_ENABLED	5
+# define PR_SCHED_CACHE_MAX		6
 
 #endif /* _LINUX_PRCTL_H */

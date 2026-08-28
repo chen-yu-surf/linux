@@ -191,8 +191,9 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 	    arg5 > PIDTYPE_PGID)
 		return -EINVAL;
 
-	/* only GET and SHARE_FROM take a 4th argument */
+	/* only GET, GET_ENABLED and SHARE_FROM take a 4th argument */
 	if (arg4 && arg2 != PR_SCHED_CACHE_GET &&
+	    arg2 != PR_SCHED_CACHE_GET_ENABLED &&
 	    arg2 != PR_SCHED_CACHE_SHARE_FROM)
 		return -EINVAL;
 
@@ -225,6 +226,27 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 		WRITE_ONCE(grp->enabled, arg2 == PR_SCHED_CACHE_ENABLE);
 
 		goto out_group;
+
+	case PR_SCHED_CACHE_GET_ENABLED: {
+		int enabled;
+
+		if (type != PIDTYPE_PID || arg4 & 7) {
+			err = -EINVAL;
+			goto out_task;
+		}
+
+		grp = task_cache_group_get(dst);
+		if (!grp) {
+			err = -ENOENT;
+			goto out_task;
+		}
+
+		enabled = READ_ONCE(grp->enabled);
+		err = put_user((u64)enabled, (u64 __user *)arg4);
+
+		goto out_group;
+	}
+
 	case PR_SCHED_CACHE_GET: {
 		unsigned long id = 0;
 
