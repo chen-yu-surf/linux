@@ -144,8 +144,7 @@ static void __sched_cache_set(struct task_struct *p,
 	 */
 	if (p->flags & PF_EXITING) {
 		raw_spin_unlock_irqrestore(&p->pi_lock, flags);
-		if (grp)
-			sched_cache_group_put(grp);
+		sched_cache_group_put(grp);
 		return;
 	}
 
@@ -155,8 +154,7 @@ static void __sched_cache_set(struct task_struct *p,
 	/* Carry this task's footprint estimate to the group it just joined. */
 	sched_cache_xfer_footprint(p, old_grp, grp);
 
-	if (old_grp)
-		sched_cache_group_put(old_grp);
+	sched_cache_group_put(old_grp);
 }
 
 static struct task_struct *sched_cache_find_get_task(unsigned long vpid)
