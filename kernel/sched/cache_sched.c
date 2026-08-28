@@ -237,8 +237,7 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 		if (grp)
 			ptr_to_hashval((void *)grp, &id);
 
-		if (arg4)
-			err = put_user((u64)id, (u64 __user *)arg4);
+		err = put_user((u64)id, (u64 __user *)arg4);
 
 		goto out_group;
 	}

@@ -71,9 +71,9 @@ Sub-operations
 
 ``PR_SCHED_CACHE_GET``
     Read back the cache group id of ``pid``. ``arg4`` is a
-    ``__u64 __user *`` that must be 8-byte aligned; the kernel writes an
-    obfuscated hash of the task's cache group there (0 if the task currently
-    has no group). ``pid_type`` must be ``PIDTYPE_PID``.
+    ``__u64 __user *`` that must be non-NULL and 8-byte aligned; the kernel
+    writes an obfuscated hash of the task's cache group there (0 if the task
+    currently has no group). ``pid_type`` must be ``PIDTYPE_PID``.
 
 ``PR_SCHED_CACHE_CREATE``
     Allocate a fresh cache group and install it on the target task(s). This
