@@ -24,10 +24,12 @@
 /*
  * Index into erdt_domain_info::base[] for each MMIO region.
  * @ERDT_MMIO_RMDD_CREG: RMDD control register base address
+ * @ERDT_MMIO_CMRC_BASE: CMRC monitoring register base address
  */
 enum erdt_mmio_type {
 	ERDT_MMIO_RMDD_CREG,
-	ERDT_MMIO_LAST = ERDT_MMIO_RMDD_CREG
+	ERDT_MMIO_CMRC_BASE,
+	ERDT_MMIO_LAST = ERDT_MMIO_CMRC_BASE
 };
 
 #define ERDT_MMIO_NUM_TYPES	(ERDT_MMIO_LAST + 1)
@@ -35,12 +37,14 @@ enum erdt_mmio_type {
 /**
  * struct erdt_domain_info - Per-domain ERDT information
  * @base:	Array of ioremapped MMIO region base addresses, indexed by ERDT_MMIO_*
+ * @cmrc:	Copy of the ACPI CMRC sub-table for this domain
  * @cpu_mask:	CPUs belonging to this resource management domain
  * @dom_id:	L3 cache ID shared by all CPUs in this domain (-1 if unset)
  * @entry:	Links into the global domain_info_list
  */
 struct erdt_domain_info {
 	void __iomem		*base[ERDT_MMIO_NUM_TYPES];
+	struct acpi_erdt_cmrc	*cmrc;
 	struct cpumask		cpu_mask;
 	int			dom_id;
 	struct list_head	entry;
