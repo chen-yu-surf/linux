@@ -333,6 +333,15 @@ static inline void freq_invariance_set_perf_ratio(u64 ratio, bool turbo_disabled
 extern void arch_scale_freq_tick(void);
 #define arch_scale_freq_tick arch_scale_freq_tick
 
+#include <asm/cpufeature.h>
+
+static inline bool arch_is_hybrid(void)
+{
+	return cpu_feature_enabled(X86_FEATURE_HYBRID_CPU) ||
+	       cpu_feature_enabled(X86_FEATURE_AMD_HTR_CORES);
+}
+#define arch_is_hybrid arch_is_hybrid
+
 extern int arch_sched_node_distance(int from, int to);
 
 #endif /* _ASM_X86_TOPOLOGY_H */

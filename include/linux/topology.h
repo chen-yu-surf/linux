@@ -36,6 +36,10 @@
 #include <linux/percpu.h>
 #include <asm/topology.h>
 
+#ifndef arch_is_hybrid
+static inline bool arch_is_hybrid(void) { return false; }
+#endif
+
 #ifndef nr_cpus_node
 #define nr_cpus_node(node) cpumask_weight(cpumask_of_node(node))
 #endif
