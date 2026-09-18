@@ -97,12 +97,14 @@ struct rdt_hw_ctrl_domain {
  * @arch_mbm_states:	Per-event pointer to the MBM event's saved state.
  *			An MBM event's state is an array of struct arch_mbm_state
  *			indexed by RMID on x86.
+ * @d_info:		ERDT table information of this domain
  *
  * Members of this structure are accessed via helpers that provide abstraction.
  */
 struct rdt_hw_l3_mon_domain {
 	struct rdt_l3_mon_domain	d_resctrl;
 	struct arch_mbm_state		*arch_mbm_states[QOS_NUM_L3_MBM_EVENTS];
+	const struct erdt_domain_info	*d_info;
 };
 
 static inline struct rdt_hw_ctrl_domain *resctrl_to_arch_ctrl_dom(struct rdt_ctrl_domain *r)
@@ -281,5 +283,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 unsigned int erdt_get_max_rmid(void);
 void erdt_init(void);
 void erdt_exit(void);
+bool erdt_try_bind_cpu(int cpu);
+void erdt_l3_mon_domain_setup(struct rdt_domain_hdr *hdr);
 
 #endif /* _ASM_X86_RESCTRL_INTERNAL_H */

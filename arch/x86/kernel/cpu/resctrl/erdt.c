@@ -204,6 +204,115 @@ cleanup:
 	return false;
 }
 
+/*
+ * erdt_try_bind_cpu() - Validate @cpu's L3 domain against ERDT and bind the
+ * ERDT domain containing @cpu to that L3 domain.
+ *
+ * Find the erdt_domain_info whose CACD lists @cpu, then bind that ERDT domain
+ * to @cpu's L3 id. A CPU whose L3 id does not match the binding of its ERDT
+ * domain cannot be covered by resctrl.
+ *
+ * For example, the CACD sub-tables report:
+ * domain0: CPU0, CPU2, domain1: CPU1, CPU3
+ * while CPUID/cacheinfo reports the L3 cache is shared by:
+ * id0: CPU0, CPU1, id1: CPU2, CPU3
+ * With the CPUs coming online in order:
+ * - CPU0 binds domain0 to L3 id0.
+ * - CPU1 is in the unbound domain1, but L3 id0 is already bound to domain0,
+ *   so CPU1 is not covered by resctrl.
+ * - CPU2 is in domain0, which is bound to L3 id0 rather than CPU2's L3 id1,
+ *   so CPU2 is not covered by resctrl.
+ * - CPU3 binds domain1 to L3 id1.
+ *
+ * Return: true if @cpu can be covered by resctrl, false otherwise.
+ */
+bool erdt_try_bind_cpu(int cpu)
+{
+	struct erdt_domain_info *d, *cpu_dom = NULL;
+	int dom_id;
+
+	/* Without ERDT there is no firmware topology to disagree with. */
+	if (!erdt_enabled)
+		return true;
+
+	dom_id = get_cpu_cacheinfo_id(cpu, RESCTRL_L3_CACHE);
+	if (dom_id < 0) {
+		pr_warn_once(FW_BUG "Can't find L3 id for CPU:%d\n", cpu);
+		return false;
+	}
+
+	list_for_each_entry(d, &domain_info_list, entry) {
+		if (cpumask_test_cpu(cpu, &d->cpu_mask)) {
+			cpu_dom = d;
+			break;
+		}
+	}
+
+	if (!cpu_dom) {
+		pr_warn_once(FW_BUG "Cannot find the ERDT domain which has CPU%d\n", cpu);
+		return false;
+	}
+
+	/* This ERDT domain is already bound to this CPU's L3 domain. */
+	if (cpu_dom->dom_id == dom_id)
+		return true;
+
+	/*
+	 * This ERDT domain is already bound to a different L3 domain. Rebinding it
+	 * would leave two L3 domains reading the counters of one ERDT domain, so
+	 * skip @cpu instead (CPU2 in the example above).
+	 */
+	if (cpu_dom->dom_id != ERDT_DOMAIN_ID_UNSET) {
+		pr_warn_once(FW_BUG "CPU%d's id=%d not equal to CACD domain(%*pbl) id=%d, skip this CPU\n",
+			     cpu, dom_id, cpumask_pr_args(&cpu_dom->cpu_mask), cpu_dom->dom_id);
+
+		return false;
+	}
+
+	/*
+	 * A possible new binding. Check if another ERDT domain shares the same
+	 * L3 id. If yes, this is a conflict and @cpu should not be considered
+	 * by resctrl (CPU1 in the example above).
+	 */
+	list_for_each_entry(d, &domain_info_list, entry) {
+		if (d == cpu_dom)
+			continue;
+
+		if (d->dom_id == dom_id) {
+			pr_warn_once(FW_BUG "CPU%d's id=%d is already used by CACD domain(%*pbl), skip this CPU\n",
+				     cpu, dom_id, cpumask_pr_args(&d->cpu_mask));
+
+			return false;
+		}
+	}
+
+	/* Eligible new binding, assign the L3 id. */
+	cpu_dom->dom_id = dom_id;
+
+	return true;
+}
+
+/*
+ * Associate ERDT table information with this domain.
+ */
+void erdt_l3_mon_domain_setup(struct rdt_domain_hdr *hdr)
+{
+	struct rdt_hw_l3_mon_domain *hw_dom;
+	struct erdt_domain_info *d;
+
+	if (!erdt_enabled)
+		return;
+
+	hw_dom = resctrl_to_arch_mon_dom(container_of(hdr, struct rdt_l3_mon_domain, hdr));
+
+	list_for_each_entry(d, &domain_info_list, entry) {
+		if (d->dom_id == hdr->id) {
+			hw_dom->d_info = d;
+			return;
+		}
+	}
+}
+
 void erdt_exit(void)
 {
 	struct erdt_domain_info *d, *tmp;

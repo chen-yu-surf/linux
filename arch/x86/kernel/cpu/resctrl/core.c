@@ -33,6 +33,8 @@
  * The rdt_resource's domain list is updated when this happens. Readers of
  * the domain list must either take cpus_read_lock(), or rely on an RCU
  * read-side critical section, to avoid observing concurrent modification.
+ * This mutex also protects the ERDT domain_info_list, which is modified when a
+ * CPU comes online.
  * All writers take this mutex:
  */
 static DEFINE_MUTEX(domain_list_lock);
@@ -558,6 +560,8 @@ static void l3_mon_domain_setup(int cpu, int id, struct rdt_resource *r, struct 
 		return;
 	}
 
+	erdt_l3_mon_domain_setup(&d->hdr);
+
 	err = resctrl_online_mon_domain(r, &d->hdr);
 	if (err) {
 		l3_mon_domain_free(hw_dom);
@@ -742,6 +746,17 @@ static int resctrl_arch_online_cpu(unsigned int cpu)
 	struct rdt_resource *r;
 
 	mutex_lock(&domain_list_lock);
+	/*
+	 * A CPU whose ERDT and CPUID L3 domain views disagree is not added to
+	 * any domain. resctrl_arch_offline_cpu() still tries to remove it when
+	 * it goes offline and warns that no domain contains it. That warning is
+	 * expected.
+	 */
+	if (!erdt_try_bind_cpu(cpu)) {
+		mutex_unlock(&domain_list_lock);
+		return 0;
+	}
+
 	for_each_capable_rdt_resource(r)
 		domain_add_cpu(cpu, r);
 	mutex_unlock(&domain_list_lock);
