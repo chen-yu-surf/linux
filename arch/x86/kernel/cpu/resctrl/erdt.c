@@ -23,6 +23,7 @@ static LIST_HEAD(domain_info_list);
 static bool erdt_enabled;
 
 #define ERDT_VALID_REVISION		1
+#define CMRC_SUPPORTED_INDEX_FN		1
 #define RMDD_FLAG_CPU_L3_DOMAIN		BIT(0)
 #define ERDT_DOMAIN_ID_UNSET		-1
 
@@ -88,6 +89,7 @@ static void erdt_iounmap_domain(struct erdt_domain_info *domain)
 static void cleanup_one_domain(struct erdt_domain_info *d)
 {
 	erdt_iounmap_domain(d);
+	kfree(d->cmrc);
 	kfree(d);
 }
 
@@ -117,6 +119,49 @@ static __init bool cacd_init(struct acpi_subtbl_hdr_16 *subtbl,
 
 		cpumask_set_cpu(cpu, &domain_info->cpu_mask);
 	}
+
+	return true;
+}
+
+static __init bool cmrc_init(struct acpi_subtbl_hdr_16 *subtbl,
+			     struct erdt_domain_info *domain_info)
+{
+	struct acpi_erdt_cmrc *cmrc = (struct acpi_erdt_cmrc *)subtbl;
+
+	if (cmrc->header.length < sizeof(*cmrc)) {
+		pr_warn(FW_BUG "Truncated CMRC sub-table\n");
+		return false;
+	}
+
+	if (cmrc->index_fn != CMRC_SUPPORTED_INDEX_FN) {
+		pr_info("Unsupported CMRC index function %u\n", cmrc->index_fn);
+		return false;
+	}
+
+	if (!cmrc->clump_size) {
+		pr_warn(FW_BUG "CMRC clump_size is zero\n");
+		return false;
+	}
+
+	/* resctrl scales monitoring values with an unsigned int. */
+	if (cmrc->up_scale > UINT_MAX) {
+		pr_warn(FW_BUG "Insane CMRC up_scale value 0x%llx\n", cmrc->up_scale);
+		return false;
+	}
+
+	domain_info->base[ERDT_MMIO_CMRC_BASE] =
+		erdt_ioremap(cmrc->cmt_reg_base, cmrc->cmt_reg_size, "CMRC base");
+	if (!domain_info->base[ERDT_MMIO_CMRC_BASE])
+		return false;
+
+	domain_info->cmrc = kmemdup(cmrc, cmrc->header.length, GFP_KERNEL);
+	if (!domain_info->cmrc) {
+		iounmap(domain_info->base[ERDT_MMIO_CMRC_BASE]);
+		domain_info->base[ERDT_MMIO_CMRC_BASE] = NULL;
+		return false;
+	}
+
+	erdt_scale = max(erdt_scale, cmrc->up_scale);
 
 	return true;
 }
@@ -180,6 +225,16 @@ static __init bool parse_rmdd_table(struct acpi_subtbl_hdr_16 *rmdd_hdr)
 				goto cleanup;
 
 			subtbl_mask |= BIT(ACPI_ERDT_TYPE_CACD);
+			break;
+		/* An RMDD table supports at most one CMRC sub-table */
+		case ACPI_ERDT_TYPE_CMRC:
+			if (subtbl_mask & BIT(ACPI_ERDT_TYPE_CMRC))
+				break;
+
+			if (!cmrc_init(subtbl, domain_info))
+				goto cleanup;
+
+			subtbl_mask |= BIT(ACPI_ERDT_TYPE_CMRC);
 			break;
 		default:
 			break;
