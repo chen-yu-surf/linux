@@ -1531,10 +1531,16 @@ static bool exceed_llc_capacity(struct sched_cache_group *grp, int cpu)
 	return false;
 }
 
+static bool llc_nr_fits(struct sched_cache_group *grp, int cpu, int scale)
+{
+	return fits_capacity((READ_ONCE(grp->nr_running_avg) * cpu_smt_num_threads),
+			(scale * per_cpu(sd_llc_size, cpu)));
+}
+
 static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 			   int cpu)
 {
-	int scale;
+	int scale, pref_cpu;
 
 	if (get_nr_threads(p) <= 1)
 		return true;
@@ -1547,8 +1553,14 @@ static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 	if (scale == INT_MAX)
 		return false;
 
-	return !fits_capacity((READ_ONCE(grp->nr_running_avg) * cpu_smt_num_threads),
-			(scale * per_cpu(sd_llc_size, cpu)));
+	if (llc_nr_fits(grp, cpu, scale))
+		return false;
+
+	pref_cpu = READ_ONCE(grp->cpu);
+	if (pref_cpu >= 0 && llc_nr_fits(grp, pref_cpu, scale))
+		return false;
+
+	return true;
 }
 
 /*
