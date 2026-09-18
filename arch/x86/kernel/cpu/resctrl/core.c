@@ -876,9 +876,8 @@ static int __init set_rdt_options(char *str)
 }
 __setup("rdt", set_rdt_options);
 
-bool rdt_cpu_has(int flag)
+static bool apply_rdt_options(int flag, bool ret)
 {
-	bool ret = boot_cpu_has(flag);
 	struct rdt_options *o;
 
 	if (!ret)
@@ -894,6 +893,16 @@ bool rdt_cpu_has(int flag)
 		}
 	}
 	return ret;
+}
+
+bool rdt_cpu_has(int flag)
+{
+	return apply_rdt_options(flag, boot_cpu_has(flag));
+}
+
+bool erdt_cpu_has(int flag)
+{
+	return apply_rdt_options(flag, erdt_support(flag));
 }
 
 bool resctrl_arch_is_evt_configurable(enum resctrl_event_id evt)
