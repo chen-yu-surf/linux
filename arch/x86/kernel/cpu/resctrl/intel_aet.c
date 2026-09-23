@@ -140,17 +140,21 @@ bool intel_handle_aet_option(bool force_off, char *tok)
 	struct event_group **peg;
 	bool ret = false;
 	u32 guid = 0;
+	size_t namelen;
 	char *name;
 
 	if (!tok)
 		return false;
 
-	name = strsep(&tok, ":");
-	if (tok && kstrtou32(tok, 16, &guid))
+	name = tok;
+	tok = strchr(name, ':');
+	namelen = tok ? tok - name : strlen(name);
+	if (tok && kstrtou32(tok + 1, 16, &guid))
 		return false;
 
 	for_each_event_group(peg) {
-		if (strcmp(name, (*peg)->pfname))
+		if (strlen((*peg)->pfname) != namelen ||
+		    strncmp(name, (*peg)->pfname, namelen))
 			continue;
 		if (guid && (*peg)->guid != guid)
 			continue;
