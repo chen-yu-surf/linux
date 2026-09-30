@@ -54,6 +54,74 @@ static u16 first_rmdd_domain_id;
  */
 static unsigned int erdt_max_rmid;
 
+enum {
+	ERDT_FLAG_MBA_3WAY,
+};
+
+struct erdt_option {
+	char	*name;
+	bool	default_on;
+	bool	force_off, force_on;
+};
+
+static struct erdt_option erdt_options[]  __ro_after_init = {
+	[ERDT_FLAG_MBA_3WAY] = { .name = "3waymba", .default_on = true },
+};
+
+#define NUM_ERDT_OPTIONS ARRAY_SIZE(erdt_options)
+#define ERDT_OPTION_KEY "erdt"
+#define ERDT_OPTION_KEY_LEN 4
+
+static bool erdt_option_enabled(int flag)
+{
+	struct erdt_option *o = &erdt_options[flag];
+	bool ret = o->default_on;
+
+	if (o->force_off)
+		ret = false;
+	if (o->force_on)
+		ret = true;
+
+	return ret;
+}
+
+/*
+ * Handle "erdt:<opt>" tokens from the "rdt=" boot option. Returns true if
+ * @tok belongs to the erdt, false otherwise.
+ */
+bool erdt_handle_option(bool force_off, char *tok)
+{
+	struct erdt_option *o;
+	size_t namelen;
+	char *name;
+
+	if (!tok)
+		return false;
+
+	name = tok;
+	tok = strchr(name, ':');
+	namelen = tok ? tok - name : strlen(name);
+	if (namelen != ERDT_OPTION_KEY_LEN ||
+	    strncmp(name, ERDT_OPTION_KEY, ERDT_OPTION_KEY_LEN))
+		return false;
+
+	/* "erdt" without a ":<opt>" suffix enable all the options */
+	if (!tok)
+		return true;
+
+	for (o = erdt_options; o < &erdt_options[NUM_ERDT_OPTIONS]; o++) {
+		if (!strcmp(tok + 1, o->name)) {
+			if (force_off)
+				o->force_off = true;
+			else
+				o->force_on = true;
+			break;
+		}
+	}
+
+	return true;
+}
+
 /*
  * Used only by the limbo handler to round resctrl_rmid_realloc_threshold.
  * resctrl_rmid_realloc_threshold is a single global value, and
@@ -308,14 +376,19 @@ void erdt_marc_hw_update(struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
+	bool no3way = !erdt_option_enabled(ERDT_FLAG_MBA_3WAY);
 	enum resctrl_ctrl_name name = hw_ctrl->r_ctrl.name;
 	struct erdt_domain_info *d = hw_dom->d_info;
+	static const enum erdt_mmio_type sequence[] = {
+		ERDT_MMIO_MARC_MIN, ERDT_MMIO_MARC_OPT, ERDT_MMIO_MARC_MAX,
+	};
 	unsigned int offset, region, type;
-	enum erdt_mmio_type mmio_type;
+	enum erdt_mmio_type mmio_type, t;
 	union marc_bw_ctrl mmio_ctrl;
 	void __iomem *addr;
 	int closid_idx;
-	unsigned int i;
+	unsigned int i, j;
+	bool inc;
 
 	if (!d || !d->marc)
 		return;
@@ -343,9 +416,25 @@ void erdt_marc_hw_update(struct hw_param *m)
 		if (WARN_ON_ONCE(!mmio_ctrl.reg))
 			return;
 
+		inc = hw_dom->ctrl_val[i] > mmio_ctrl.regions[region % 4].val;
 		mmio_ctrl.regions[region % 4].val = hw_dom->ctrl_val[i];
 		d->marc_buf[closid_idx] = mmio_ctrl.reg;
-		writeq(mmio_ctrl.reg, addr);
+
+		if (!no3way) {
+			writeq(mmio_ctrl.reg, addr);
+			continue;
+		}
+
+		/*
+		 * Only the OPT controller is exposed, so keep min == opt == max
+		 * by writing all three, raising max first when the limit grows
+		 * and lowering min first when it shrinks.
+		 */
+		for (j = 0; j < ARRAY_SIZE(sequence); j++) {
+			t = sequence[inc ? ARRAY_SIZE(sequence) - 1 - j : j];
+			if (d->base[t])
+				writeq(mmio_ctrl.reg, d->base[t] + closid_idx * 8);
+		}
 	}
 }
 
@@ -390,9 +479,11 @@ __init bool erdt_get_mem_config(struct rdt_resource *r)
 		for (type = RESCTRL_CTRL_REGION_TYPE_OPT; type < RESCTRL_CTRL_REGION_NR_CTRLS; type++) {
 			if (type == RESCTRL_CTRL_REGION_TYPE_OPT && !(marc->flags & MARC_FLAG_OPT))
 				continue;
-			if (type == RESCTRL_CTRL_REGION_TYPE_MIN && !(marc->flags & MARC_FLAG_MIN))
+			if (type == RESCTRL_CTRL_REGION_TYPE_MIN && (!(marc->flags & MARC_FLAG_MIN) ||
+			    !erdt_option_enabled(ERDT_FLAG_MBA_3WAY)))
 				continue;
-			if (type == RESCTRL_CTRL_REGION_TYPE_MAX && !(marc->flags & MARC_FLAG_MAX))
+			if (type == RESCTRL_CTRL_REGION_TYPE_MAX && (!(marc->flags & MARC_FLAG_MAX) ||
+			    !erdt_option_enabled(ERDT_FLAG_MBA_3WAY)))
 				continue;
 
 			hw_ctrl = kzalloc_obj(*hw_ctrl);
