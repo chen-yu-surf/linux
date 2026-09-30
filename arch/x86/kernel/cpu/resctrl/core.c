@@ -975,6 +975,8 @@ static int __init set_rdt_options(char *str)
 			tok++;
 		if (intel_handle_aet_option(force_off, tok))
 			continue;
+		if (erdt_handle_option(force_off, tok))
+			continue;
 		for (o = rdt_options; o < &rdt_options[NUM_RDT_OPTIONS]; o++) {
 			if (strcmp(tok, o->name) == 0) {
 				if (force_off)
@@ -1169,6 +1171,9 @@ static __init void __check_quirks_intel(void)
 		fallthrough;
 	case INTEL_BROADWELL_X:
 		intel_rdt_mbm_apply_quirk();
+		break;
+	case INTEL_DIAMONDRAPIDS_X:
+		set_rdt_options("!erdt:3waymba");
 		break;
 	}
 }
