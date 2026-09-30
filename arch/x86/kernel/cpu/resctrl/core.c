@@ -1135,11 +1135,8 @@ static __init bool get_rdt_mon_resources(void)
 		ret = true;
 	}
 
-	if (erdt_enable_mon()) {
+	if (erdt_enable_mon())
 		ret = true;
-
-		goto done;
-	}
 
 	if (rdt_cpu_has(X86_FEATURE_CQM_MBM_TOTAL)) {
 		resctrl_enable_mon_event(QOS_L3_MBM_TOTAL_EVENT_ID, false, 0, NULL);
@@ -1152,7 +1149,6 @@ static __init bool get_rdt_mon_resources(void)
 	if (rdt_cpu_has(X86_FEATURE_ABMC))
 		ret = true;
 
-done:
 	if (!ret)
 		return false;
 
