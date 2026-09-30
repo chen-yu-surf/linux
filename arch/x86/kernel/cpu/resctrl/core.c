@@ -409,6 +409,103 @@ static void cat_wrmsr(struct hw_param *m)
 		wrmsrq(hw_ctrl->msr_base + i, hw_dom->ctrl_val[i]);
 }
 
+/*
+ * Program the current values of all CLOSIDs of @ctrl into every domain.
+ * Only used for controls that can be programmed from any CPU.
+ */
+static void ctrl_program_domains(struct rdt_resource *r, struct resctrl_ctrl *ctrl)
+{
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(ctrl);
+	struct hw_param m = {
+		.res	= r,
+		.ctrl	= ctrl,
+		.low	= 0,
+		.high	= resctrl_to_arch_res(r)->num_closid,
+	};
+	struct rdt_ctrl_domain *d;
+
+	if (WARN_ON_ONCE(!hw_ctrl->hw_update || !hw_ctrl->any_cpu))
+		return;
+
+	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
+		m.dom = d;
+		hw_ctrl->hw_update(&m);
+	}
+}
+
+/*
+ * The region-aware MBA controls emulate the legacy MBA control, but the
+ * legacy control and its emulating controls have separate hardware
+ * interfaces: the legacy control is programmed via MSR while the
+ * region-aware controls live in MMIO space. Control values should only reach
+ * the interface matching the current control mode, so clear the update
+ * callback of the interface that goes idle and tell the hardware which
+ * interface it should honor. Nothing to do for a legacy control that is not
+ * emulated, its MSR interface is the only one available.
+ *
+ * The resctrl file system serializes control mode changes with
+ * rdtgroup_mutex and holds the CPU hotplug read lock, so the control lists
+ * walked here are stable and the RDT_CTRL update cannot race with another
+ * mode change.
+ */
+int resctrl_arch_control_mode_set(struct rdt_resource *r,
+				  enum resctrl_ctrl_mode newmode)
+{
+	bool legacy = newmode == RESCTRL_CTRL_MODE_LEGACY;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
+	struct resctrl_hw_ctrl *hw_ctrl;
+	bool emulated = false;
+
+	if (r->rid != RDT_RESOURCE_MBA)
+		return 0;
+
+	lockdep_assert_cpus_held();
+
+	for_each_resource_ctrl(ctrl, r) {
+		if (ctrl->name != RESCTRL_CTRL_NAME_DEF ||
+		    list_empty(&ctrl->emulated_by))
+			continue;
+
+		/* Region-aware MBA implies the legacy control is Intel's. */
+		hw_ctrl = resctrl_to_arch_ctrl(ctrl);
+		hw_ctrl->hw_update = legacy ? mba_wrmsr_intel : NULL;
+
+		list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+			hw_ctrl = resctrl_to_arch_ctrl(em_ctrl);
+			hw_ctrl->hw_update = legacy ? NULL : erdt_marc_hw_update;
+		}
+		emulated = true;
+	}
+
+	if (!emulated)
+		return 0;
+
+	/*
+	 * The MMIO controls are only honored while the RMDDs are out of
+	 * legacy mode.
+	 */
+	erdt_region_aware_enable_all(!legacy);
+
+	if (legacy)
+		return 0;
+
+	/*
+	 * The region-aware controls are not programmed while in legacy mode,
+	 * so domains that came online since then have not been initialized and
+	 * the hardware defaults may differ from the control values. Now that
+	 * the MMIO interface is honored, program the current control values.
+	 */
+	for_each_resource_ctrl(ctrl, r) {
+		if (ctrl->name != RESCTRL_CTRL_NAME_DEF)
+			continue;
+
+		list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry)
+			ctrl_program_domains(r, em_ctrl);
+	}
+
+	return 0;
+}
+
 u32 resctrl_arch_get_num_closid(struct rdt_resource *r)
 {
 	return resctrl_to_arch_res(r)->num_closid;

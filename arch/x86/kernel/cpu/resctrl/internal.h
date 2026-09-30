@@ -347,6 +347,8 @@ unsigned int erdt_get_cmt_scale(void);
 unsigned int erdt_get_cmt_max_rmid(void);
 int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid,
 		  u64 *val, bool first);
+void erdt_marc_hw_update(struct hw_param *m);
+void erdt_region_aware_enable_all(bool enable);
 void erdt_init(void);
 void erdt_exit(void);
 bool erdt_try_bind_domain(int cpu);
