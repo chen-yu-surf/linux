@@ -26,6 +26,21 @@ u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r,
 	return roundup(val, (unsigned long)ctrl->scalar.gran);
 }
 
+/*
+ * A control that lives in domain local register space has to be programmed
+ * from a CPU of the target domain, program it via an IPI. A control without
+ * such affinity, for example an MMIO based control, can be programmed from
+ * the current CPU.
+ */
+static void ctrl_hw_update(struct resctrl_hw_ctrl *hw_ctrl, struct rdt_ctrl_domain *d,
+			   struct hw_param *m)
+{
+	if (hw_ctrl->any_cpu)
+		rdt_ctrl_update(m);
+	else
+		smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, m, 1);
+}
+
 int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 			    struct rdt_ctrl_domain *d, u32 closid,
 			    enum resctrl_conf_type t, u32 cfg_val)
@@ -139,7 +154,7 @@ static void _resctrl_arch_update_domains(struct rdt_resource *r,
 		if (!hw_ctrl->hw_update)
 			program_backing_controls(r, ctrl, d, closid, &hw_param);
 		else
-			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &hw_param, 1);
+			ctrl_hw_update(hw_ctrl, d, &hw_param);
 	}
 }
 
