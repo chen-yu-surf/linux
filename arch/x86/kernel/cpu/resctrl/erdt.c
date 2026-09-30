@@ -815,6 +815,19 @@ bool erdt_try_bind_domain(int cpu)
 	return true;
 }
 
+/* Find the ERDT domain bound to L3 cache @dom_id by erdt_try_bind_domain(). */
+static struct erdt_domain_info *erdt_find_domain_info(int dom_id)
+{
+	struct erdt_domain_info *d;
+
+	list_for_each_entry(d, &domain_info_list, entry) {
+		if (d->dom_id == dom_id)
+			return d;
+	}
+
+	return NULL;
+}
+
 /**
  * erdt_l3_mon_domain_setup() - Associate ERDT table information with an L3
  * monitoring domain.
@@ -828,7 +841,6 @@ bool erdt_try_bind_domain(int cpu)
 void erdt_l3_mon_domain_setup(struct rdt_domain_hdr *hdr)
 {
 	struct rdt_hw_l3_mon_domain *hw_dom;
-	struct erdt_domain_info *d;
 
 	lockdep_assert_held(&domain_list_lock);
 
@@ -836,13 +848,20 @@ void erdt_l3_mon_domain_setup(struct rdt_domain_hdr *hdr)
 		return;
 
 	hw_dom = resctrl_to_arch_mon_dom(container_of(hdr, struct rdt_l3_mon_domain, hdr));
+	hw_dom->d_info = erdt_find_domain_info(hdr->id);
+}
 
-	list_for_each_entry(d, &domain_info_list, entry) {
-		if (d->dom_id == hdr->id) {
-			hw_dom->d_info = d;
-			return;
-		}
-	}
+void erdt_ctrl_domain_setup(struct resctrl_ctrl *ctrl, struct rdt_domain_hdr *hdr)
+{
+	struct rdt_hw_ctrl_domain *hw_dom;
+
+	lockdep_assert_held(&domain_list_lock);
+
+	if (!erdt_enabled || ctrl->scope != RESCTRL_L3_CACHE)
+		return;
+
+	hw_dom = resctrl_to_arch_ctrl_dom(container_of(hdr, struct rdt_ctrl_domain, hdr));
+	hw_dom->d_info = erdt_find_domain_info(hdr->id);
 }
 
 void erdt_exit(void)
