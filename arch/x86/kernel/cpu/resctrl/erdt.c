@@ -294,8 +294,57 @@ struct erdt_domain_info *erdt_find_domain_info(int cpu)
 	return NULL;
 }
 
+union marc_bw_ctrl {
+	u64	reg;
+	struct {
+		u16	val : 9;
+		u16	rsvd : 7;
+	} regions[4];
+};
+
 static void marc_hw_update(struct hw_param *m)
 {
+	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
+	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(m->ctrl);
+	enum resctrl_ctrl_name name = hw_ctrl->r_ctrl.name;
+	struct erdt_domain_info *d = hw_dom->d_info;
+	unsigned int offset, region, type;
+	enum erdt_mmio_type mmio_type;
+	union marc_bw_ctrl mmio_ctrl;
+	void __iomem *addr;
+	int closid_idx;
+	unsigned int i;
+
+	if (!d || !d->marc)
+		return;
+
+	offset = name - RESCTRL_CTRL_NAME_REGION0_OPT;
+	region = offset / RESCTRL_CTRL_REGION_NR_CTRLS;
+	type = offset % RESCTRL_CTRL_REGION_NR_CTRLS;
+	mmio_type = ERDT_MMIO_MARC_OPT + type;
+
+	if (d->marc_buf_type != mmio_type) {
+		memset(d->marc_buf, 0,
+		       d->marc->mba_reg_size * 512 * sizeof(u64));
+		d->marc_buf_type = mmio_type;
+	}
+
+	for (i = m->low; i < m->high; i++) {
+		closid_idx = (region / 4) * 64 + i;
+		addr = d->base[mmio_type] + closid_idx * 8;
+
+		/* The cached value retains the reserved bits to be preserved. */
+		mmio_ctrl.reg = d->marc_buf[closid_idx];
+		if (!mmio_ctrl.reg)
+			mmio_ctrl.reg = readq(addr);
+
+		if (WARN_ON_ONCE(!mmio_ctrl.reg))
+			return;
+
+		mmio_ctrl.regions[region % 4].val = hw_dom->ctrl_val[i];
+		d->marc_buf[closid_idx] = mmio_ctrl.reg;
+		writeq(mmio_ctrl.reg, addr);
+	}
 }
 
 static __init struct resctrl_ctrl *erdt_legacy_mba_ctrl(struct rdt_resource *r)
@@ -407,6 +456,7 @@ static void erdt_iounmap_domain(struct erdt_domain_info *domain)
 static void cleanup_one_domain(struct erdt_domain_info *d)
 {
 	erdt_iounmap_domain(d);
+	kfree(d->marc_buf);
 	kfree(d->cmrc);
 	kfree(d->mmrc);
 	kfree(d->marc);
@@ -569,6 +619,14 @@ static __init int marc_init(struct acpi_subtbl_hdr_16 *subtbl,
 	domain_info->marc = kmemdup(marc, subtbl->length, GFP_KERNEL);
 	if (!domain_info->marc)
 		goto unmap;
+
+	domain_info->marc_buf = kcalloc(marc->mba_reg_size * 512, sizeof(u64),
+					GFP_KERNEL);
+	if (!domain_info->marc_buf) {
+		kfree(domain_info->marc);
+		domain_info->marc = NULL;
+		goto unmap;
+	}
 
 	return 0;
 
