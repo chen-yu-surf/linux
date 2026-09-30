@@ -230,7 +230,7 @@ bool resctrl_arch_get_cdp_enabled(struct rdt_resource *r)
 	return hw_res->cdp_enabled;
 }
 
-static void reset_single_ctrl(struct msr_param *m)
+static void reset_single_ctrl(struct hw_param *m)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
 	struct resctrl_ctrl *ctrl = m->ctrl;
@@ -246,7 +246,7 @@ static void reset_single_ctrl(struct msr_param *m)
 		for (i = 0; i < hw_res->num_closid; i++)
 			hw_dom->ctrl_val[i] = resctrl_get_default_ctrlval(ctrl);
 		m->dom = d;
-		if (hw_ctrl->msr_update)
+		if (hw_ctrl->hw_update)
 			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, m, 1);
 	}
 }
@@ -255,26 +255,26 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	struct resctrl_ctrl *ctrl, *em_ctrl;
-	struct msr_param msr_param;
+	struct hw_param hw_param;
 
 	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
 
-	msr_param.res = r;
-	msr_param.low = 0;
-	msr_param.high = hw_res->num_closid;
+	hw_param.res = r;
+	hw_param.low = 0;
+	hw_param.high = hw_res->num_closid;
 
 	/*
 	 * Disable resource control for this resource by setting all
 	 * control values in all control domains to their reset value.
 	 */
 	for_each_resource_ctrl(ctrl, r) {
-		msr_param.ctrl = ctrl;
-		reset_single_ctrl(&msr_param);
+		hw_param.ctrl = ctrl;
+		reset_single_ctrl(&hw_param);
 		if (!list_empty(&ctrl->emulated_by)) {
 			list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
-				msr_param.ctrl = em_ctrl;
-				reset_single_ctrl(&msr_param);
+				hw_param.ctrl = em_ctrl;
+				reset_single_ctrl(&hw_param);
 			}
 		}
 	}

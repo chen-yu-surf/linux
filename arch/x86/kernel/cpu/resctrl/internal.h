@@ -88,14 +88,14 @@ struct arch_mbm_state {
 #define SDCIAE_ENABLE_BIT		1
 
 /**
- * struct msr_param - set a range of MSRs from a domain
+ * struct hw_param - set a range of registers (MSRs, etc) from a domain
  * @res:       The resource to use
  * @ctrl:      Properties of the control being updated
  * @dom:       The domain to update
  * @low:       Beginning index from base MSR
  * @high:      End index
  */
-struct msr_param {
+struct hw_param {
 	struct rdt_resource	*res;
 	struct resctrl_ctrl	*ctrl;
 	struct rdt_ctrl_domain	*dom;
@@ -107,7 +107,7 @@ struct msr_param {
  * struct resctrl_hw_ctrl - Arch private properties of a resource control
  * @r_ctrl:	Control properties exposed to resctrl file system
  * @msr_base:	Base MSR address where control values should be programmed
- * @msr_update:	Function pointer to update control values
+ * @hw_update:	Function pointer to update QOS hardware, MSRs, etc
  * @emulate_val:Function pointer to return control value matching the
  *		provided legacy control value. Set if this is a control
  *		used to emulate a legacy control.
@@ -115,7 +115,7 @@ struct msr_param {
 struct resctrl_hw_ctrl {
 	struct resctrl_ctrl	r_ctrl;
 	unsigned int		msr_base;
-	void			(*msr_update)(struct msr_param *m);
+	void			(*hw_update)(struct hw_param *m);
 	u32			(*emulate_val)(u32 legacy_val);
 };
 

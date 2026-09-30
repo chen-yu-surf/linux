@@ -33,19 +33,19 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(d);
 	struct resctrl_hw_ctrl *hw_ctrl = resctrl_to_arch_ctrl(ctrl);
 	u32 idx = resctrl_get_config_index(closid, t);
-	struct msr_param msr_param;
+	struct hw_param hw_param;
 
 	if (!cpumask_test_cpu(smp_processor_id(), &d->hdr.cpu_mask))
 		return -EINVAL;
 
 	hw_dom->ctrl_val[idx] = cfg_val;
 
-	msr_param.res = r;
-	msr_param.ctrl = ctrl;
-	msr_param.dom = d;
-	msr_param.low = idx;
-	msr_param.high = idx + 1;
-	hw_ctrl->msr_update(&msr_param);
+	hw_param.res = r;
+	hw_param.ctrl = ctrl;
+	hw_param.dom = d;
+	hw_param.low = idx;
+	hw_param.high = idx + 1;
+	hw_ctrl->hw_update(&hw_param);
 
 	return 0;
 }
@@ -56,7 +56,7 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
  */
 static void program_backing_controls(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
 				     struct rdt_ctrl_domain *d, u32 closid,
-				     struct msr_param *m)
+				     struct hw_param *m)
 {
 	struct rdt_hw_ctrl_domain *em_hw_dom;
 	struct resctrl_staged_config *cfg;
@@ -93,7 +93,7 @@ static void _resctrl_arch_update_domains(struct rdt_resource *r,
 	struct resctrl_staged_config *cfg;
 	struct rdt_hw_ctrl_domain *hw_dom;
 	struct resctrl_hw_ctrl *hw_ctrl;
-	struct msr_param msr_param;
+	struct hw_param hw_param;
 	struct rdt_ctrl_domain *d;
 	enum resctrl_conf_type t;
 	u32 idx;
@@ -105,11 +105,11 @@ static void _resctrl_arch_update_domains(struct rdt_resource *r,
 	 * If control is emulated and mode is legacy, do not actually
 	 * update control, just stage the values of the emulating control
 	 */
-	msr_param.ctrl = ctrl;
+	hw_param.ctrl = ctrl;
 	hw_ctrl = resctrl_to_arch_ctrl(ctrl);
 	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
 		hw_dom = resctrl_to_arch_ctrl_dom(d);
-		msr_param.res = NULL;
+		hw_param.res = NULL;
 		for (t = 0; t < CDP_NUM_TYPES; t++) {
 			cfg = &hw_dom->d_resctrl.staged_config[t];
 			if (!cfg->have_new_ctrl)
@@ -122,24 +122,24 @@ static void _resctrl_arch_update_domains(struct rdt_resource *r,
 			}
 			hw_dom->ctrl_val[idx] = cfg->new_ctrl;
 
-			if (!msr_param.res) {
-				msr_param.low = idx;
-				msr_param.high = msr_param.low + 1;
-				msr_param.res = r;
-				msr_param.dom = d;
+			if (!hw_param.res) {
+				hw_param.low = idx;
+				hw_param.high = hw_param.low + 1;
+				hw_param.res = r;
+				hw_param.dom = d;
 			} else {
-				msr_param.low = min(msr_param.low, idx);
-				msr_param.high = max(msr_param.high, idx + 1);
+				hw_param.low = min(hw_param.low, idx);
+				hw_param.high = max(hw_param.high, idx + 1);
 			}
 		}
 
-		if (!msr_param.res)
+		if (!hw_param.res)
 			continue;
 
-		if (!hw_ctrl->msr_update)
-			program_backing_controls(r, ctrl, d, closid, &msr_param);
+		if (!hw_ctrl->hw_update)
+			program_backing_controls(r, ctrl, d, closid, &hw_param);
 		else
-			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &msr_param, 1);
+			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &hw_param, 1);
 	}
 }
 
