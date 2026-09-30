@@ -609,6 +609,8 @@ struct resctrl_mon_config_info {
 int resctrl_arch_control_mode_set(struct rdt_resource *r,
 				  enum resctrl_ctrl_mode newmode);
 
+bool resctrl_mb_ctrl_native(void);
+
 /**
  * resctrl_arch_sync_cpu_closid_rmid() - Refresh this CPU's CLOSID and RMID.
  *					 Call via IPI.
