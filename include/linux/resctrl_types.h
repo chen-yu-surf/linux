@@ -77,6 +77,11 @@ enum resctrl_event_id {
 	QOS_NUM_EVENTS,
 };
 
+static inline bool legacy_mbm_event(unsigned int e)
+{
+	return (e == QOS_L3_MBM_TOTAL_EVENT_ID) || (e == QOS_L3_MBM_LOCAL_EVENT_ID);
+}
+
 static inline bool rmbm_event(unsigned int e)
 {
 	return (e >= QOS_L3_MBM_R0_EVENT_ID) && (e <= QOS_L3_MBM_R3_EVENT_ID);

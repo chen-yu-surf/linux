@@ -292,8 +292,24 @@ int resctrl_arch_rmid_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 		    erdt_cpu_has(X86_FEATURE_CQM_OCCUP_LLC))
 			return erdt_mon_read(hdr, eventid, rmid, val, false);
 
-		if (rmbm_event(eventid) && erdt_cpu_has(X86_FEATURE_CQM_MBM_TOTAL))
-			return erdt_mon_read(hdr, eventid, rmid, val, false);
+		/*
+		 * If the system support ERDT, need to filter the
+		 * legacy vs native mode: allow the MSR read
+		 * in legacy mode, allow the MMIO read in native
+		 * mode.
+		 */
+		if (erdt_cpu_has(X86_FEATURE_CQM_MBM_TOTAL)) {
+			bool native = resctrl_mb_ctrl_native();
+
+			if (legacy_mbm_event(eventid) && native)
+				return -EINVAL;
+
+			if (rmbm_event(eventid)) {
+				if (!native)
+					return -EINVAL;
+				return erdt_mon_read(hdr, eventid, rmid, val, false);
+			}
+		}
 
 		return arch_l3_read_event(r, hdr, rmid, eventid, val);
 	case RDT_RESOURCE_PERF_PKG:

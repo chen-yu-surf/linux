@@ -1051,6 +1051,105 @@ static int resctrl_control_mode_show(struct kernfs_open_file *of,
 	return 0;
 }
 
+static const char * const mbm_legacy_files[] = {
+	"mbm_total_bytes",
+	"mbm_local_bytes",
+};
+
+static const char * const mbm_region_files[] = {
+	"mbm_region0_bytes",
+	"mbm_region1_bytes",
+	"mbm_region2_bytes",
+	"mbm_region3_bytes",
+};
+
+/*
+ * Region-aware MBM events are only enabled on ERDT, where the legacy
+ * total/local events may coexist. Used to gate the legacy vs region
+ * file-visibility switching; each legacy event is still independently
+ * gated on its own CQM_MBM_* CPUID bit.
+ */
+static bool resctrl_mbm_dual_mode(void)
+{
+	return resctrl_is_mon_event_enabled(QOS_L3_MBM_R0_EVENT_ID);
+}
+
+/* Check if the current mode is native. */
+bool resctrl_mb_ctrl_native(void)
+{
+	struct rdt_resource *mb = resctrl_arch_get_resource(RDT_RESOURCE_MBA);
+
+	return mb && mb->ctrl_mode == RESCTRL_CTRL_MODE_NATIVE;
+}
+
+/* Adjust the visibility of the monitor files. */
+static void mbm_mode_set_dir_visible(struct kernfs_node *dom_kn, bool native)
+{
+	struct kernfs_node *kn;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(mbm_legacy_files); i++) {
+		kn = kernfs_find_and_get(dom_kn, mbm_legacy_files[i]);
+		if (!kn)
+			continue;
+		kernfs_show(kn, !native);
+		kernfs_put(kn);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(mbm_region_files); i++) {
+		kn = kernfs_find_and_get(dom_kn, mbm_region_files[i]);
+		if (!kn)
+			continue;
+		kernfs_show(kn, native);
+		kernfs_put(kn);
+	}
+}
+
+static void mbm_mode_set_group_visible(struct kernfs_node *mon_data_kn,
+				       struct rdt_resource *r, bool native)
+{
+	struct kernfs_node *dom_kn;
+	struct rdt_domain_hdr *hdr;
+	char name[32];
+
+	if (!mon_data_kn)
+		return;
+
+	list_for_each_entry_rcu(hdr, &r->mon_domains, list, lockdep_is_cpus_held()) {
+		snprintf(name, sizeof(name), "mon_%s_%02d", r->name, hdr->id);
+		dom_kn = kernfs_find_and_get(mon_data_kn, name);
+		if (!dom_kn)
+			continue;
+		mbm_mode_set_dir_visible(dom_kn, native);
+		kernfs_put(dom_kn);
+	}
+}
+
+static void resctrl_mbm_mode_files_show(bool native)
+{
+	struct rdt_resource *r = resctrl_arch_get_resource(RDT_RESOURCE_L3);
+	struct rdtgroup *prgrp, *crgrp;
+	struct rdt_domain_hdr *hdr;
+
+	lockdep_assert_held(&rdtgroup_mutex);
+	lockdep_assert_cpus_held();
+
+	if (!resctrl_mbm_dual_mode())
+		return;
+
+	list_for_each_entry(prgrp, &rdt_all_groups, rdtgroup_list) {
+		/* adjust the visibility of monitor group under the default CTRL_MON group */
+		mbm_mode_set_group_visible(prgrp->mon.mon_data_kn, r, native);
+
+		/* adjust the visilibility of sub monitor group */
+		list_for_each_entry(crgrp, &prgrp->mon.crdtgrp_list, mon.crdtgrp_list)
+			mbm_mode_set_group_visible(crgrp->mon.mon_data_kn, r, native);
+	}
+
+	list_for_each_entry_rcu(hdr, &r->mon_domains, list, lockdep_is_cpus_held())
+		resctrl_arch_reset_rmid_all(r, container_of(hdr, struct rdt_l3_mon_domain, hdr));
+}
+
 static ssize_t resctrl_control_mode_write(struct kernfs_open_file *of,
 					  char *buf, size_t nbytes, loff_t off)
 {
@@ -1096,6 +1195,8 @@ static ssize_t resctrl_control_mode_write(struct kernfs_open_file *of,
 			goto out_unlock;
 		}
 		f->res->ctrl_mode = newmode;
+
+		resctrl_mbm_mode_files_show(newmode == RESCTRL_CTRL_MODE_NATIVE);
 	}
 
 out_unlock:
@@ -4064,6 +4165,9 @@ static struct kernfs_node *_mkdir_mondata_subdir(struct kernfs_node *parent_kn, 
 		if (hdr && resctrl_is_mbm_event(mevt->evtid))
 			mon_event_read(&rr, r, hdr, prgrp, &hdr->cpu_mask, mevt, true);
 	}
+
+	if (r->rid == RDT_RESOURCE_L3 && resctrl_mbm_dual_mode())
+		mbm_mode_set_dir_visible(kn, resctrl_mb_ctrl_native());
 
 	return kn;
 out_destroy:
