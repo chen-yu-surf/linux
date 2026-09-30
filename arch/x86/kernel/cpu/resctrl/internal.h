@@ -327,4 +327,8 @@ void erdt_exit(void);
 bool erdt_try_bind_domain(int cpu);
 void erdt_l3_mon_domain_setup(struct rdt_domain_hdr *hdr);
 
+u64 mbm_overflow_count(u64 prev_val, u64 cur_val, unsigned int width);
+struct arch_mbm_state *get_arch_mbm_state(struct rdt_hw_l3_mon_domain *hw_dom,
+					  u32 rmid,
+					  enum resctrl_event_id eventid);
 #endif /* _ASM_X86_RESCTRL_INTERNAL_H */

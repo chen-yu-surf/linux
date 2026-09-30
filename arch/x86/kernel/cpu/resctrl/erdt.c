@@ -30,6 +30,9 @@ static bool erdt_enabled;
 
 #define CMRC_UNAVAILABLE_COUNTER	BIT_ULL(63)
 #define CMRC_FLAG_UNAVAILABLE_BIT	BIT(0)
+#define MMRC_UNAVAILABLE_COUNTER	BIT_ULL(63)
+#define MMRC_FLAG_UNAVAILABLE_BIT	BIT(0)
+#define FIXPOINT_LOW_BITS		16
 
 /* Bitmask of valid sub-tables found in the first RMDD, used to ensure all RMDDs match. */
 static u32 valid_subtbl_mask;
@@ -126,6 +129,102 @@ static int erdt_read_l3_occupancy(const struct erdt_domain_info *d, u32 rmid, u6
 	return 0;
 }
 
+static u64 mmrc_index_function_1(u32 rmid, u32 region_idx)
+{
+	u64 blk_rmid, blk_offset;
+
+	/*
+	 * Block_to_locate_RMID# = floor((RMID# % 32) / 8) x 4 x 4096B;
+	 * Offset_within_this_Block = (floor(((RMID#/32)x8)+RMID#%8) x
+	 * 8B)+(Region# x 2048B);
+	 * MMIO_ADDRESS_for_RMID#_Region# =
+	 * MBM Register Block Base Address + Block_to_locate_RMID# +
+	 * Offset_within_this_Block;
+	 */
+	blk_rmid = ((rmid % 32) / 8) * 4 * SZ_4K;
+	blk_offset = ((rmid / 32) * 8 + (rmid % 8)) * 8 + region_idx * 2048;
+
+	return blk_rmid + blk_offset;
+}
+
+static u64 apply_correction_factor(u64 val, u32 factor)
+{
+	if (!factor)
+		return val;
+
+	return ((val * factor) >> FIXPOINT_LOW_BITS);
+}
+
+static int erdt_read_region_mbm(struct rdt_domain_hdr *hdr,
+				const struct erdt_domain_info *d, int rmid,
+				int eventid, u64 *val)
+{
+	u32 region_idx = eventid - QOS_L3_MBM_R0_EVENT_ID;
+	int corr_factor_len, corr_factor = 0;
+	struct rdt_hw_l3_mon_domain *hw_dom;
+	u64 mbm_rmid_count = 0, chunks = 0;
+	struct acpi_erdt_mmrc *mmrc = NULL;
+	struct rdt_l3_mon_domain *mon_dom;
+	struct arch_mbm_state *am;
+	u64 offset;
+
+	mmrc = d->mmrc;
+	if (!mmrc)
+		return -EIO;
+
+	if (!domain_header_is_valid(hdr, RESCTRL_MON_DOMAIN, RDT_RESOURCE_L3))
+		return -EIO;
+
+	mon_dom = container_of(hdr, struct rdt_l3_mon_domain, hdr);
+	hw_dom = resctrl_to_arch_mon_dom(mon_dom);
+
+	offset = mmrc_index_function_1(rmid, region_idx);
+	if (offset + sizeof(u64) > (u64)mmrc->reg_size * SZ_4K)
+		return -EINVAL;
+
+	mbm_rmid_count = readq(d->base[ERDT_MMIO_MMRC_BASE] + offset);
+
+	/*
+	 * Bit 63 only reports whether the data is unavailable on domains that
+	 * advertise support for it. Where it is not supported the bit is part
+	 * of the counter and must not be interpreted as a status flag.
+	 */
+	if ((mmrc->flags & MMRC_FLAG_UNAVAILABLE_BIT) &&
+	    (mbm_rmid_count & MMRC_UNAVAILABLE_COUNTER))
+		return -EINVAL;
+
+	corr_factor_len = mmrc->corr_factor_list_len;
+	if (corr_factor_len) {
+		/*
+		 * 0: Do not apply a correction factor to
+		 *    the MBM values.
+		 * 1: Apply a single correction factor.
+		 * Max RMID+1: Apply the indicated indexed
+		 * correction factor to the corresponding
+		 * RMID value for MBM counter.
+		 */
+		if (corr_factor_len == 1)
+			corr_factor = mmrc->corr_factor_list[0];
+		else if (rmid < corr_factor_len)
+			corr_factor = mmrc->corr_factor_list[rmid];
+		else
+			return -EINVAL;
+	}
+
+	am = get_arch_mbm_state(hw_dom, rmid, eventid);
+	if (am) {
+		am->chunks += mbm_overflow_count(am->prev_mon_val, mbm_rmid_count,
+						mmrc->counter_width);
+
+		chunks = apply_correction_factor(am->chunks, corr_factor);
+		am->prev_mon_val = mbm_rmid_count;
+	}
+
+	*val = chunks * mmrc->up_scale;
+
+	return 0;
+}
+
 int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid, u64 *val)
 {
 	struct rdt_hw_l3_mon_domain *hw_dom;
@@ -138,6 +237,9 @@ int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 r
 
 	if (evtid == QOS_L3_OCCUP_EVENT_ID)
 		return erdt_read_l3_occupancy(d, rmid, val);
+
+	if (rmbm_event(evtid))
+		return erdt_read_region_mbm(hdr, d, rmid, evtid, val);
 
 	return -EIO;
 }
