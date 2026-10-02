@@ -9871,8 +9871,17 @@ static int check_cpu_with_task(struct task_struct *p, int cpu)
  */
 static bool update_best_cpu(struct energy_cpu_stat *target,
 			    struct energy_cpu_stat *min,
-			    int prev, struct sched_domain *sd)
+			    int prev, struct sched_domain *sd,
+			    struct task_struct *p)
 {
+	unsigned long task_slice = p->se.slice;
+
+	/*  Select the one where you can run first */
+	if (task_slice < get_rq_min_slice(cpu_rq(target->cpu)) &&
+	    task_slice >= get_rq_min_slice(cpu_rq(min->cpu)))
+		return true;
+
+	/* Favor previous CPU */
 	if (target->cpu == prev)
 		return true;
 	if (min->cpu == prev)
@@ -10035,7 +10044,7 @@ static int find_energy_efficient_cpu(struct task_struct *p, int prev_cpu)
 			 */
 			if (target_perf < min_stat.min_perf)
 				find_pd_cost(pd->em_pd, target_perf, &target_stat);
-			else if (!update_best_cpu(&target_stat, &min_stat, prev_cpu, sd))
+			else if (!update_best_cpu(&target_stat, &min_stat, prev_cpu, sd, p))
 				continue;
 
 			/* Save the new most efficient CPU of the PD */
