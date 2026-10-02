@@ -893,6 +893,7 @@ bool update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
 			vlag = min(vlag, 0);
 	}
 	se->vlag = vlag;
+	se->vlag_seq = cfs_rq->idle_seq;
 
 	return avruntime - vlag != se->vruntime;
 }
@@ -914,8 +915,21 @@ void decay_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	rq = rq_of(cfs_rq);
 
+	/* You can't claim any lag when waking on idle CPU */
+	if (rq->curr == rq->idle) {
+		se->vlag = 0;
+		return;
+	}
+
+	/* Accessing remote rq task clock is a cost */
 	if (flags & ENQUEUE_MIGRATED)
 		return;
+
+	/* CPU has been idle in between so the lag has been removed */
+	if (se->vlag_seq != cfs_rq->idle_seq) {
+		se->vlag = 0;
+		return;
+	}
 
 	/* Compute sleep time */
 	delta_exec = rq_clock_task(rq) - se->exec_start;
@@ -8413,6 +8427,9 @@ static bool __dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 	dequeue_hierarchy(p, flags);
+
+	if (!cfs_rq->h_nr_queued)
+		cfs_rq->idle_seq++;
 
 	if (sched_feat(PLACE_REL_DEADLINE) && !task_sleep) {
 		se->deadline -= se->vruntime;
