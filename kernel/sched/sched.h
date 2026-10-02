@@ -721,6 +721,8 @@ struct cfs_rq {
 		unsigned long	runnable_avg;
 	} removed;
 
+	struct plist_head	pushable_tasks;
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	u64			last_update_tg_load_avg;
 	unsigned long		tg_load_avg_contrib;
@@ -3887,6 +3889,8 @@ static inline bool sched_energy_enabled(void) { return false; }
 
 #endif /* !(CONFIG_ENERGY_MODEL && CONFIG_CPU_FREQ_GOV_SCHEDUTIL) */
 
+DECLARE_STATIC_KEY_FALSE(sched_push_task);
+
 #ifdef CONFIG_MEMBARRIER
 
 /*
@@ -4218,6 +4222,9 @@ void move_queued_task_locked(struct rq *src_rq, struct rq *dst_rq, struct task_s
 	activate_task(dst_rq, task, 0);
 	wakeup_preempt(dst_rq, task, 0);
 }
+
+extern struct rq *move_queued_task(struct rq *rq, struct rq_flags *rf,
+				   struct task_struct *p, int new_cpu);
 
 static inline
 bool task_is_pushable(struct rq *rq, struct task_struct *p, int cpu)

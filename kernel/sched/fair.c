@@ -8403,6 +8403,8 @@ static void dequeue_hierarchy(struct task_struct *p, int flags)
 	}
 }
 
+static void fair_remove_pushable_task(struct rq *rq, struct task_struct *p);
+
 /*
  * The part of dequeue_task_fair() that is needed to dequeue delayed tasks.
  *
@@ -8419,6 +8421,7 @@ static bool __dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 	bool task_delayed = flags & DEQUEUE_DELAYED;
 
 	clear_buddies(cfs_rq, se);
+	fair_remove_pushable_task(rq, p);
 
 	update_curr_eevdf(cfs_rq);
 	update_entity_lag(cfs_rq, se);
@@ -10072,6 +10075,157 @@ static int find_energy_efficient_cpu(struct task_struct *p, int prev_cpu)
 	return target;
 }
 
+DEFINE_STATIC_KEY_FALSE(sched_push_task);
+
+static inline bool sched_push_task_enabled(void)
+{
+	return static_branch_unlikely(&sched_push_task);
+}
+
+static bool __check_pushable_fair_task(struct rq *rq, struct task_struct *p)
+{
+	if (!task_on_rq_queued(p))
+		return false;
+
+	if (p->se.sched_delayed)
+		return false;
+
+	if (p->nr_cpus_allowed <= 1)
+		return false;
+
+	return true;
+}
+
+static bool fair_check_pushable_task(struct rq *rq, struct task_struct *p, struct task_struct *next)
+{
+	if (!__check_pushable_fair_task(rq, p))
+		return false;
+
+	return false;
+}
+
+static inline int has_pushable_tasks(struct rq *rq)
+{
+	return !plist_head_empty(&rq->cfs.pushable_tasks);
+}
+
+static struct task_struct *pick_next_pushable_fair_task(struct rq *rq)
+{
+	struct task_struct *p;
+
+	if (!has_pushable_tasks(rq))
+		return NULL;
+
+	p = plist_first_entry(&rq->cfs.pushable_tasks,
+			      struct task_struct, pushable_tasks);
+
+	WARN_ON_ONCE(rq->cpu != task_cpu(p));
+	WARN_ON_ONCE(task_current(rq, p));
+	WARN_ON_ONCE(p->nr_cpus_allowed <= 1);
+	WARN_ON_ONCE(!task_on_rq_queued(p));
+
+	/*
+	 * Remove task from the pushable list as we try only once after that
+	 * the task has been put back in enqueued list.
+	 */
+	plist_del(&p->pushable_tasks, &rq->cfs.pushable_tasks);
+
+	return p;
+}
+
+static int
+select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags);
+
+/*
+ * See if the non running fair tasks on this rq can be sent on other CPUs
+ * that fits better with their profile.
+ */
+static bool fair_push_task(struct rq *rq)
+{
+	struct task_struct *next_task;
+	int prev_cpu, new_cpu;
+	struct rq_flags rf;
+	struct rq *cur_rq;
+
+	next_task = pick_next_pushable_fair_task(rq);
+	if (!next_task)
+		return false;
+
+	if (is_migration_disabled(next_task))
+		return true;
+
+	/* We might release rq lock */
+	get_task_struct(next_task);
+
+	prev_cpu = rq->cpu;
+
+	/*
+	 * We need to release rq lock and take both task and rq w/o
+	 * triggering a deadlock.
+	 */
+	raw_spin_rq_unlock(rq);
+
+	cur_rq = task_rq_lock(next_task, &rf);
+
+	/* Task already migrated */
+	if (cur_rq->cpu != prev_cpu)
+		goto skip_push;
+
+	new_cpu = select_task_rq_fair(next_task, prev_cpu, 0);
+
+	/* Task doesn't need to migrate */
+	if (new_cpu == prev_cpu)
+		goto skip_push;
+
+	update_rq_clock(cur_rq);
+	cur_rq = move_queued_task(cur_rq, &rf, next_task, new_cpu);
+
+skip_push:
+	task_rq_unlock(cur_rq, next_task, &rf);
+
+	/* Restore rq state */
+	raw_spin_rq_lock(rq);
+	put_task_struct(next_task);
+
+	return true;
+}
+
+static void fair_push_tasks(struct rq *rq)
+{
+	/* fair_push_task() will return true if it moved a fair task */
+	while (fair_push_task(rq))
+		;
+}
+
+static DEFINE_PER_CPU(struct balance_callback, fair_push_head);
+
+static inline void fair_queue_push_tasks(struct rq *rq)
+{
+	if (!sched_push_task_enabled() || !has_pushable_tasks(rq))
+		return;
+
+	queue_balance_callback(rq, &per_cpu(fair_push_head, rq->cpu), fair_push_tasks);
+}
+
+static void fair_remove_pushable_task(struct rq *rq, struct task_struct *p)
+{
+	if (sched_push_task_enabled())
+		plist_del(&p->pushable_tasks, &rq->cfs.pushable_tasks);
+}
+
+static void __fair_add_pushable_task(struct rq *rq, struct task_struct *p)
+{
+	plist_del(&p->pushable_tasks, &rq->cfs.pushable_tasks);
+	plist_node_init(&p->pushable_tasks, p->prio);
+	plist_add(&p->pushable_tasks, &rq->cfs.pushable_tasks);
+}
+
+static void fair_add_pushable_prev(struct rq *rq, struct task_struct *prev, struct task_struct *next)
+{
+	if (sched_push_task_enabled() && fair_check_pushable_task(rq, prev, next))
+		__fair_add_pushable_task(rq, prev);
+}
+
 /*
  * select_task_rq_fair: Select a target runqueue for the task.
  * There are 2 ways to select the target runqueue:
@@ -10547,6 +10701,12 @@ static void put_prev_task_fair(struct rq *rq, struct task_struct *prev, struct t
 	cfs_rq->curr = NULL;
 	if (se->on_rq)
 		__enqueue_entity(cfs_rq, se);
+
+	/*
+	 * The previous task might be eligible for being pushed on another cpu
+	 * if it is still active.
+	 */
+	fair_add_pushable_prev(rq, prev, next);
 }
 
 /*
@@ -15697,6 +15857,7 @@ static void set_next_task_fair(struct rq *rq, struct task_struct *p, enum snt_e 
 		goto repick;
 
 	clear_buddies(cfs_rq, se);
+	fair_remove_pushable_task(rq, p);
 
 	if (on_rq)
 		__dequeue_entity(cfs_rq, se);
@@ -15741,6 +15902,7 @@ static void set_next_task_fair(struct rq *rq, struct task_struct *p, enum snt_e 
 
 	update_misfit_status(p, rq);
 	sched_fair_update_stop_tick(rq, p);
+	fair_queue_push_tasks(rq);
 
 repick:
 	/*
@@ -15757,6 +15919,7 @@ void init_cfs_rq(struct cfs_rq *cfs_rq)
 {
 	cfs_rq->tasks_timeline = RB_ROOT_CACHED;
 	cfs_rq->zero_vruntime = (u64)(-(1LL << 20));
+	plist_head_init(&cfs_rq->pushable_tasks);
 	raw_spin_lock_init(&cfs_rq->removed.lock);
 }
 
