@@ -8198,10 +8198,13 @@ static int choose_sched_idle_rq(struct rq *rq, struct task_struct *p)
 	return sched_idle_rq(rq) && !task_has_idle_policy(p);
 }
 
+static int idle_cpu_without(int cpu, struct task_struct *p);
+
 static int choose_idle_cpu(int cpu, struct task_struct *p)
 {
 	return available_idle_cpu(cpu) ||
-	       choose_sched_idle_rq(cpu_rq(cpu), p);
+	       choose_sched_idle_rq(cpu_rq(cpu), p) ||
+	       idle_cpu_without(cpu, p);
 }
 
 static void
