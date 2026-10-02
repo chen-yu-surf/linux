@@ -10144,8 +10144,7 @@ static bool fair_push_task(struct rq *rq)
 {
 	struct task_struct *next_task;
 	int prev_cpu, new_cpu;
-	struct rq_flags rf;
-	struct rq *cur_rq;
+	struct rq *new_rq;
 
 	next_task = pick_next_pushable_fair_task(rq);
 	if (!next_task)
@@ -10154,38 +10153,41 @@ static bool fair_push_task(struct rq *rq)
 	if (is_migration_disabled(next_task))
 		return true;
 
-	/* We might release rq lock */
-	get_task_struct(next_task);
-
 	prev_cpu = rq->cpu;
 
 	/*
-	 * We need to release rq lock and take both task and rq w/o
-	 * triggering a deadlock.
+	 * The safe lock ordering for task and rq is task 1st then rq but we
+	 * already get the rq so just try to get task too. If task is already
+	 * locked, it is waiting for the rq's lock and it is about to change
+	 * task state so skipping the push sequence in order to speed up the
+	 * release of the lock is the best choice.
 	 */
-	raw_spin_rq_unlock(rq);
-
-	cur_rq = task_rq_lock(next_task, &rf);
-
-	/* Task already migrated */
-	if (cur_rq->cpu != prev_cpu)
-		goto skip_push;
+	if (!raw_spin_trylock(&next_task->pi_lock))
+		return true;
 
 	new_cpu = select_task_rq_fair(next_task, prev_cpu, 0);
 
 	/* Task doesn't need to migrate */
 	if (new_cpu == prev_cpu)
-		goto skip_push;
+		goto no_push;
 
-	update_rq_clock(cur_rq);
-	cur_rq = move_queued_task(cur_rq, &rf, next_task, new_cpu);
+	new_rq = cpu_rq(new_cpu);
 
-skip_push:
-	task_rq_unlock(cur_rq, next_task, &rf);
+	deactivate_task(rq, next_task, 0);
+	set_task_cpu(next_task, new_cpu);
+	raw_spin_rq_unlock(rq);
 
-	/* Restore rq state */
+	raw_spin_rq_lock(new_rq);
+	WARN_ON_ONCE(task_cpu(next_task) != new_cpu);
+	activate_task(new_rq, next_task, 0);
+	wakeup_preempt(new_rq, next_task, 0);
+	raw_spin_rq_unlock(new_rq);
+
+	/* Restore rq lock state */
 	raw_spin_rq_lock(rq);
-	put_task_struct(next_task);
+
+no_push:
+	raw_spin_unlock(&next_task->pi_lock);
 
 	return true;
 }
@@ -10707,6 +10709,9 @@ static void put_prev_task_fair(struct rq *rq, struct task_struct *prev, struct t
 	 * if it is still active.
 	 */
 	fair_add_pushable_prev(rq, prev, next);
+
+	if (next && next != prev)
+		fair_queue_push_tasks(rq);
 }
 
 /*
@@ -15902,7 +15907,6 @@ static void set_next_task_fair(struct rq *rq, struct task_struct *p, enum snt_e 
 
 	update_misfit_status(p, rq);
 	sched_fair_update_stop_tick(rq, p);
-	fair_queue_push_tasks(rq);
 
 repick:
 	/*
