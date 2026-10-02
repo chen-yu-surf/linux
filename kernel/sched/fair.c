@@ -1125,6 +1125,22 @@ RB_DECLARE_CALLBACKS_MULTI(static, min_vruntime_cb, struct sched_entity,
 		     run_node, min_vruntime_copy, min_vruntime_update);
 
 /*
+ * Entity's slice is in the range [100us:100ms].
+ */
+static unsigned long get_rq_min_slice(struct rq *rq)
+{
+	return READ_ONCE(rq->min_slice);
+}
+
+static void __update_rq_min_slice(struct rq *rq)
+{
+	unsigned long min = cfs_rq_min_slice(&rq->cfs);
+
+	if (min != get_rq_min_slice(rq))
+		WRITE_ONCE(rq->min_slice, min);
+}
+
+/*
  * Enqueue an entity into the rb-tree:
  */
 static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -8313,6 +8329,8 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	place_entity(cfs_rq, se, flags | ENQUEUE_QUEUED);
 	__enqueue_entity(cfs_rq, se);
 
+	__update_rq_min_slice(rq);
+
 	if (!rq_h_nr_queued && rq->cfs.h_nr_queued)
 		dl_server_start(&rq->fair_server);
 
@@ -8437,6 +8455,8 @@ static bool __dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 	}
 	if (se != cfs_rq->curr)
 		__dequeue_entity(cfs_rq, se);
+
+	__update_rq_min_slice(rq);
 
 	sub_nr_running(rq, 1);
 
