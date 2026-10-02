@@ -3661,7 +3661,7 @@ out:
 }
 
 /*
- * The caller (fork, wakeup) owns p->pi_lock, ->cpus_ptr is stable.
+ * The caller (fork, wakeup, push) owns p->pi_lock, ->cpus_ptr is stable.
  */
 static inline
 int select_task_rq(struct task_struct *p, int cpu, int *wake_flags)
