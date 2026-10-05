@@ -10156,6 +10156,20 @@ static bool check_pushable_short_task(struct rq *rq, struct task_struct *p)
 	return false;
 }
 
+#ifdef CONFIG_SCHED_CACHE
+static int select_cache_cpu(struct task_struct *p, int prev_cpu);
+static bool check_pushable_cache_task(int this_cpu, struct task_struct *p);
+#else
+static inline int select_cache_cpu(struct task_struct *p, int prev_cpu)
+{
+	return prev_cpu;
+}
+static inline bool check_pushable_cache_task(int this_cpu, struct task_struct *p)
+{
+	return false;
+}
+#endif
+
 static bool fair_check_pushable_task(struct rq *rq, struct task_struct *p, struct task_struct *next)
 {
 	if (!__check_pushable_fair_task(rq, p))
@@ -10165,6 +10179,9 @@ static bool fair_check_pushable_task(struct rq *rq, struct task_struct *p, struc
 		return true;
 
 	if (check_pushable_short_task(rq, p))
+		return true;
+
+	if (check_pushable_cache_task(rq->cpu, p))
 		return true;
 
 	return false;
@@ -10231,7 +10248,7 @@ static bool fair_push_task(struct rq *rq)
 	if (!raw_spin_trylock(&next_task->pi_lock))
 		return true;
 
-	new_cpu = select_task_rq_fair(next_task, prev_cpu, 0);
+	new_cpu = select_task_rq_fair(next_task, prev_cpu, WF_RQ_PUSH);
 
 	/* Task doesn't need to migrate */
 	if (new_cpu == prev_cpu)
@@ -10335,7 +10352,7 @@ static inline bool tick_pushable_task(struct task_struct *p, struct rq *rq, stru
 	if (!raw_spin_trylock(&p->pi_lock))
 		return false;
 
-	new_cpu = select_task_rq_fair(p, cpu, 0);
+	new_cpu = select_task_rq_fair(p, cpu, WF_RQ_PUSH);
 
 	raw_spin_unlock(&p->pi_lock);
 
@@ -10380,6 +10397,7 @@ static inline bool tick_pushable_task(struct task_struct *p, struct rq *rq, stru
 static int
 select_task_rq_fair(struct task_struct *p, int prev_cpu, int select_flags)
 {
+	int push = (select_flags & WF_RQ_PUSH) && !(current->flags & PF_EXITING);
 	int sync = (select_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 	int want_sibling = !(select_flags & (WF_EXEC | WF_FORK));
 	int new_cpu, cpu = smp_processor_id();
@@ -10401,6 +10419,9 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int select_flags)
 			return cpu;
 	}
 
+	if (push)
+		prev_cpu = select_cache_cpu(p, prev_cpu);
+
 	/*
 	 * We don't want EAS to be called for exec or fork but it should be
 	 * called for any other case such as wake up or push callback.
@@ -10411,7 +10432,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int select_flags)
 			return new_cpu;
 	}
 
-	if (select_flags & WF_TTWU)
+	if (select_flags & WF_TTWU || push)
 		want_affine = !wake_wide(p) && cpumask_test_cpu(cpu, p->cpus_ptr);
 
 	new_cpu = prev_cpu;
@@ -11570,6 +11591,71 @@ static bool migrate_degrades_llc(struct task_struct *p, struct lb_env *env)
 		return false;
 
 	return true;
+}
+
+static int select_cache_cpu(struct task_struct *p, int prev_cpu)
+{
+	struct sched_cache_group *grp;
+	int pref_cpu;
+
+	if (!sched_cache_enabled())
+		return prev_cpu;
+
+	guard(rcu)();
+	grp = rcu_dereference_all(p->sched_cache_grp);
+	if (!grp)
+		return prev_cpu;
+
+	pref_cpu = READ_ONCE(grp->cpu);
+	if (pref_cpu < 0)
+		return prev_cpu;
+
+	if (!cpumask_test_cpu(pref_cpu, p->cpus_ptr) ||
+	    !cpumask_test_cpu(pref_cpu, cpu_active_mask))
+		return prev_cpu;
+
+	if (cpus_share_cache(pref_cpu, prev_cpu))
+		return prev_cpu;
+
+#ifdef CONFIG_NUMA_BALANCING
+	if (static_branch_likely(&sched_numa_balancing) &&
+	    p->numa_preferred_nid != NUMA_NO_NODE) {
+		int pref_nid = p->numa_preferred_nid;
+
+		if (cpu_to_node(pref_cpu) != pref_nid &&
+		    cpu_to_node(prev_cpu) == pref_nid)
+			return prev_cpu;
+
+		if (cpu_to_node(pref_cpu) == pref_nid &&
+		    cpu_to_node(prev_cpu) != pref_nid)
+			return pref_cpu;
+	}
+#endif
+
+	if (can_migrate_llc(prev_cpu, pref_cpu, task_util(p), true) == mig_forbid)
+		return prev_cpu;
+
+	return pref_cpu;
+}
+
+static bool check_pushable_cache_task(int this_cpu, struct task_struct *p)
+{
+	struct sched_cache_group *grp;
+	int pref_cpu;
+
+	if (!sched_cache_enabled())
+		return false;
+
+	guard(rcu)();
+	grp = rcu_dereference_all(p->sched_cache_grp);
+	if (!grp)
+		return false;
+
+	pref_cpu = READ_ONCE(grp->cpu);
+	if (pref_cpu != -1 && !cpus_share_cache(pref_cpu, this_cpu))
+		return true;
+
+	return false;
 }
 
 #else
