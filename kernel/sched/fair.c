@@ -1391,7 +1391,8 @@ static bool update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 #include "pelt.h"
 
-static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu);
+static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu,
+			       int push_cpu);
 static unsigned long task_h_load(struct task_struct *p);
 static unsigned long capacity_of(int cpu);
 
@@ -9325,7 +9326,8 @@ static inline bool asym_fits_cpu(unsigned long util,
 /*
  * Try and locate an idle core/thread in the LLC cache domain.
  */
-static int select_idle_sibling(struct task_struct *p, int prev, int target)
+static int select_idle_sibling(struct task_struct *p, int prev, int target,
+			       int push_cpu)
 {
 	bool has_idle_core = false;
 	struct sched_domain *sd;
@@ -9347,6 +9349,19 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	 * per-cpu select_rq_mask usage
 	 */
 	lockdep_assert_irqs_disabled();
+
+	/*
+	 * push_cpu must be checked before the target: when
+	 * a task is pushed from the tick, it is rq->curr, so
+	 * idle_cpu_without() would consider the target as
+	 * idle and keep the task on its current (non-preferred) LLC.
+	 */
+	if (push_cpu != -1 && push_cpu != target && !cpus_share_cache(push_cpu, target)) {
+		target = push_cpu;
+		if (choose_idle_cpu(push_cpu, p) &&
+		    asym_fits_cpu(task_util, util_min, util_max, push_cpu))
+			goto select_smt_priority;
+	}
 
 	if (choose_idle_cpu(target, p) &&
 	    asym_fits_cpu(task_util, util_min, util_max, target))
@@ -10156,6 +10171,15 @@ static bool check_pushable_short_task(struct rq *rq, struct task_struct *p)
 	return false;
 }
 
+#ifdef CONFIG_SCHED_CACHE
+static int check_pushable_cache_task(int this_cpu, struct task_struct *p);
+#else
+static inline int check_pushable_cache_task(int this_cpu, struct task_struct *p)
+{
+	return -1;
+}
+#endif
+
 static bool fair_check_pushable_task(struct rq *rq, struct task_struct *p, struct task_struct *next)
 {
 	if (!__check_pushable_fair_task(rq, p))
@@ -10165,6 +10189,9 @@ static bool fair_check_pushable_task(struct rq *rq, struct task_struct *p, struc
 		return true;
 
 	if (check_pushable_short_task(rq, p))
+		return true;
+
+	if (check_pushable_cache_task(rq->cpu, p) != -1)
 		return true;
 
 	return false;
@@ -10231,7 +10258,7 @@ static bool fair_push_task(struct rq *rq)
 	if (!raw_spin_trylock(&next_task->pi_lock))
 		return true;
 
-	new_cpu = select_task_rq_fair(next_task, prev_cpu, 0);
+	new_cpu = select_task_rq_fair(next_task, prev_cpu, WF_RQ_PUSH);
 
 	/* Task doesn't need to migrate */
 	if (new_cpu == prev_cpu)
@@ -10335,7 +10362,7 @@ static inline bool tick_pushable_task(struct task_struct *p, struct rq *rq, stru
 	if (!raw_spin_trylock(&p->pi_lock))
 		return false;
 
-	new_cpu = select_task_rq_fair(p, cpu, 0);
+	new_cpu = select_task_rq_fair(p, cpu, WF_RQ_PUSH);
 
 	raw_spin_unlock(&p->pi_lock);
 
@@ -10382,7 +10409,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int select_flags)
 {
 	int sync = (select_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 	int want_sibling = !(select_flags & (WF_EXEC | WF_FORK));
-	int new_cpu, cpu = smp_processor_id();
+	int new_cpu, cpu = smp_processor_id(), push_cpu;
 	struct sched_domain *tmp, *sd = NULL;
 	/* SD_flags and WF_flags share the first nibble */
 	int sd_flag = select_flags & 0xF;
@@ -10414,6 +10441,15 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int select_flags)
 	if (select_flags & WF_TTWU)
 		want_affine = !wake_wide(p) && cpumask_test_cpu(cpu, p->cpus_ptr);
 
+	/*
+	 * Only a push triggered by cache aware scheduling will push the
+	 * task towards its preferred LLC. Pushes for other reasons, like short
+	 * slice task, uses the default push strategy.
+	 */
+	push_cpu = -1;
+	if (select_flags & WF_RQ_PUSH)
+		push_cpu = check_pushable_cache_task(prev_cpu, p);
+
 	new_cpu = prev_cpu;
 
 	for_each_domain(cpu, tmp) {
@@ -10441,7 +10477,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int select_flags)
 			break;
 	}
 
-	/* Slow path */
+	/* Slow path,  push task will not go inside due to flags = 0 */
 	if (unlikely(sd)) {
 		new_cpu = sched_balance_find_dst_cpu(sd, p, cpu, prev_cpu, sd_flag);
 		return select_idle_smt_cpu(p, new_cpu);
@@ -10449,7 +10485,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int select_flags)
 
 	/* Fast path */
 	if (want_sibling)
-		new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
+		new_cpu = select_idle_sibling(p, prev_cpu, new_cpu, push_cpu);
 
 	return new_cpu;
 }
@@ -11570,6 +11606,44 @@ static bool migrate_degrades_llc(struct task_struct *p, struct lb_env *env)
 		return false;
 
 	return true;
+}
+
+/*
+ * Return the preferred CPU that task p running on this_cpu should be
+ * pushed to for better LLC locality, or -1 if no such push is wanted.
+ */
+static int check_pushable_cache_task(int this_cpu, struct task_struct *p)
+{
+	struct sched_cache_group *grp;
+	int pref_cpu;
+
+	if (!sched_cache_enabled())
+		return -1;
+
+	/* preemption already disabled */
+	grp = rcu_dereference_all(p->sched_cache_grp);
+	if (!grp)
+		return -1;
+
+	pref_cpu = READ_ONCE(grp->cpu);
+	/* If the task's pref_cpu is on the wrong(non-preferred) LLC, move it there */
+	if (pref_cpu == -1 || cpus_share_cache(pref_cpu, this_cpu))
+		return -1;
+
+	if (!cpumask_test_cpu(pref_cpu, p->cpus_ptr) ||
+	    !cpumask_test_cpu(pref_cpu, cpu_active_mask))
+		return -1;
+
+#ifdef CONFIG_NUMA_BALANCING
+	if (static_branch_likely(&sched_numa_balancing) &&
+	    p->numa_preferred_nid != NUMA_NO_NODE &&
+	    p->numa_preferred_nid != cpu_to_node(pref_cpu))
+		return -1;
+#endif
+	if (can_migrate_llc(this_cpu, pref_cpu, task_util(p), true) == mig_forbid)
+		return -1;
+
+	return pref_cpu;
 }
 
 #else
