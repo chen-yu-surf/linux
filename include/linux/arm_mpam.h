@@ -76,11 +76,6 @@ static inline void resctrl_arch_disable_mon(void) { }
 static inline void resctrl_arch_enable_alloc(void) { }
 static inline void resctrl_arch_disable_alloc(void) { }
 
-static inline unsigned int resctrl_arch_round_mon_val(unsigned int val)
-{
-	return val;
-}
-
 /**
  * mpam_register_requestor() - Register a requestor with the MPAM driver
  * @partid_max:		The maximum PARTID value the requestor can generate.
