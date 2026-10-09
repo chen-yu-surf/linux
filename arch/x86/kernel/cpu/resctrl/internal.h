@@ -284,6 +284,7 @@ static inline void intel_aet_mon_domain_setup(int cpu, int id, struct rdt_resour
 static inline bool intel_handle_aet_option(bool force_off, char *tok) { return false; }
 #endif
 
+unsigned int erdt_get_scale(void);
 void erdt_init(void);
 void erdt_exit(void);
 bool erdt_try_bind_cpu(int cpu);
