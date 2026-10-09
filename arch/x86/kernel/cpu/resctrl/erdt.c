@@ -38,9 +38,25 @@ static u16 first_rmdd_domain_id;
  */
 static unsigned int erdt_max_rmid;
 
+/*
+ * Used only to round the global resctrl_rmid_realloc_threshold for the limbo
+ * handler. resctrl_rmid_realloc_threshold is exposed to user space as a single
+ * global value, so ERDT uses one scale derived from the per-domain
+ * cmrc->up_scale values. max() keeps this single threshold conservative across
+ * domains because the rounding is a floor: a larger scale yields a slightly
+ * lower threshold, i.e. an RMID has to drop to a slightly lower occupancy
+ * before it is reused.
+ */
+static unsigned int erdt_scale;
+
 unsigned int erdt_get_max_rmid(void)
 {
 	return erdt_max_rmid;
+}
+
+unsigned int erdt_get_scale(void)
+{
+	return erdt_scale;
 }
 
 static void __iomem *erdt_ioremap(resource_size_t base, u32 num_pages, const char *desc)

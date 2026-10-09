@@ -281,6 +281,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 #endif
 
 unsigned int erdt_get_max_rmid(void);
+unsigned int erdt_get_scale(void);
 void erdt_init(void);
 void erdt_exit(void);
 bool erdt_try_bind_cpu(int cpu);
