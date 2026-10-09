@@ -182,6 +182,8 @@ static inline struct rdt_hw_resource *resctrl_to_arch_res(struct rdt_resource *r
 
 extern struct rdt_hw_resource rdt_resources_all[];
 
+extern int snc_nodes_per_l3_cache;
+
 void arch_mon_domain_online(struct rdt_resource *r, struct rdt_l3_mon_domain *d);
 
 /* CPUID.(EAX=10H, ECX=ResID=1).EAX */
@@ -256,6 +258,7 @@ union l3_qos_abmc_cfg {
 void rdt_ctrl_update(void *arg);
 
 int rdt_get_l3_mon_config(struct rdt_resource *r);
+void resctrl_arch_update_snc(void);
 
 bool rdt_cpu_has(int flag);
 
@@ -287,6 +290,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 bool erdt_support(int flag);
 unsigned int erdt_get_max_rmid(void);
 unsigned int erdt_get_scale(void);
+int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid, u64 *val);
 void erdt_init(void);
 void erdt_exit(void);
 bool erdt_try_bind_cpu(int cpu);
