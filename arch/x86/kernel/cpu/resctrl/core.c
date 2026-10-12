@@ -1018,6 +1018,7 @@ static __init bool get_rdt_resources(void)
 {
 	bool ret;
 
+	resctrl_arch_update_snc();
 	erdt_init();
 	rdt_alloc_capable = get_rdt_alloc_resources();
 	rdt_mon_capable = get_rdt_mon_resources();

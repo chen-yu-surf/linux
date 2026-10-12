@@ -34,7 +34,7 @@ bool rdt_mon_capable;
 
 #define CF(cf)	((unsigned long)(1048576 * (cf) + 0.5))
 
-static int snc_nodes_per_l3_cache = 1;
+int snc_nodes_per_l3_cache = 1;
 
 /*
  * The correction factor table is documented in Documentation/filesystems/resctrl.rst.
@@ -416,14 +416,17 @@ static __init int snc_get_config(void)
 	return ret;
 }
 
+void resctrl_arch_update_snc(void)
+{
+	snc_nodes_per_l3_cache = snc_get_config();
+}
+
 int __init rdt_get_l3_mon_config(struct rdt_resource *r)
 {
 	unsigned int mbm_offset = boot_cpu_data.x86_cache_mbm_width_offset;
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
 	unsigned int threshold;
 	u32 eax, ebx, ecx, edx;
-
-	snc_nodes_per_l3_cache = snc_get_config();
 
 	resctrl_rmid_realloc_limit = boot_cpu_data.x86_cache_size * 1024;
 	hw_res->mon_scale = boot_cpu_data.x86_cache_occ_scale / snc_nodes_per_l3_cache;

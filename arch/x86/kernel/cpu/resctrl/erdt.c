@@ -251,5 +251,17 @@ cleanup:
 
 __init void erdt_init(void)
 {
+	/*
+	 * ERDT describes monitoring resources per L3 cache domain, while SNC
+	 * splits an L3 cache into NUMA node scoped monitoring domains. The two
+	 * cannot be matched up, so leave ERDT disabled and fall back to the
+	 * MSR based CMT interface. This requires snc_nodes_per_l3_cache to
+	 * have been computed by resctrl_arch_update_snc() already.
+	 */
+	if (snc_nodes_per_l3_cache > 1) {
+		pr_info("Not supported with Sub-NUMA Cluster enabled, using legacy CMT\n");
+		return;
+	}
+
 	acpi_table_parse(ACPI_SIG_ERDT, enumerate_erdt_table);
 }
