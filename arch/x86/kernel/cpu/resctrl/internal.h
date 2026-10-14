@@ -291,6 +291,7 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 
 bool erdt_cpu_has(int flag);
 bool erdt_support(int flag);
+unsigned int erdt_get_cmt_scale(void);
 void erdt_init(void);
 void erdt_exit(void);
 bool erdt_try_bind_domain(int cpu);

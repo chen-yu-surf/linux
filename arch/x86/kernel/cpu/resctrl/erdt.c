@@ -36,9 +36,28 @@ static u16 first_rmdd_domain_id;
 /* Largest RMID that is valid in every ERDT domain. */
 static unsigned int erdt_max_rmid;
 
+/*
+ * Used only to round the global resctrl_rmid_realloc_threshold for the limbo
+ * handler. resctrl_rmid_realloc_threshold is exposed to user space as a single
+ * global value, so ERDT uses one scale derived from the per-domain
+ * cmrc->up_scale values. max() keeps this single threshold conservative across
+ * domains because the rounding is a floor: a larger scale yields a slightly
+ * lower threshold, i.e. an RMID has to drop to a slightly lower occupancy
+ * before it is reused.
+ */
+static unsigned int erdt_cmt_scale;
+
 bool erdt_support(int flag)
 {
 	return false;
+}
+
+unsigned int erdt_get_cmt_scale(void)
+{
+	if (!erdt_cpu_has(X86_FEATURE_CQM_OCCUP_LLC))
+		return 0;
+
+	return erdt_cmt_scale;
 }
 
 static void __iomem *erdt_ioremap(resource_size_t base, u32 num_pages, const char *desc)
@@ -142,6 +161,8 @@ static __init bool cmrc_init(struct acpi_subtbl_hdr_16 *subtbl,
 		domain_info->base[ERDT_MMIO_CMRC_BASE] = NULL;
 		return false;
 	}
+
+	erdt_cmt_scale = max(erdt_cmt_scale, cmrc->up_scale);
 
 	return true;
 }
@@ -400,6 +421,7 @@ void erdt_exit(void)
 	valid_subtbl_mask = 0;
 	first_rmdd_domain_id = 0;
 	erdt_max_rmid = 0;
+	erdt_cmt_scale = 0;
 }
 
 static __init int enumerate_erdt_table(struct acpi_table_header *table_hdr)
