@@ -155,7 +155,8 @@ struct msr_param {
  *			which has been corrected for features like CDP.
  * @msr_base:		Base MSR address for CBMs
  * @msr_update:		Function pointer to update QOS MSRs
- * @mon_scale:		cqm counter * mon_scale = occupancy in bytes
+ * @mon_scale:		cqm counter * mon_scale = occupancy in bytes.
+ *			Not used when LLC occupancy is read via ERDT.
  * @mbm_width:		Monitor width, to detect and correct for overflow.
  * @cdp_enabled:	CDP state of this resource
  * @mbm_cntr_assign_enabled:	ABMC feature is enabled
@@ -294,6 +295,8 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 bool erdt_cpu_has(int flag);
 bool erdt_support(int flag);
 unsigned int erdt_get_cmt_scale(void);
+unsigned int erdt_get_cmt_max_rmid(void);
+int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid, u64 *val);
 void erdt_init(void);
 void erdt_exit(void);
 bool erdt_try_bind_domain(int cpu);
