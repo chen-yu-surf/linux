@@ -33,7 +33,10 @@
  * The rdt_resource's domain list is updated when this happens. Readers of
  * the domain list must either take cpus_read_lock(), or rely on an RCU
  * read-side critical section, to avoid observing concurrent modification.
- * All writers take this mutex:
+ * All writers take this mutex.
+ *
+ * This mutex also serializes binding an ERDT domain to an L3 cache ID
+ * (erdt_domain_info::dom_id) when a CPU comes online.
  */
 static DEFINE_MUTEX(domain_list_lock);
 
@@ -560,6 +563,8 @@ static void l3_mon_domain_setup(int cpu, int id, struct rdt_resource *r, struct 
 		return;
 	}
 
+	erdt_l3_mon_domain_setup(&d->hdr);
+
 	err = resctrl_online_mon_domain(r, &d->hdr);
 	if (err) {
 		l3_mon_domain_free(hw_dom);
@@ -744,8 +749,13 @@ static int resctrl_arch_online_cpu(unsigned int cpu)
 	struct rdt_resource *r;
 
 	mutex_lock(&domain_list_lock);
+	/* Keep a CPU out of all domains if its ERDT and CPUID L3 domains conflict. */
+	if (!erdt_try_bind_domain(cpu))
+		goto unlock;
+
 	for_each_capable_rdt_resource(r)
 		domain_add_cpu(cpu, r);
+unlock:
 	mutex_unlock(&domain_list_lock);
 
 	clear_closid_rmid(cpu);
