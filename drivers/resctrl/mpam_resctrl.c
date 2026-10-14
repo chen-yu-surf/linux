@@ -143,6 +143,11 @@ void resctrl_arch_pre_mount(void)
 {
 }
 
+unsigned int resctrl_arch_round_mon_val(unsigned int val)
+{
+	return val;
+}
+
 bool resctrl_arch_get_cdp_enabled(enum resctrl_res_level rid)
 {
 	return mpam_resctrl_controls[rid].cdp_enabled;

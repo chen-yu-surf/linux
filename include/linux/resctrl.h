@@ -418,6 +418,7 @@ static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
 u32 resctrl_arch_get_num_closid(struct rdt_resource *r);
 u32 resctrl_arch_system_num_rmid_idx(void);
 int resctrl_arch_update_domains(struct rdt_resource *r, u32 closid);
+unsigned int resctrl_arch_round_mon_val(unsigned int val);
 
 bool resctrl_enable_mon_event(enum resctrl_event_id eventid, bool any_cpu,
 			      unsigned int binary_bits, void *arch_priv);
