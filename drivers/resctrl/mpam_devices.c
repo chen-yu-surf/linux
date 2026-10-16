@@ -2247,7 +2247,7 @@ static int mpam_cpu_online(unsigned int cpu)
 	}
 
 	if (mpam_resctrl_enabled)
-		return mpam_resctrl_online_cpu(cpu);
+		mpam_resctrl_online_cpu(cpu);
 
 	return 0;
 }

@@ -1640,8 +1640,8 @@ static struct mpam_component *find_component(struct mpam_class *class, int cpu)
 	return NULL;
 }
 
-static struct mpam_resctrl_dom *
-mpam_resctrl_alloc_domain(unsigned int cpu, struct mpam_resctrl_res *res)
+static void mpam_resctrl_alloc_domain(unsigned int cpu,
+				      struct mpam_resctrl_res *res)
 {
 	int err;
 	struct mpam_resctrl_dom *dom;
@@ -1656,11 +1656,11 @@ mpam_resctrl_alloc_domain(unsigned int cpu, struct mpam_resctrl_res *res)
 	comp = find_component(class, cpu);
 	/* class has no component for this CPU */
 	if (WARN_ON_ONCE(!comp))
-		return ERR_PTR(-EINVAL);
+		return;
 
 	dom = kzalloc_node(sizeof(*dom), GFP_KERNEL, cpu_to_node(cpu));
-	if (!dom)
-		return ERR_PTR(-ENOMEM);
+	if (WARN_ON_ONCE(!dom))
+		return;
 
 	if (r->alloc_capable) {
 		dom->ctrl_comp = comp;
@@ -1701,11 +1701,8 @@ mpam_resctrl_alloc_domain(unsigned int cpu, struct mpam_resctrl_res *res)
 			if (mon_comp)
 				any_mon_comp = mon_comp;
 		}
-		if (!any_mon_comp) {
-			WARN_ON_ONCE(0);
-			err = -EFAULT;
+		if (WARN_ON_ONCE(!any_mon_comp))
 			goto offline_ctrl_domain;
-		}
 
 		mon_d = &dom->resctrl_mon_dom;
 		mpam_resctrl_domain_hdr_init(cpu, any_mon_comp, r->rid, &mon_d->hdr);
@@ -1719,7 +1716,7 @@ mpam_resctrl_alloc_domain(unsigned int cpu, struct mpam_resctrl_res *res)
 		pr_debug("Skipped monitor domain online - no monitors\n");
 	}
 
-	return dom;
+	return;
 
 offline_ctrl_domain:
 	if (r->alloc_capable) {
@@ -1728,9 +1725,6 @@ offline_ctrl_domain:
 	}
 free_domain:
 	kfree(dom);
-	dom = ERR_PTR(err);
-
-	return dom;
 }
 
 /*
@@ -1782,7 +1776,7 @@ mpam_resctrl_get_domain_from_cpu(int cpu, struct mpam_resctrl_res *res)
 	return mpam_resctrl_get_mon_domain_from_cpu(cpu);
 }
 
-int mpam_resctrl_online_cpu(unsigned int cpu)
+void mpam_resctrl_online_cpu(unsigned int cpu)
 {
 	struct mpam_resctrl_res *res;
 	enum resctrl_res_level rid;
@@ -1797,9 +1791,13 @@ int mpam_resctrl_online_cpu(unsigned int cpu)
 
 		dom = mpam_resctrl_get_domain_from_cpu(cpu, res);
 		if (!dom) {
-			dom = mpam_resctrl_alloc_domain(cpu, res);
-			if (IS_ERR(dom))
-				return PTR_ERR(dom);
+			/*
+			 * On failure the CPU is left without a domain for this
+			 * resource, which mpam_resctrl_offline_cpu() tolerates.
+			 * resctrl_online_cpu() still adds the CPU to the default
+			 * group because the CPU is online and runs tasks.
+			 */
+			mpam_resctrl_alloc_domain(cpu, res);
 		} else {
 			if (r->alloc_capable) {
 				struct rdt_ctrl_domain *ctrl_d = &dom->resctrl_ctrl_dom;
@@ -1815,8 +1813,6 @@ int mpam_resctrl_online_cpu(unsigned int cpu)
 	}
 
 	resctrl_online_cpu(cpu);
-
-	return 0;
 }
 
 void mpam_resctrl_offline_cpu(unsigned int cpu)
@@ -1837,8 +1833,9 @@ void mpam_resctrl_offline_cpu(unsigned int cpu)
 		if (!res->class)
 			continue;	// dummy resource
 
+		/* The domain may be missing if its setup failed. */
 		dom = mpam_resctrl_get_domain_from_cpu(cpu, res);
-		if (WARN_ON_ONCE(!dom))
+		if (!dom)
 			continue;
 
 		if (r->alloc_capable) {
