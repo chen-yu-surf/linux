@@ -1640,13 +1640,75 @@ static struct mpam_component *find_component(struct mpam_class *class, int cpu)
 	return NULL;
 }
 
+static int mpam_resctrl_setup_ctrl_domain(unsigned int cpu,
+					  struct rdt_resource *r,
+					  struct mpam_component *comp,
+					  struct mpam_resctrl_dom *dom)
+{
+	struct rdt_ctrl_domain *ctrl_d = &dom->resctrl_ctrl_dom;
+	int err;
+
+	dom->ctrl_comp = comp;
+
+	mpam_resctrl_domain_hdr_init(cpu, comp, r->rid, &ctrl_d->hdr);
+	ctrl_d->hdr.type = RESCTRL_CTRL_DOMAIN;
+	err = resctrl_online_ctrl_domain(r, ctrl_d);
+	if (err)
+		return err;
+
+	mpam_resctrl_domain_insert(&r->ctrl_domains, &ctrl_d->hdr);
+
+	return 0;
+}
+
+static int mpam_resctrl_setup_mon_domain(unsigned int cpu,
+					 struct rdt_resource *r,
+					 struct mpam_resctrl_dom *dom)
+{
+	struct rdt_l3_mon_domain *mon_d = &dom->resctrl_mon_dom;
+	struct mpam_component *any_mon_comp = NULL;
+	enum resctrl_event_id eventid;
+	struct mpam_resctrl_mon *mon;
+	int err;
+
+	/*
+	 * Even if the monitor domain is backed by a different
+	 * component, the L3 component IDs need to be used... only
+	 * there may be no ctrl_comp for the L3.
+	 * Search each event's class list for a component with
+	 * overlapping CPUs and set up the dom->mon_comp array.
+	 */
+
+	for_each_mpam_resctrl_mon(mon, eventid) {
+		struct mpam_component *mon_comp;
+
+		if (!mon->class)
+			continue;       // dummy resource
+
+		mon_comp = find_component(mon->class, cpu);
+		dom->mon_comp[eventid] = mon_comp;
+		if (mon_comp)
+			any_mon_comp = mon_comp;
+	}
+	if (WARN_ON_ONCE(!any_mon_comp))
+		return -EFAULT;
+
+	mpam_resctrl_domain_hdr_init(cpu, any_mon_comp, r->rid, &mon_d->hdr);
+	mon_d->hdr.type = RESCTRL_MON_DOMAIN;
+	err = resctrl_online_mon_domain(r, &mon_d->hdr);
+	if (err)
+		return err;
+
+	mpam_resctrl_domain_insert(&r->mon_domains, &mon_d->hdr);
+
+	return 0;
+}
+
 static void mpam_resctrl_alloc_domain(unsigned int cpu,
 				      struct mpam_resctrl_res *res)
 {
 	int err;
 	struct mpam_resctrl_dom *dom;
-	struct rdt_l3_mon_domain *mon_d;
-	struct rdt_ctrl_domain *ctrl_d;
 	struct mpam_class *class = res->class;
 	struct mpam_component *comp;
 	struct rdt_resource *r = &res->resctrl_res;
@@ -1663,55 +1725,17 @@ static void mpam_resctrl_alloc_domain(unsigned int cpu,
 		return;
 
 	if (r->alloc_capable) {
-		dom->ctrl_comp = comp;
-
-		ctrl_d = &dom->resctrl_ctrl_dom;
-		mpam_resctrl_domain_hdr_init(cpu, comp, r->rid, &ctrl_d->hdr);
-		ctrl_d->hdr.type = RESCTRL_CTRL_DOMAIN;
-		err = resctrl_online_ctrl_domain(r, ctrl_d);
+		err = mpam_resctrl_setup_ctrl_domain(cpu, r, comp, dom);
 		if (err)
 			goto free_domain;
-
-		mpam_resctrl_domain_insert(&r->ctrl_domains, &ctrl_d->hdr);
 	} else {
 		pr_debug("Skipped control domain online - no controls\n");
 	}
 
 	if (r->mon_capable) {
-		struct mpam_component *any_mon_comp = NULL;
-		struct mpam_resctrl_mon *mon;
-		enum resctrl_event_id eventid;
-
-		/*
-		 * Even if the monitor domain is backed by a different
-		 * component, the L3 component IDs need to be used... only
-		 * there may be no ctrl_comp for the L3.
-		 * Search each event's class list for a component with
-		 * overlapping CPUs and set up the dom->mon_comp array.
-		 */
-
-		for_each_mpam_resctrl_mon(mon, eventid) {
-			struct mpam_component *mon_comp;
-
-			if (!mon->class)
-				continue;       // dummy resource
-
-			mon_comp = find_component(mon->class, cpu);
-			dom->mon_comp[eventid] = mon_comp;
-			if (mon_comp)
-				any_mon_comp = mon_comp;
-		}
-		if (WARN_ON_ONCE(!any_mon_comp))
-			goto offline_ctrl_domain;
-
-		mon_d = &dom->resctrl_mon_dom;
-		mpam_resctrl_domain_hdr_init(cpu, any_mon_comp, r->rid, &mon_d->hdr);
-		mon_d->hdr.type = RESCTRL_MON_DOMAIN;
-		err = resctrl_online_mon_domain(r, &mon_d->hdr);
+		err = mpam_resctrl_setup_mon_domain(cpu, r, dom);
 		if (err)
 			goto offline_ctrl_domain;
-
-		mpam_resctrl_domain_insert(&r->mon_domains, &mon_d->hdr);
 	} else {
 		pr_debug("Skipped monitor domain online - no monitors\n");
 	}
@@ -1720,8 +1744,8 @@ static void mpam_resctrl_alloc_domain(unsigned int cpu,
 
 offline_ctrl_domain:
 	if (r->alloc_capable) {
-		mpam_resctrl_offline_domain_hdr(cpu, &ctrl_d->hdr);
-		resctrl_offline_ctrl_domain(r, ctrl_d);
+		mpam_resctrl_offline_domain_hdr(cpu, &dom->resctrl_ctrl_dom.hdr);
+		resctrl_offline_ctrl_domain(r, &dom->resctrl_ctrl_dom);
 	}
 free_domain:
 	kfree(dom);
