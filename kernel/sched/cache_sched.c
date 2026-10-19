@@ -169,10 +169,45 @@ static struct task_struct *sched_cache_find_get_task(unsigned long vpid)
 	return p;
 }
 
+enum sched_cache_info {
+	SCHED_CACHE_INFO_ID,
+	SCHED_CACHE_INFO_ENABLED,
+};
+
+static int sched_cache_get_info(struct task_struct *dst, unsigned long arg4,
+				enum pid_type type, enum sched_cache_info info)
+{
+	u64 __user *uptr = (u64 __user *)arg4;
+	struct sched_cache_group *grp;
+	unsigned long value = 0;
+
+	if (type != PIDTYPE_PID || arg4 & 7)
+		return -EINVAL;
+
+	grp = task_cache_group_get(dst);
+	if (!grp) {
+		if (info == SCHED_CACHE_INFO_ENABLED)
+			return -ENOENT;
+		return put_user(0ULL, uptr);
+	}
+
+	switch (info) {
+	case SCHED_CACHE_INFO_ID:
+		ptr_to_hashval((void *)grp, &value);
+		break;
+	case SCHED_CACHE_INFO_ENABLED:
+		value = READ_ONCE(grp->enabled);
+		break;
+	}
+
+	sched_cache_group_put(grp);
+	return put_user((u64)value, uptr);
+}
+
 /*
  * arg2: subcommand,
  * arg3: destination pid, SHARE_FROM copies the group of arg4 to arg3
- * arg4: source pid, or cookie out ptr for GET
+ * arg4: source pid, or output ptr for GET / GET_ENABLED
  * arg5: pid type, the scope of the destination
  *
  */
@@ -225,42 +260,14 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 
 		goto out_group;
 
-	case PR_SCHED_CACHE_GET_ENABLED: {
-		int enabled;
+	case PR_SCHED_CACHE_GET_ENABLED:
+		err = sched_cache_get_info(dst, arg4, type,
+					   SCHED_CACHE_INFO_ENABLED);
+		goto out_task;
 
-		if (type != PIDTYPE_PID || arg4 & 7) {
-			err = -EINVAL;
-			goto out_task;
-		}
-
-		grp = task_cache_group_get(dst);
-		if (!grp) {
-			err = -ENOENT;
-			goto out_task;
-		}
-
-		enabled = READ_ONCE(grp->enabled);
-		err = put_user((u64)enabled, (u64 __user *)arg4);
-
-		goto out_group;
-	}
-
-	case PR_SCHED_CACHE_GET: {
-		unsigned long id = 0;
-
-		if (type != PIDTYPE_PID || arg4 & 7) {
-			err = -EINVAL;
-			goto out_task;
-		}
-
-		grp = task_cache_group_get(dst);
-		if (grp)
-			ptr_to_hashval((void *)grp, &id);
-
-		err = put_user((u64)id, (u64 __user *)arg4);
-
-		goto out_group;
-	}
+	case PR_SCHED_CACHE_GET:
+		err = sched_cache_get_info(dst, arg4, type, SCHED_CACHE_INFO_ID);
+		goto out_task;
 
 	case PR_SCHED_CACHE_CREATE:
 		/*
