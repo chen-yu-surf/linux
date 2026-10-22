@@ -2391,7 +2391,8 @@ struct sched_cache_group {
 	unsigned long epoch;
 	u64 nr_running_avg;
 	unsigned long next_scan;
-	unsigned long footprint;
+	/* Sum of the member tasks' accounted footprints, in pages. */
+	atomic_long_t footprint;
 	int cpu;
 	refcount_t refcnt;
 	struct rcu_head rcu;
