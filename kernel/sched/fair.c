@@ -1426,6 +1426,7 @@ static bool exceed_llc_capacity(struct sched_cache_group *grp, int cpu)
 #ifdef CONFIG_NUMA_BALANCING
 	unsigned long llc, footprint;
 	struct sched_domain *sd;
+	long fp;
 	int scale;
 
 	guard(rcu)();
@@ -1440,7 +1441,9 @@ static bool exceed_llc_capacity(struct sched_cache_group *grp, int cpu)
 		 * excluded.
 		 */
 		llc = sd->llc_bytes;
-		footprint = READ_ONCE(grp->footprint);
+		fp = atomic_long_read(&grp->footprint);
+		WARN_ON_ONCE(fp < 0);
+		footprint = max(fp, 0L);
 
 		/*
 		 * Scale the LLC size by 256*llc_aggr_tolerance
@@ -1620,7 +1623,7 @@ int mm_init_sched(struct mm_struct *mm,
 	grp->cpu = -1;
 	grp->next_scan = jiffies;
 	grp->nr_running_avg = 0;
-	grp->footprint = 0;
+	atomic_long_set(&grp->footprint, 0);
 	refcount_set(&grp->refcnt, 1);
 	/*
 	 * The update to grp->pcpu_sched should not be reordered
@@ -1662,12 +1665,29 @@ DEFINE_FREE(sched_cache_group_put, struct sched_cache_group *,
 #define rcu_deref_sched_cache_grp(tsk) \
 	rcu_dereference_check((tsk)->sched_cache_grp, (tsk) == current)
 
+static inline void __sched_cache_footprint_update(struct sched_cache_group *grp,
+						   long delta)
+{
+	if (grp && delta)
+		atomic_long_add(delta, &grp->footprint);
+}
+
+static inline void sched_cache_footprint_update(struct task_struct *p, long delta)
+{
+	__sched_cache_footprint_update(rcu_deref_sched_cache_grp(p), delta);
+}
+
 static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 							 struct sched_cache_group *new)
 {
 	struct sched_cache_group *old;
 
 	old = rcu_deref_sched_cache_grp(p);
+#ifdef CONFIG_NUMA_BALANCING
+	/* Other tasks sharing the old mm can keep its group alive after exec. */
+	if (old != new)
+		__sched_cache_footprint_update(old, -(long)p->total_numa_faults);
+#endif
 	rcu_assign_pointer(p->sched_cache_grp, new);
 
 	return old;
@@ -1730,19 +1750,6 @@ void sched_cache_exit_mm(struct task_struct *p)
 {
 	struct sched_cache_group *grp = sched_cache_replace_grp(p, NULL);
 
-#ifdef CONFIG_NUMA_BALANCING
-	/*
-	 * Subtract this task's footprint from the group before dropping the
-	 * reference, so the group footprint converges as its threads exit.
-	 * Unlocked for performance; clamp to avoid underflow.
-	 */
-	if (grp && p->total_numa_faults) {
-		unsigned long fp = READ_ONCE(grp->footprint);
-		unsigned long sub = min(fp, p->total_numa_faults);
-
-		WRITE_ONCE(grp->footprint, fp - sub);
-	}
-#endif
 	sched_cache_group_put(grp);
 }
 
@@ -2131,6 +2138,9 @@ void init_sched_mm(struct task_struct *p)
 
 static inline void account_mm_sched(struct rq *rq, struct task_struct *p,
 				    s64 delta_exec) { }
+
+static inline void sched_cache_footprint_update(struct task_struct *p,
+						long delta) { }
 
 void init_sched_mm(struct task_struct *p) { }
 
@@ -3829,14 +3839,13 @@ static int preferred_group_nid(struct task_struct *p, int nid)
 static void task_numa_placement(struct task_struct *p)
 	__context_unsafe(/* conditional locking */)
 {
-	struct sched_cache_group __maybe_unused *grp;
 	int seq, nid, max_nid = NUMA_NO_NODE;
 	unsigned long max_faults = 0;
 	unsigned long fault_types[2] = { 0, 0 };
+	unsigned long old_faults = p->total_numa_faults;
 	unsigned long total_faults;
 	u64 runtime, period;
 	spinlock_t *group_lock = NULL;
-	long __maybe_unused new_fp;
 	struct numa_group *ng;
 
 	/*
@@ -3911,36 +3920,6 @@ static void task_numa_placement(struct task_struct *p)
 				ng->total_faults += diff;
 				group_faults += ng->faults[mem_idx];
 			}
-#ifdef CONFIG_SCHED_CACHE
-			/*
-			 * Per task p->numa_faults[mem_idx] converges,
-			 * so the accumulation of each task's faults
-			 * converges too - Given the number of threads,
-			 * it cannot overflow an unsigned long.
-			 * Racy with concurrent updates from other threads
-			 * sharing this mm. Acceptable since footprint is a
-			 * heuristic and occasional lost updates are tolerable.
-			 *
-			 * If a task exits, its corresponding footprint must
-			 * be subtracted from p->sched_cache_grp->footprint,
-			 * otherwise the footprint will not converge: the
-			 * exiting thread's footprint remains unchanged/undecayed.
-			 * See exit_mm().
-			 *
-			 * Lost updates and unsynchronized subtraction
-			 * in exit_mm() can cause footprint + diff to
-			 * go negative. Clamp to zero to prevent the
-			 * unsigned footprint from wrapping.
-			 */
-			scoped_guard(rcu) {
-				grp = rcu_dereference(p->sched_cache_grp);
-
-				if (grp) {
-					new_fp = (long)READ_ONCE(grp->footprint) + diff;
-					WRITE_ONCE(grp->footprint, max(new_fp, 0L));
-				}
-			}
-#endif
 		}
 
 		if (!ng) {
@@ -3962,6 +3941,15 @@ static void task_numa_placement(struct task_struct *p)
 		spin_unlock_irq(group_lock);
 		max_nid = preferred_group_nid(p, max_nid);
 	}
+
+	/*
+	 * Per task p->numa_faults[mem_idx] converges, so the accumulation of each
+	 * task's faults converges too. Given the number of threads, it cannot
+	 * overflow an atomic_long_t.
+	 *
+	 * Apply the net change once per placement pass to limit cache-line traffic.
+	 */
+	sched_cache_footprint_update(p, p->total_numa_faults - old_faults);
 
 	if (max_faults) {
 		/* Set the new preferred node */
