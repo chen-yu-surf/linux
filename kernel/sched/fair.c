@@ -1683,18 +1683,41 @@ static void sched_cache_group_put(struct sched_cache_group *grp)
 DEFINE_FREE(sched_cache_group_put, struct sched_cache_group *,
 	    sched_cache_group_put(_T));
 
-#define rcu_deref_sched_cache_grp(tsk) \
-	rcu_dereference_check((tsk)->sched_cache_grp, (tsk) == current)
-
 static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 							 struct sched_cache_group *new)
 {
 	struct sched_cache_group *old;
 
-	old = rcu_deref_sched_cache_grp(p);
+	lockdep_assert_held(&p->pi_lock);
+	old = rcu_dereference_protected(p->sched_cache_grp,
+					lockdep_is_held(&p->pi_lock));
 	rcu_assign_pointer(p->sched_cache_grp, new);
 
 	return old;
+}
+
+/*
+ * Switch @p to the group @new and drop the reference of the old group.
+ * pi_lock serializes the switch against a concurrent writer targeting
+ * this task.
+ */
+static void sched_cache_set_grp(struct task_struct *p,
+				struct sched_cache_group *new)
+{
+	struct sched_cache_group *old;
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&p->pi_lock, flags);
+	/* Do not attach a group to a task that may have passed exit_mm(). */
+	if (new && (p->flags & PF_EXITING)) {
+		raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+		sched_cache_group_put(new);
+		return;
+	}
+	old = sched_cache_replace_grp(p, new);
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+
+	sched_cache_group_put(old);
 }
 
 struct sched_cache_group *sched_cache_group_get(struct sched_cache_group *grp)
@@ -1740,19 +1763,19 @@ void sched_cache_fork_cleanup(struct task_struct *p)
 
 void sched_cache_exec_mmap(struct task_struct *p, struct mm_struct *mm)
 {
-	struct sched_cache_group *old;
-
 	/*
 	 * Acquire the new reference before publishing the pointer, then drop
-	 * the old one. @p is current and the only writer of its own pointer.
+	 * the old one.
 	 */
-	old = sched_cache_replace_grp(p, sched_cache_group_get(mm->sched_cache_grp));
-	sched_cache_group_put(old);
+	sched_cache_set_grp(p, sched_cache_group_get(mm->sched_cache_grp));
 }
 
 void sched_cache_exit_mm(struct task_struct *p)
 {
-	struct sched_cache_group *grp = sched_cache_replace_grp(p, NULL);
+	struct sched_cache_group *grp;
+
+	scoped_guard(raw_spinlock_irqsave, &p->pi_lock)
+		grp = sched_cache_replace_grp(p, NULL);
 
 #ifdef CONFIG_NUMA_BALANCING
 	/*
