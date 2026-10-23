@@ -4217,6 +4217,12 @@ static inline bool sched_cache_enabled(void)
 
 extern void sched_cache_active_set(void);
 
+struct sched_cache_group *sched_cache_alloc_group_noprof(void);
+#define sched_cache_alloc_group(...) alloc_hooks(sched_cache_alloc_group_noprof(__VA_ARGS__))
+void sched_cache_group_put(struct sched_cache_group *grp);
+void sched_cache_set_grp(struct task_struct *p,
+			 struct sched_cache_group *new);
+
 #endif
 
 void sched_domains_free_llc_id(int cpu);
