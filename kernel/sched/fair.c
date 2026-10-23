@@ -1684,6 +1684,38 @@ static void sched_cache_group_put(struct sched_cache_group *grp)
 DEFINE_FREE(sched_cache_group_put, struct sched_cache_group *,
 	    sched_cache_group_put(_T));
 
+#ifdef CONFIG_NUMA_BALANCING
+static void sched_cache_xfer_footprint(struct task_struct *p,
+				       struct sched_cache_group *old,
+				       struct sched_cache_group *new)
+{
+	unsigned long sub, add;
+
+	if (old == new)
+		return;
+
+	sub = add = READ_ONCE(p->total_numa_faults);
+	if (!sub)
+		return;
+
+	if (old) {
+		unsigned long fp = READ_ONCE(old->footprint);
+
+		sub = min(fp, sub);
+		WRITE_ONCE(old->footprint, fp - sub);
+	}
+
+	if (new)
+		WRITE_ONCE(new->footprint, READ_ONCE(new->footprint) + add);
+}
+#else
+static void sched_cache_xfer_footprint(struct task_struct *p,
+				       struct sched_cache_group *old,
+				       struct sched_cache_group *new)
+{
+}
+#endif
+
 #define rcu_deref_sched_cache_grp(tsk) \
 	rcu_dereference_check((tsk)->sched_cache_grp, (tsk) == current)
 
@@ -1693,6 +1725,10 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 	struct sched_cache_group *old;
 
 	old = rcu_deref_sched_cache_grp(p);
+
+	/* Carry this task's footprint estimate to the group it just joined. */
+	sched_cache_xfer_footprint(p, old, new);
+
 	rcu_assign_pointer(p->sched_cache_grp, new);
 
 	return old;
@@ -1755,19 +1791,6 @@ void sched_cache_exit_mm(struct task_struct *p)
 {
 	struct sched_cache_group *grp = sched_cache_replace_grp(p, NULL);
 
-#ifdef CONFIG_NUMA_BALANCING
-	/*
-	 * Subtract this task's footprint from the group before dropping the
-	 * reference, so the group footprint converges as its threads exit.
-	 * Unlocked for performance; clamp to avoid underflow.
-	 */
-	if (grp && p->total_numa_faults) {
-		unsigned long fp = READ_ONCE(grp->footprint);
-		unsigned long sub = min(fp, p->total_numa_faults);
-
-		WRITE_ONCE(grp->footprint, fp - sub);
-	}
-#endif
 	sched_cache_group_put(grp);
 }
 
