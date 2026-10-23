@@ -1477,7 +1477,7 @@ static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 {
 	int scale;
 
-	if (get_nr_threads(p) <= 1)
+	if (atomic_read(&grp->users) <= 1)
 		return true;
 
 	/*
@@ -1536,6 +1536,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->next_scan = jiffies;
 	grp->nr_running_avg = 0;
 	atomic_long_set(&grp->footprint, 0);
+	atomic_set(&grp->users, 0);
 	refcount_set(&grp->refcnt, 1);
 	/*
 	 * The update to grp->pcpu_sched should not be reordered
@@ -1686,6 +1687,20 @@ static void sched_cache_group_put(struct sched_cache_group *grp)
 DEFINE_FREE(sched_cache_group_put, struct sched_cache_group *,
 	    sched_cache_group_put(_T));
 
+static void sched_cache_users_update(struct task_struct *p,
+				     struct sched_cache_group *old,
+				     struct sched_cache_group *new)
+{
+	if (old == new)
+		return;
+
+	if (new)
+		atomic_inc(&new->users);
+
+	if (old)
+		atomic_dec(&old->users);
+}
+
 static inline void __sched_cache_footprint_update(struct sched_cache_group *grp,
 						   long delta)
 {
@@ -1718,6 +1733,9 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 	lockdep_assert_held(&p->pi_lock);
 	old = rcu_dereference_protected(p->sched_cache_grp,
 					lockdep_is_held(&p->pi_lock));
+
+	sched_cache_users_update(p, old, new);
+
 	if (old != new) {
 		long faults = p->sched_cache_footprint;
 
@@ -1793,18 +1811,26 @@ void sched_cache_fork(struct task_struct *p)
 		grp = sched_cache_group_get(p->mm->sched_cache_grp);
 	}
 
+	if (grp)
+		atomic_inc(&grp->users);
+
 	/* @p is not yet visible to readers, so a plain initializing store is enough. */
 	RCU_INIT_POINTER(p->sched_cache_grp, grp);
 }
 
 void sched_cache_fork_cleanup(struct task_struct *p)
 {
+	struct sched_cache_group *grp;
+
 	/*
 	 * A fork that fails after sched_cache_fork() never reaches exit_mm(),
 	 * so drop the reference here. @p never became visible, so there are no
 	 * concurrent readers and the reference we hold keeps the group alive.
 	 */
-	sched_cache_group_put(rcu_access_pointer(p->sched_cache_grp));
+	grp = rcu_access_pointer(p->sched_cache_grp);
+	if (grp)
+		atomic_dec(&grp->users);
+	sched_cache_group_put(grp);
 	RCU_INIT_POINTER(p->sched_cache_grp, NULL);
 }
 
