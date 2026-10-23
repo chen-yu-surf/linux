@@ -1537,6 +1537,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->nr_running_avg = 0;
 	atomic_long_set(&grp->footprint, 0);
 	atomic_set(&grp->users, 0);
+	grp->enabled = 1;
 	refcount_set(&grp->refcnt, 1);
 	/*
 	 * The update to grp->pcpu_sched should not be reordered
@@ -1546,7 +1547,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	smp_store_release(&grp->pcpu_sched, _pcpu_sched);
 }
 
-static struct sched_cache_group *
+struct sched_cache_group *
 sched_cache_alloc_group_noprof(void)
 {
 	struct sched_cache_time __percpu *pcpu_sched =
@@ -1565,7 +1566,6 @@ sched_cache_alloc_group_noprof(void)
 	sched_cache_group_init(grp, pcpu_sched);
 	return grp;
 }
-#define sched_cache_alloc_group(...) alloc_hooks(sched_cache_alloc_group_noprof(__VA_ARGS__))
 
 static void account_llc_enqueue(struct rq *rq, struct task_struct *p)
 {
@@ -1676,7 +1676,7 @@ static void sched_cache_group_free_rcu(struct rcu_head *rcu)
 	kfree(grp);
 }
 
-static void sched_cache_group_put(struct sched_cache_group *grp)
+void sched_cache_group_put(struct sched_cache_group *grp)
 {
 	if (!grp || !refcount_dec_and_test(&grp->refcnt))
 		return;
@@ -1753,10 +1753,16 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 /*
  * Switch @p to the group @new and drop the reference of the old group.
  * pi_lock serializes the switch against a concurrent writer targeting
- * this task. See sched_cache_replace_grp() for @migrate.
+ * this task.
+ *
+ * There are two kinds of callers:
+ * 1. exit and exec: subtract the footprint of @p from the old group.
+ *    Do not add it to the new group.
+ * 2. prctl() group switch: move the footprint of @p from the old group
+ *    to the new group, just like numa_group does. @migrate is true here.
  */
-static void sched_cache_set_grp(struct task_struct *p,
-				struct sched_cache_group *new, bool migrate)
+void sched_cache_set_grp(struct task_struct *p,
+			 struct sched_cache_group *new, bool migrate)
 {
 	struct sched_cache_group *old;
 	unsigned long flags;
@@ -1909,6 +1915,9 @@ static int get_pref_llc(struct task_struct *p, struct sched_cache_group *grp)
 	if (!grp)
 		return -1;
 
+	if (!READ_ONCE(grp->enabled))
+		return -1;
+
 	mm_sched_cpu = READ_ONCE(grp->cpu);
 	if (mm_sched_cpu != -1) {
 		mm_sched_llc = llc_id(mm_sched_cpu);
@@ -2004,6 +2013,9 @@ static void task_tick_cache(struct rq *rq, struct task_struct *p)
 
 	if (!grp || p->flags & PF_KTHREAD ||
 	    !grp->pcpu_sched)
+		return;
+
+	if (!READ_ONCE(grp->enabled))
 		return;
 
 	epoch = rq->cpu_epoch;
@@ -2107,6 +2119,10 @@ static void task_cache_work(struct callback_head *work)
 	 */
 	grp = task_cache_group_get(p);
 	if (!grp)
+		return;
+
+	/* Cache aware scheduling has been disabled for this group via prctl. */
+	if (!READ_ONCE(grp->enabled))
 		return;
 
 	next_scan = READ_ONCE(grp->next_scan);

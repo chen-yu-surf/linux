@@ -2396,6 +2396,7 @@ struct sched_cache_group {
 	/* Sum of the member tasks' accounted footprints, in pages. */
 	atomic_long_t footprint;
 	int cpu;
+	int enabled;
 	refcount_t refcnt;
 	atomic_t users;
 	struct rcu_head rcu;
@@ -2408,6 +2409,8 @@ void sched_cache_fork(struct task_struct *p);
 void sched_cache_fork_cleanup(struct task_struct *p);
 void sched_cache_exec_mmap(struct task_struct *p, struct mm_struct *mm);
 void sched_cache_exit_mm(struct task_struct *p);
+int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
+		      unsigned long arg4, unsigned long arg5);
 
 #else
 
