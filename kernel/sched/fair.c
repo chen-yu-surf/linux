@@ -1533,7 +1533,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->next_scan = jiffies;
 	grp->nr_running_avg = 0;
 	grp->footprint = 0;
-	grp->enabled = 1;
+	grp->enabled = 0;
 	refcount_set(&grp->refcnt, 1);
 	/*
 	 * The update to grp->pcpu_sched should not be reordered
@@ -1865,6 +1865,9 @@ static int get_pref_llc(struct task_struct *p, struct sched_cache_group *grp)
 	if (!grp)
 		return -1;
 
+	if (!sched_cache_group_enabled(grp))
+		return -1;
+
 	mm_sched_cpu = READ_ONCE(grp->cpu);
 	if (mm_sched_cpu != -1) {
 		mm_sched_llc = llc_id(mm_sched_cpu);
@@ -1960,6 +1963,9 @@ static void task_tick_cache(struct rq *rq, struct task_struct *p)
 
 	if (!grp || p->flags & PF_KTHREAD ||
 	    !grp->pcpu_sched)
+		return;
+
+	if (!sched_cache_group_enabled(grp))
 		return;
 
 	epoch = rq->cpu_epoch;
@@ -2063,6 +2069,10 @@ static void task_cache_work(struct callback_head *work)
 	 */
 	grp = task_cache_group_get(p);
 	if (!grp)
+		return;
+
+	/* Cache aware scheduling is not enabled for this group. */
+	if (!sched_cache_group_enabled(grp))
 		return;
 
 	next_scan = READ_ONCE(grp->next_scan);
@@ -11017,6 +11027,9 @@ static enum llc_mig can_migrate_llc_task(struct lb_env *env,
 	dst_cpu = env->dst_cpu;
 	grp = rcu_dereference_all(p->sched_cache_grp);
 	if (!grp)
+		return mig_unrestricted;
+
+	if (!sched_cache_group_enabled(grp))
 		return mig_unrestricted;
 
 	cpu = READ_ONCE(grp->cpu);
