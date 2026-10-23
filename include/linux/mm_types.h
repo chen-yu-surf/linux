@@ -1662,19 +1662,12 @@ static inline unsigned int mm_cid_size(void)
 #endif /* CONFIG_SCHED_MM_CID */
 
 #ifdef CONFIG_SCHED_CACHE
-int mm_init_sched(struct mm_struct *mm,
-		  struct sched_cache_time __percpu *pcpu_sched);
+int mm_init_sched(struct mm_struct *mm);
 void mm_destroy_sched(struct mm_struct *mm);
 
 static inline int mm_alloc_sched_noprof(struct mm_struct *mm)
 {
-	struct sched_cache_time __percpu *pcpu_sched =
-		alloc_percpu_noprof(struct sched_cache_time);
-
-	if (!pcpu_sched)
-		return -ENOMEM;
-
-	return mm_init_sched(mm, pcpu_sched);
+	return mm_init_sched(mm);
 }
 
 #define mm_alloc_sched(...)	alloc_hooks(mm_alloc_sched_noprof(__VA_ARGS__))

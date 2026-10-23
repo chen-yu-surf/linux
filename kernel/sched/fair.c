@@ -1511,6 +1511,58 @@ static void pref_llc_running_dec(struct rq *rq, struct task_struct *p)
 		rq->nr_pref_llc_running--;
 }
 
+static void sched_cache_group_init(struct sched_cache_group *grp,
+				   struct sched_cache_time __percpu *_pcpu_sched)
+{
+	unsigned long epoch = 0;
+	int i;
+
+	for_each_possible_cpu(i) {
+		struct sched_cache_time *pcpu_sched = per_cpu_ptr(_pcpu_sched, i);
+		struct rq *rq = cpu_rq(i);
+
+		pcpu_sched->runtime = 0;
+		/* a slightly stale cpu epoch is acceptible */
+		pcpu_sched->epoch = rq->cpu_epoch;
+		epoch = rq->cpu_epoch;
+	}
+
+	raw_spin_lock_init(&grp->lock);
+	grp->epoch = epoch;
+	grp->cpu = -1;
+	grp->next_scan = jiffies;
+	grp->nr_running_avg = 0;
+	grp->footprint = 0;
+	refcount_set(&grp->refcnt, 1);
+	/*
+	 * The update to grp->pcpu_sched should not be reordered
+	 * before initialization to grp's other fields, in case
+	 * the readers may get invalid mm_sched_epoch, etc.
+	 */
+	smp_store_release(&grp->pcpu_sched, _pcpu_sched);
+}
+
+static struct sched_cache_group *
+sched_cache_alloc_group_noprof(void)
+{
+	struct sched_cache_time __percpu *pcpu_sched =
+		alloc_percpu_noprof(struct sched_cache_time);
+	struct sched_cache_group *grp;
+
+	if (!pcpu_sched)
+		return NULL;
+
+	grp = kzalloc_obj(*grp);
+	if (!grp) {
+		free_percpu(pcpu_sched);
+		return NULL;
+	}
+
+	sched_cache_group_init(grp, pcpu_sched);
+	return grp;
+}
+#define sched_cache_alloc_group(...) alloc_hooks(sched_cache_alloc_group_noprof(__VA_ARGS__))
+
 static void account_llc_enqueue(struct rq *rq, struct task_struct *p)
 {
 	int pref_llc, pref_llc_queued;
@@ -1591,43 +1643,15 @@ static void account_llc_dequeue(struct rq *rq, struct task_struct *p)
 	}
 }
 
-int mm_init_sched(struct mm_struct *mm,
-		  struct sched_cache_time __percpu *_pcpu_sched)
+int mm_init_sched(struct mm_struct *mm)
 {
-	struct sched_cache_group *grp;
-	unsigned long epoch = 0;
-	int i;
+	struct sched_cache_group *grp = sched_cache_alloc_group();
 
-	grp = kzalloc_obj(*grp);
 	if (!grp) {
-		free_percpu(_pcpu_sched);
 		mm->sched_cache_grp = NULL;
 		return -ENOMEM;
 	}
 
-	for_each_possible_cpu(i) {
-		struct sched_cache_time *pcpu_sched = per_cpu_ptr(_pcpu_sched, i);
-		struct rq *rq = cpu_rq(i);
-
-		pcpu_sched->runtime = 0;
-		/* a slightly stale cpu epoch is acceptible */
-		pcpu_sched->epoch = rq->cpu_epoch;
-		epoch = rq->cpu_epoch;
-	}
-
-	raw_spin_lock_init(&grp->lock);
-	grp->epoch = epoch;
-	grp->cpu = -1;
-	grp->next_scan = jiffies;
-	grp->nr_running_avg = 0;
-	grp->footprint = 0;
-	refcount_set(&grp->refcnt, 1);
-	/*
-	 * The update to grp->pcpu_sched should not be reordered
-	 * before initialization to grp's other fields, in case
-	 * the readers may get invalid mm_sched_epoch, etc.
-	 */
-	smp_store_release(&grp->pcpu_sched, _pcpu_sched);
 	/*
 	 * Publish the group last.  Not every reader qualifies it by
 	 * grp->pcpu_sched - can_migrate_llc_task() only checks that the
