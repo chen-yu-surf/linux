@@ -4201,9 +4201,27 @@ static inline void mm_cid_switch_to(struct task_struct *prev, struct task_struct
 #endif /* !CONFIG_SCHED_MM_CID */
 
 #ifdef CONFIG_SCHED_CACHE
+enum sc_modes {
+	SC_ENABLED_ALWAYS	= 0,
+	SC_ENABLED_ADVISE	= 1,
+	SC_ENABLED_NEVER	= 2,
+	SC_ENABLED_NR,
+};
+
+/*
+ * Per group choice made through PR_SCHED_CACHE_{ENABLE,DISABLE}, stored in
+ * sched_cache_group::enabled. A new group starts as SC_GRP_DEFAULT (0).
+ */
+enum sc_grp_state {
+	SC_GRP_DEFAULT		= 0,
+	SC_GRP_ENABLED		= 1,
+	SC_GRP_DISABLED		= 2,
+};
+
 DECLARE_STATIC_KEY_FALSE(sched_cache_present);
 DECLARE_STATIC_KEY_FALSE(sched_cache_active);
-extern int sysctl_sched_cache_user;
+DECLARE_STATIC_KEY_FALSE(sched_cache_adv);
+extern int sysctl_sched_cache_mode;
 extern unsigned int llc_aggr_tolerance;
 extern unsigned int llc_epoch_period;
 extern unsigned int llc_epoch_affinity_timeout;
@@ -4213,6 +4231,26 @@ extern unsigned int llc_overaggr_pct;
 static inline bool sched_cache_enabled(void)
 {
 	return static_branch_unlikely(&sched_cache_active);
+}
+
+static inline bool sched_cache_group_enabled(struct sched_cache_group *grp)
+{
+	int state;
+
+	if (!static_branch_unlikely(&sched_cache_active))
+		return false;
+
+	state = READ_ONCE(grp->enabled);
+
+	/* An explicit opt-out is honoured in both "always" and "advise". */
+	if (state == SC_GRP_DISABLED)
+		return false;
+
+	/* "advise" needs an explicit opt-in. */
+	if (static_branch_unlikely(&sched_cache_adv))
+		return state == SC_GRP_ENABLED;
+
+	return true;
 }
 
 extern void sched_cache_active_set(void);
