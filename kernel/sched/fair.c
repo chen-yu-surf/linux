@@ -1475,7 +1475,12 @@ static bool invalid_llc_nr(struct sched_cache_group *grp, struct task_struct *p,
 {
 	int scale;
 
-	if (get_nr_threads(p) <= 1)
+	/*
+	 * A single-threaded process that is not grouped with other tasks
+	 * does not need cache aware scheduling. Its group then has a
+	 * refcount of 2: one from the mm and one from the task.
+	 */
+	if (refcount_read(&grp->refcnt) <= 2 && get_nr_threads(p) <= 1)
 		return true;
 
 	/*
@@ -1778,13 +1783,24 @@ struct sched_cache_group *task_cache_group_get(struct task_struct *p)
 
 void sched_cache_fork(struct task_struct *p)
 {
-	/*
-	 * The child takes its own reference on the mm's cache group, separate
-	 * from the reference held by the mm. @p is not yet visible to readers,
-	 * so a plain initializing store is enough.
-	 */
-	RCU_INIT_POINTER(p->sched_cache_grp,
-			 sched_cache_group_get(p->mm->sched_cache_grp));
+	struct sched_cache_group *grp;
+
+	if (p->mm == current->mm) {
+		/*
+		 * For CLONE_VM (threads), inherit the parent's sched_cache_grp, which
+		 * may be a group different from mm->sched_cache_grp.
+		 */
+		if (p->flags & PF_KTHREAD)
+			grp = NULL;
+		else
+			grp = task_cache_group_get(current);
+	} else {
+		/* For new processes (own mm), use the new mm's group. */
+		grp = sched_cache_group_get(p->mm->sched_cache_grp);
+	}
+
+	/* @p is not yet visible to readers, so a plain initializing store is enough. */
+	RCU_INIT_POINTER(p->sched_cache_grp, grp);
 }
 
 void sched_cache_fork_cleanup(struct task_struct *p)
