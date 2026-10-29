@@ -7,6 +7,7 @@
 #include <linux/cacheinfo.h>
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
+#include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/limits.h>
 #include <linux/list.h>
@@ -541,26 +542,51 @@ int resctrl_arch_rmid_read(struct rdt_resource *r, struct rdt_domain_hdr *hdr,
 				 closid, rmid, val);
 }
 
+/*
+ * find_mbwu_mon_comp() - Find the component counting @eventid in a domain
+ * @d:		The monitoring domain to search.
+ * @eventid:	The event to find the counting component for.
+ *
+ * The counters reached through this component are the monitors MPAM
+ * pre-allocated for bandwidth counting. Cache occupancy is not counted by
+ * those monitors, it is read on demand via resctrl_arch_rmid_read().
+ *
+ * Return: the component counting @eventid in @d, or an error pointer when
+ * MPAM is disabled, when @eventid is cache occupancy, or when no class was
+ * picked to count @eventid.
+ */
+static struct mpam_component *find_mbwu_mon_comp(struct rdt_l3_mon_domain *d,
+						 enum resctrl_event_id eventid)
+{
+	struct mpam_resctrl_dom *l3_dom;
+	struct mpam_resctrl_mon *mon;
+
+	if (!mpam_is_enabled())
+		return ERR_PTR(-EINVAL);
+
+	mon = &mpam_resctrl_counters[eventid];
+	if (eventid == QOS_L3_OCCUP_EVENT_ID || !mon->class)
+		return ERR_PTR(-EINVAL);
+
+	l3_dom = container_of(d, struct mpam_resctrl_dom, resctrl_mon_dom);
+
+	return l3_dom->mon_comp[eventid];
+}
+
 /* MBWU counters when in ABMC mode */
 int resctrl_arch_cntr_read(struct rdt_resource *r, struct rdt_l3_mon_domain *d,
 			   u32 closid, u32 rmid, int mon_idx,
 			   enum resctrl_event_id eventid, u64 *val)
 {
-	struct mpam_resctrl_mon *mon = &mpam_resctrl_counters[eventid];
-	struct mpam_resctrl_dom *l3_dom;
 	struct mpam_component *mon_comp;
 
-	if (!mpam_is_enabled())
-		return -EINVAL;
+	mon_comp = find_mbwu_mon_comp(d, eventid);
+	if (IS_ERR(mon_comp))
+		return PTR_ERR(mon_comp);
 
-	if (eventid == QOS_L3_OCCUP_EVENT_ID || !mon->class)
-		return -EINVAL;
-
-	l3_dom = container_of(d, struct mpam_resctrl_dom, resctrl_mon_dom);
-	mon_comp = l3_dom->mon_comp[eventid];
-
-	return read_mon_cdp_safe(mon, mon_comp, mpam_feat_msmon_mbwu,
-				 USE_PRE_ALLOCATED, closid, rmid, val);
+	return read_mon_cdp_safe(&mpam_resctrl_counters[eventid], mon_comp,
+				 mpam_feat_msmon_mbwu, USE_PRE_ALLOCATED,
+				 closid, rmid, val);
 }
 
 static void __reset_mon(struct mpam_resctrl_mon *mon, struct mpam_component *mon_comp,
@@ -603,20 +629,14 @@ void resctrl_arch_reset_cntr(struct rdt_resource *r, struct rdt_l3_mon_domain *d
 			     u32 closid, u32 rmid, int cntr_id,
 			     enum resctrl_event_id eventid)
 {
-	struct mpam_resctrl_mon *mon = &mpam_resctrl_counters[eventid];
-	struct mpam_resctrl_dom *l3_dom;
 	struct mpam_component *mon_comp;
 
-	if (!mpam_is_enabled())
+	mon_comp = find_mbwu_mon_comp(d, eventid);
+	if (IS_ERR(mon_comp))
 		return;
 
-	if (eventid == QOS_L3_OCCUP_EVENT_ID || !mon->class)
-		return;
-
-	l3_dom = container_of(d, struct mpam_resctrl_dom, resctrl_mon_dom);
-	mon_comp = l3_dom->mon_comp[eventid];
-
-	reset_mon_cdp_safe(mon, mon_comp, USE_PRE_ALLOCATED, closid, rmid);
+	reset_mon_cdp_safe(&mpam_resctrl_counters[eventid], mon_comp,
+			   USE_PRE_ALLOCATED, closid, rmid);
 }
 
 /*
