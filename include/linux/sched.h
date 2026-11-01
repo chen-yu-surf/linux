@@ -1442,6 +1442,8 @@ struct task_struct {
 	int				preferred_llc;
 	/* 1: task was enqueued to its preferred LLC, 0 otherwise */
 	int				pref_llc_queued;
+	/* Footprint accounted to sched_cache_grp, protected by pi_lock */
+	long				sched_cache_footprint;
 #endif
 
 	struct rseq_data		rseq;

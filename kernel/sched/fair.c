@@ -1686,9 +1686,6 @@ static void sched_cache_group_put(struct sched_cache_group *grp)
 DEFINE_FREE(sched_cache_group_put, struct sched_cache_group *,
 	    sched_cache_group_put(_T));
 
-#define rcu_deref_sched_cache_grp(tsk) \
-	rcu_dereference_check((tsk)->sched_cache_grp, (tsk) == current)
-
 static inline void __sched_cache_footprint_update(struct sched_cache_group *grp,
 						   long delta)
 {
@@ -1698,22 +1695,38 @@ static inline void __sched_cache_footprint_update(struct sched_cache_group *grp,
 
 static inline void sched_cache_footprint_update(struct task_struct *p, long delta)
 {
-	__sched_cache_footprint_update(rcu_deref_sched_cache_grp(p), delta);
+	struct sched_cache_group *grp;
+	unsigned long flags;
+
+	if (!delta)
+		return;
+
+	raw_spin_lock_irqsave(&p->pi_lock, flags);
+	p->sched_cache_footprint += delta;
+	grp = rcu_dereference_protected(p->sched_cache_grp,
+					lockdep_is_held(&p->pi_lock));
+	__sched_cache_footprint_update(grp, delta);
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 }
 
 static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
-							 struct sched_cache_group *new)
+							 struct sched_cache_group *new,
+							 bool migrate)
 {
 	struct sched_cache_group *old;
 
 	lockdep_assert_held(&p->pi_lock);
 	old = rcu_dereference_protected(p->sched_cache_grp,
 					lockdep_is_held(&p->pi_lock));
-#ifdef CONFIG_NUMA_BALANCING
-	/* Other tasks sharing the old mm can keep its group alive after exec. */
-	if (old != new)
-		__sched_cache_footprint_update(old, -(long)p->total_numa_faults);
-#endif
+	if (old != new) {
+		long faults = p->sched_cache_footprint;
+
+		__sched_cache_footprint_update(old, -faults);
+		if (migrate)
+			__sched_cache_footprint_update(new, faults);
+		else
+			p->sched_cache_footprint = 0;
+	}
 	rcu_assign_pointer(p->sched_cache_grp, new);
 
 	return old;
@@ -1722,10 +1735,10 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 /*
  * Switch @p to the group @new and drop the reference of the old group.
  * pi_lock serializes the switch against a concurrent writer targeting
- * this task.
+ * this task. See sched_cache_replace_grp() for @migrate.
  */
 static void sched_cache_set_grp(struct task_struct *p,
-				struct sched_cache_group *new)
+				struct sched_cache_group *new, bool migrate)
 {
 	struct sched_cache_group *old;
 	unsigned long flags;
@@ -1737,7 +1750,7 @@ static void sched_cache_set_grp(struct task_struct *p,
 		sched_cache_group_put(new);
 		return;
 	}
-	old = sched_cache_replace_grp(p, new);
+	old = sched_cache_replace_grp(p, new, migrate);
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 
 	sched_cache_group_put(old);
@@ -1790,12 +1803,12 @@ void sched_cache_exec_mmap(struct task_struct *p, struct mm_struct *mm)
 	 * Acquire the new reference before publishing the pointer, then drop
 	 * the old one.
 	 */
-	sched_cache_set_grp(p, sched_cache_group_get(mm->sched_cache_grp));
+	sched_cache_set_grp(p, sched_cache_group_get(mm->sched_cache_grp), false);
 }
 
 void sched_cache_exit_mm(struct task_struct *p)
 {
-	sched_cache_set_grp(p, NULL);
+	sched_cache_set_grp(p, NULL, false);
 }
 
 void mm_destroy_sched(struct mm_struct *mm)
@@ -2171,6 +2184,8 @@ void init_sched_mm(struct task_struct *p)
 	 * borrowed pointer that the fork error path would put.
 	 */
 	RCU_INIT_POINTER(p->sched_cache_grp, NULL);
+	/* The child has not contributed to any group's footprint yet. */
+	p->sched_cache_footprint = 0;
 	/*
 	 * Reset new task's preference to avoid
 	 * polluting account_llc_enqueue().
