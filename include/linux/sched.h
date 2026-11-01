@@ -2391,7 +2391,7 @@ struct sched_cache_group {
 	unsigned long epoch;
 	u64 nr_running_avg;
 	unsigned long next_scan;
-	unsigned long footprint;
+	atomic_long_t footprint;
 	int cpu;
 	int enabled;
 	refcount_t refcnt;

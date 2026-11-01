@@ -1435,12 +1435,16 @@ static bool exceed_llc_capacity(struct sched_cache_group *grp, int cpu)
 		return true;
 
 	if (static_branch_likely(&sched_numa_balancing)) {
+		long fp;
+
 		/*
 		 * TBD: RDT exclusive LLC ways reserved should be
 		 * excluded.
 		 */
 		llc = sd->llc_bytes;
-		footprint = READ_ONCE(grp->footprint);
+		fp = atomic_long_read(&grp->footprint);
+		WARN_ON_ONCE(fp < 0);
+		footprint = max(fp, 0L);
 
 		/*
 		 * Scale the LLC size by 256*llc_aggr_tolerance
@@ -1532,7 +1536,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->cpu = -1;
 	grp->next_scan = jiffies;
 	grp->nr_running_avg = 0;
-	grp->footprint = 0;
+	atomic_long_set(&grp->footprint, 0);
 	grp->enabled = 0;
 	refcount_set(&grp->refcnt, 1);
 	/*
@@ -1688,10 +1692,8 @@ static inline void __sched_cache_footprint_update(struct sched_cache_group *grp,
 {
 	long new_fp;
 
-	if (grp && delta) {
-		new_fp = (long)READ_ONCE(grp->footprint) + delta;
-		WRITE_ONCE(grp->footprint, max(new_fp, 0L));
-	}
+	if (grp && delta)
+		atomic_long_add(delta, &grp->footprint);
 }
 
 static inline void sched_cache_footprint_update(struct task_struct *p, long delta)
@@ -1730,6 +1732,15 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 	lockdep_assert_held(&p->pi_lock);
 	old = rcu_dereference_protected(p->sched_cache_grp,
 					lockdep_is_held(&p->pi_lock));
+#ifdef CONFIG_NUMA_BALANCING
+	if (old != new) {
+		if (old)
+			__sched_cache_footprint_update(old, -(long)p->total_numa_faults);
+
+		if (new)
+			__sched_cache_footprint_update(old, (long)p->total_numa_faults);
+	}
+#endif
 	rcu_assign_pointer(p->sched_cache_grp, new);
 
 	return old;
