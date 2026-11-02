@@ -1733,9 +1733,14 @@ static inline void sched_cache_footprint_update(struct task_struct *p, long delt
 	 * go negative. Clamp to zero to prevent the
 	 * unsigned footprint from wrapping.
 	 */
-	guard(rcu)();
-	grp = rcu_dereference(p->sched_cache_grp);
+	if (!delta)
+		return;
 
+	guard(raw_spinlock_irq)(&p->pi_lock);
+	grp = rcu_dereference_protected(p->sched_cache_grp,
+					lockdep_is_held(&p->pi_lock));
+
+	p->cache_footprint += delta;
 	__sched_cache_footprint_update(grp, delta);
 }
 
@@ -1752,11 +1757,13 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 
 #ifdef CONFIG_NUMA_BALANCING
 	if (old != new) {
+		long delta = (long)p->cache_footprint;
+
 		if (old)
-			__sched_cache_footprint_update(old, -(long)p->total_numa_faults);
+			__sched_cache_footprint_update(old, -delta);
 
 		if (new)
-			__sched_cache_footprint_update(new, (long)p->total_numa_faults);
+			__sched_cache_footprint_update(new, delta);
 	}
 #endif
 	rcu_assign_pointer(p->sched_cache_grp, new);
@@ -2251,6 +2258,7 @@ void init_sched_mm(struct task_struct *p)
 	 * borrowed pointer that the fork error path would put.
 	 */
 	RCU_INIT_POINTER(p->sched_cache_grp, NULL);
+	p->cache_footprint = 0;
 	/*
 	 * Reset new task's preference to avoid
 	 * polluting account_llc_enqueue().
