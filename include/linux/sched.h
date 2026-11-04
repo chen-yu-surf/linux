@@ -2394,6 +2394,7 @@ struct sched_cache_group {
 	unsigned long footprint;
 	int cpu;
 	refcount_t refcnt;
+	atomic_t users;
 	struct rcu_head rcu;
 } ____cacheline_aligned_in_smp;
 
