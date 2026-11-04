@@ -1442,6 +1442,7 @@ struct task_struct {
 	int				preferred_llc;
 	/* 1: task was enqueued to its preferred LLC, 0 otherwise */
 	int				pref_llc_queued;
+	unsigned long			cache_footprint;
 #endif
 
 	struct rseq_data		rseq;

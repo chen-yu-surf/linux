@@ -1714,29 +1714,42 @@ static inline void sched_cache_footprint_update(struct task_struct *p, long delt
 	struct sched_cache_group *grp;
 
 	/*
-	 * Per task p->numa_faults[mem_idx] converges,
-	 * so the accumulation of each task's faults
-	 * converges too - Given the number of threads,
-	 * it cannot overflow an unsigned long.
-	 * Racy with concurrent updates from other threads
-	 * sharing this mm. Acceptable since footprint is a
-	 * heuristic and occasional lost updates are tolerable.
+	 * grp->footprint is the sum of p->cache_footprint over the tasks
+	 * attached to grp. p->cache_footprint follows p->total_numa_faults,
+	 * which converges, so the sum cannot overflow.
 	 *
-	 * If a task exits, its corresponding footprint must
-	 * be subtracted from p->sched_cache_grp->footprint,
-	 * otherwise the footprint will not converge: the
-	 * exiting thread's footprint remains unchanged/undecayed.
-	 * See exit_mm().
+	 * p->pi_lock serializes this against sched_cache_replace_grp(),
+	 * which moves p->cache_footprint between groups. So each delta goes
+	 * to the group that holds the task's share, and the group footprint
+	 * never goes negative. The atomic add serializes the updates from the
+	 * other tasks of the group.
 	 *
-	 * Lost updates and unsynchronized subtraction
-	 * in exit_mm() can cause footprint + diff to
-	 * go negative. Clamp to zero to prevent the
-	 * unsigned footprint from wrapping.
+	 * The share leaves the group when the task switches groups or exits
+	 * (sched_cache_replace_grp()), or when exec clears the NUMA fault
+	 * history (sched_cache_footprint_clear()).
 	 */
-	guard(rcu)();
-	grp = rcu_dereference(p->sched_cache_grp);
+	if (!delta)
+		return;
 
+	guard(raw_spinlock_irq)(&p->pi_lock);
+	grp = rcu_dereference_protected(p->sched_cache_grp,
+					lockdep_is_held(&p->pi_lock));
+
+	p->cache_footprint += delta;
 	__sched_cache_footprint_update(grp, delta);
+}
+
+/*
+ * Remove @p's whole share from its group, for when @p's NUMA fault
+ * history is cleared. Use p->cache_footprint, which is the amount the
+ * group holds for @p and the amount that group switches transfer.
+ *
+ * Only @p itself writes p->cache_footprint, so reading it without
+ * p->pi_lock is safe when @p is current.
+ */
+static inline void sched_cache_footprint_clear(struct task_struct *p)
+{
+	sched_cache_footprint_update(p, -(long)p->cache_footprint);
 }
 
 static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
@@ -1752,11 +1765,13 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 
 #ifdef CONFIG_NUMA_BALANCING
 	if (old != new) {
+		long delta = (long)p->cache_footprint;
+
 		if (old)
-			__sched_cache_footprint_update(old, -(long)p->total_numa_faults);
+			__sched_cache_footprint_update(old, -delta);
 
 		if (new)
-			__sched_cache_footprint_update(new, (long)p->total_numa_faults);
+			__sched_cache_footprint_update(new, delta);
 	}
 #endif
 	rcu_assign_pointer(p->sched_cache_grp, new);
@@ -2233,6 +2248,7 @@ void init_sched_mm(struct task_struct *p)
 	 * borrowed pointer that the fork error path would put.
 	 */
 	RCU_INIT_POINTER(p->sched_cache_grp, NULL);
+	p->cache_footprint = 0;
 	/*
 	 * Reset new task's preference to avoid
 	 * polluting account_llc_enqueue().
@@ -2265,6 +2281,8 @@ static void pref_llc_running_inc(struct rq *rq, struct task_struct *p) {}
 static void pref_llc_running_dec(struct rq *rq, struct task_struct *p) {}
 
 static inline void sched_cache_footprint_update(struct task_struct *p, long delta) {}
+
+static inline void sched_cache_footprint_clear(struct task_struct *p) {}
 
 #endif /* CONFIG_SCHED_CACHE */
 
@@ -4210,10 +4228,10 @@ void task_numa_free(struct task_struct *p, bool final)
 	} else {
 		/*
 		 * exec resets the NUMA statistics after the task has been
-		 * switched to the new cache group, which already accounted
-		 * the old total. Remove it from the group before clearing.
+		 * switched to the new cache group, which already received
+		 * the task's share. Remove it from the group before clearing.
 		 */
-		sched_cache_footprint_update(p, -(long)p->total_numa_faults);
+		sched_cache_footprint_clear(p);
 		p->total_numa_faults = 0;
 		for (i = 0; i < NR_NUMA_HINT_FAULT_STATS * nr_node_ids; i++)
 			numa_faults[i] = 0;
