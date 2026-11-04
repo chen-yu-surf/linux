@@ -16,6 +16,7 @@ Scheduler
     sched-domains
     sched-capacity
     sched-energy
+    sched-cache
     schedutil
     sched-util-clamp
     sched-nice-design
