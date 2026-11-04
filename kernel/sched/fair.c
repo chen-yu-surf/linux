@@ -1740,13 +1740,29 @@ struct sched_cache_group *task_cache_group_get(struct task_struct *p)
 
 void sched_cache_fork(struct task_struct *p)
 {
-	/*
-	 * The child takes its own reference on the mm's cache group, separate
-	 * from the reference held by the mm. @p is not yet visible to readers,
-	 * so a plain initializing store is enough.
-	 */
-	RCU_INIT_POINTER(p->sched_cache_grp,
-			 sched_cache_group_get(p->mm->sched_cache_grp));
+	struct sched_cache_group *grp;
+
+	if (p->mm == current->mm) {
+		/*
+		 * For CLONE_VM (threads), inherit the parent's sched_cache_grp, which
+		 * may be a group different from mm->sched_cache_grp.
+		 */
+		if (p->flags & PF_KTHREAD) {
+			grp = NULL;
+		} else {
+			guard(raw_spinlock_irqsave)(&current->pi_lock);
+			grp = rcu_dereference_protected(current->sched_cache_grp,
+							lockdep_is_held(&current->pi_lock));
+			if (grp)
+				refcount_inc(&grp->refcnt);
+		}
+	} else {
+		/* For new processes (own mm), use the new mm's group. */
+		grp = sched_cache_group_get(p->mm->sched_cache_grp);
+	}
+
+	/* @p is not yet visible to readers, so a plain initializing store is enough. */
+	RCU_INIT_POINTER(p->sched_cache_grp, grp);
 }
 
 void sched_cache_fork_cleanup(struct task_struct *p)
