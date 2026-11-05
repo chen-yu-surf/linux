@@ -36,6 +36,11 @@ static u16 first_rmdd_domain_id;
 /* Largest RMID that is valid in every ERDT domain. */
 static unsigned int erdt_max_rmid;
 
+bool erdt_support(int flag)
+{
+	return false;
+}
+
 static void __iomem *erdt_ioremap(resource_size_t base, u32 num_pages, const char *desc)
 {
 	void __iomem *addr;
