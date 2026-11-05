@@ -176,7 +176,8 @@ struct rdt_perf_pkg_mon_domain {
  *			resctrl_arch_get_num_closid() to avoid confusion
  *			with struct rdt_resource_final's property of the same
  *			name, which has been corrected for features like CDP.
- * @mon_scale:		cqm counter * mon_scale = occupancy in bytes
+ * @mon_scale:		cqm counter * mon_scale = occupancy in bytes.
+ *			Not used when LLC occupancy is read via ERDT.
  * @mbm_width:		Monitor width, to detect and correct for overflow.
  * @cdp_enabled:	CDP state of this resource
  * @qos_cfg_has_cpu_scope:	Only for the L2 and L3 resources: true if
@@ -315,6 +316,8 @@ static inline bool intel_handle_aet_option(bool force_off, char *tok) { return f
 bool erdt_cpu_has(int flag);
 bool erdt_support(int flag);
 unsigned int erdt_get_cmt_scale(void);
+unsigned int erdt_get_cmt_max_rmid(void);
+int erdt_mon_read(struct rdt_domain_hdr *hdr, enum resctrl_event_id evtid, u32 rmid, u64 *val);
 void erdt_init(void);
 void erdt_exit(void);
 bool erdt_try_bind_domain(int cpu);
