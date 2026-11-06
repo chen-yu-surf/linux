@@ -41,7 +41,7 @@ static int sched_cache_get_info(struct task_struct *dst, unsigned long arg4,
 		ptr_to_hashval((void *)grp, &value);
 		break;
 	case SCHED_CACHE_INFO_ENABLED:
-		value = READ_ONCE(grp->enabled);
+		value = READ_ONCE(grp->enabled) == SC_GRP_ENABLED;
 		break;
 	}
 
@@ -112,7 +112,8 @@ int sched_cache_prctl(int option, unsigned long arg2, unsigned long arg3,
 			err = -ENOENT;
 			goto out_task;
 		}
-		WRITE_ONCE(grp->enabled, arg2 == PR_SCHED_CACHE_ENABLE);
+		WRITE_ONCE(grp->enabled, arg2 == PR_SCHED_CACHE_ENABLE ?
+			   SC_GRP_ENABLED : SC_GRP_DISABLED);
 
 		/* Drop the stale preferred LLC so load balancing stops honoring it. */
 		if (arg2 == PR_SCHED_CACHE_DISABLE)
