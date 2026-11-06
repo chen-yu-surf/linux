@@ -1598,7 +1598,6 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 
 	tsk->mm = mm;
 	tsk->active_mm = mm;
-	sched_cache_fork(tsk);
 	return 0;
 }
 
@@ -2484,6 +2483,8 @@ __latent_entropy struct task_struct *copy_process(
 	klp_copy_process(p);
 
 	sched_core_fork(p);
+
+	sched_cache_fork(p);
 
 	spin_lock(&current->sighand->siglock);
 
