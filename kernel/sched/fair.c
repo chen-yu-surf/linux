@@ -1551,6 +1551,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->nr_running_avg = 0;
 	atomic_long_set(&grp->footprint, 0);
 	atomic_long_set(&grp->footprint_window, 0);
+	grp->enabled = 1;
 	atomic_set(&grp->users, 0);
 	refcount_set(&grp->refcnt, 1);
 	/*
@@ -1561,7 +1562,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	smp_store_release(&grp->pcpu_sched, _pcpu_sched);
 }
 
-static struct sched_cache_group *
+struct sched_cache_group *
 sched_cache_alloc_group_noprof(void)
 {
 	struct sched_cache_time __percpu *pcpu_sched =
@@ -1580,7 +1581,6 @@ sched_cache_alloc_group_noprof(void)
 	sched_cache_group_init(grp, pcpu_sched);
 	return grp;
 }
-#define sched_cache_alloc_group(...) alloc_hooks(sched_cache_alloc_group_noprof(__VA_ARGS__))
 
 static void account_llc_enqueue(struct rq *rq, struct task_struct *p)
 {
@@ -1691,7 +1691,7 @@ static void sched_cache_group_free_rcu(struct rcu_head *rcu)
 	kfree(grp);
 }
 
-static void sched_cache_group_put(struct sched_cache_group *grp)
+void sched_cache_group_put(struct sched_cache_group *grp)
 {
 	if (!grp || !refcount_dec_and_test(&grp->refcnt))
 		return;
@@ -1836,8 +1836,8 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 /*
  * Switch @p to the group @new and drop the reference of the old group.
  */
-static int sched_cache_set_grp(struct task_struct *p,
-			       struct sched_cache_group *new)
+int sched_cache_set_grp(struct task_struct *p,
+			struct sched_cache_group *new)
 {
 	struct sched_cache_group *old;
 	unsigned long flags;
