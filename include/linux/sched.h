@@ -1442,7 +1442,14 @@ struct task_struct {
 	int				preferred_llc;
 	/* 1: task was enqueued to its preferred LLC, 0 otherwise */
 	int				pref_llc_queued;
+	/*
+	 * Shares of the group footprint, in pages. cache_footprint follows
+	 * total_numa_faults. cache_window is this sweep's hint faults already
+	 * in the group, cache_window_pending the batch not yet added.
+	 */
 	unsigned long			cache_footprint;
+	unsigned long			cache_window;
+	unsigned long			cache_window_pending;
 #endif
 
 	struct rseq_data		rseq;
@@ -2392,7 +2399,12 @@ struct sched_cache_group {
 	unsigned long epoch;
 	u64 nr_running_avg;
 	unsigned long next_scan;
+	/*
+	 * Footprint in pages: history of the completed scan sweeps, and
+	 * window of the sweep in progress. See exceed_llc_capacity().
+	 */
 	atomic_long_t footprint;
+	atomic_long_t footprint_window;
 	int cpu;
 	refcount_t refcnt;
 	atomic_t users;

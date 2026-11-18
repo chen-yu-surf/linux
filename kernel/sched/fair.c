@@ -1435,16 +1435,29 @@ static bool exceed_llc_capacity(struct sched_cache_group *grp, int cpu)
 		return true;
 
 	if (static_branch_likely(&sched_numa_balancing)) {
-		long fp;
+		long hist, win;
 
 		/*
 		 * TBD: RDT exclusive LLC ways reserved should be
 		 * excluded.
 		 */
 		llc = sd->llc_bytes;
-		fp = atomic_long_read(&grp->footprint);
-		WARN_ON_ONCE(fp < 0);
-		footprint = max(fp, 0L);
+		hist = atomic_long_read(&grp->footprint);
+		win = atomic_long_read(&grp->footprint_window);
+		WARN_ON_ONCE(hist < 0 || win < 0);
+		hist = max(hist, 0L);
+		win = max(win, 0L);
+
+		/*
+		 * The history, or its value at the next sweep boundary if
+		 * no more faults arrive, whichever is larger. Follows the
+		 * window during the first sweep, flat once converged.
+		 *
+		 * The history (mem = mem / 2 + membuf) converges to twice
+		 * the pages touched per sweep, so the check requires the
+		 * touched pages to fit in half the LLC.
+		 */
+		footprint = max_t(unsigned long, hist, hist / 2 + win);
 
 		/*
 		 * Scale the LLC size by 256*llc_aggr_tolerance
@@ -1537,6 +1550,7 @@ static void sched_cache_group_init(struct sched_cache_group *grp,
 	grp->next_scan = jiffies;
 	grp->nr_running_avg = 0;
 	atomic_long_set(&grp->footprint, 0);
+	atomic_long_set(&grp->footprint_window, 0);
 	atomic_set(&grp->users, 0);
 	refcount_set(&grp->refcnt, 1);
 	/*
@@ -1709,26 +1723,56 @@ static inline void __sched_cache_footprint_update(struct sched_cache_group *grp,
 		atomic_long_add(delta, &grp->footprint);
 }
 
+static inline void __sched_cache_window_update(struct sched_cache_group *grp,
+					       long delta)
+{
+	if (grp && delta)
+		atomic_long_add(delta, &grp->footprint_window);
+}
+
+/*
+ * Add the pages of a hint fault to the current sweep's window, batched per
+ * task in units of one THP. The batch is closed with the window at the
+ * next placement.
+ */
+#define SCHED_CACHE_WINDOW_BATCH	512
+static inline void sched_cache_window_add(struct task_struct *p, int pages)
+{
+	struct sched_cache_group *grp;
+	unsigned long pending;
+
+	/* Only @p, which is current, writes the pending batch. */
+	p->cache_window_pending += pages;
+	if (p->cache_window_pending < SCHED_CACHE_WINDOW_BATCH)
+		return;
+
+	guard(raw_spinlock_irq)(&p->pi_lock);
+	grp = rcu_dereference_protected(p->sched_cache_grp,
+					lockdep_is_held(&p->pi_lock));
+
+	pending = p->cache_window_pending;
+	p->cache_window_pending = 0;
+	p->cache_window += pending;
+	__sched_cache_window_update(grp, pending);
+}
+
+/*
+ * Called at @p's sweep boundary with the change of p->total_numa_faults,
+ * and from sched_cache_footprint_clear().
+ */
 static inline void sched_cache_footprint_update(struct task_struct *p, long delta)
 {
 	struct sched_cache_group *grp;
 
 	/*
-	 * grp->footprint is the sum of p->cache_footprint over the tasks
-	 * attached to grp. p->cache_footprint follows p->total_numa_faults,
-	 * which converges, so the sum cannot overflow.
-	 *
+	 * grp->footprint and grp->footprint_window are the sums of
+	 * p->cache_footprint and p->cache_window over the attached tasks.
 	 * p->pi_lock serializes this against sched_cache_replace_grp(),
-	 * which moves p->cache_footprint between groups. So each delta goes
-	 * to the group that holds the task's share, and the group footprint
-	 * never goes negative. The atomic add serializes the updates from the
-	 * other tasks of the group.
-	 *
-	 * The share leaves the group when the task switches groups or exits
-	 * (sched_cache_replace_grp()), or when exec clears the NUMA fault
-	 * history (sched_cache_footprint_clear()).
+	 * which moves both shares between groups, and against
+	 * sched_cache_window_add(), so neither sum goes negative. The
+	 * shares leave the group on switch, exit and exec.
 	 */
-	if (!delta)
+	if (!delta && !p->cache_window && !p->cache_window_pending)
 		return;
 
 	guard(raw_spinlock_irq)(&p->pi_lock);
@@ -1737,15 +1781,20 @@ static inline void sched_cache_footprint_update(struct task_struct *p, long delt
 
 	p->cache_footprint += delta;
 	__sched_cache_footprint_update(grp, delta);
+
+	/*
+	 * The closed window is in the history now. Take it out of the
+	 * window sum; the pending batch never got there, just drop it.
+	 */
+	__sched_cache_window_update(grp, -(long)p->cache_window);
+	p->cache_window = 0;
+	p->cache_window_pending = 0;
 }
 
 /*
- * Remove @p's whole share from its group, for when @p's NUMA fault
- * history is cleared. Use p->cache_footprint, which is the amount the
- * group holds for @p and the amount that group switches transfer.
- *
- * Only @p itself writes p->cache_footprint, so reading it without
- * p->pi_lock is safe when @p is current.
+ * Remove @p's shares, history and window, from its group when @p's NUMA
+ * fault history is cleared. Only @p writes p->cache_footprint, so reading
+ * it without p->pi_lock is safe when @p is current.
  */
 static inline void sched_cache_footprint_clear(struct task_struct *p)
 {
@@ -1766,12 +1815,17 @@ static struct sched_cache_group *sched_cache_replace_grp(struct task_struct *p,
 #ifdef CONFIG_NUMA_BALANCING
 	if (old != new) {
 		long delta = (long)p->cache_footprint;
+		long win = (long)p->cache_window;
 
-		if (old)
+		if (old) {
 			__sched_cache_footprint_update(old, -delta);
+			__sched_cache_window_update(old, -win);
+		}
 
-		if (new)
+		if (new) {
 			__sched_cache_footprint_update(new, delta);
+			__sched_cache_window_update(new, win);
+		}
 	}
 #endif
 	rcu_assign_pointer(p->sched_cache_grp, new);
@@ -2248,6 +2302,8 @@ void init_sched_mm(struct task_struct *p)
 	 */
 	RCU_INIT_POINTER(p->sched_cache_grp, NULL);
 	p->cache_footprint = 0;
+	p->cache_window = 0;
+	p->cache_window_pending = 0;
 	/*
 	 * Reset new task's preference to avoid
 	 * polluting account_llc_enqueue().
@@ -2282,6 +2338,8 @@ static void pref_llc_running_dec(struct rq *rq, struct task_struct *p) {}
 static inline void sched_cache_footprint_update(struct task_struct *p, long delta) {}
 
 static inline void sched_cache_footprint_clear(struct task_struct *p) {}
+
+static inline void sched_cache_window_add(struct task_struct *p, int pages) {}
 
 #endif /* CONFIG_SCHED_CACHE */
 
@@ -4319,6 +4377,12 @@ void task_numa_fault(int last_cpupid, int mem_node, int pages, int flags)
 	p->numa_faults[task_faults_idx(NUMA_MEMBUF, mem_node, priv)] += pages;
 	p->numa_faults[task_faults_idx(NUMA_CPUBUF, cpu_node, priv)] += pages;
 	p->numa_faults_locality[local] += pages;
+
+	/*
+	 * Account the pages now rather than at the end of the sweep, which
+	 * can take longer than the workload runs.
+	 */
+	sched_cache_window_add(p, pages);
 }
 
 static void reset_ptenuma_scan(struct task_struct *p)
