@@ -260,7 +260,7 @@ static int pseudo_lock_region_init(struct pseudo_lock_region *plr)
 	ci = get_cpu_cacheinfo_level(plr->cpu, scope);
 	if (ci) {
 		plr->line_size = ci->coherency_line_size;
-		plr->size = rdtgroup_cbm_to_size(plr->f->res, ctrl, plr->d, plr->cbm);
+		plr->size = resctrl_cache_ctrl_to_size(plr->f->res, ctrl, plr->d, plr->cbm);
 		return 0;
 	}
 

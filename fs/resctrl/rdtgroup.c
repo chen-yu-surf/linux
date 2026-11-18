@@ -1703,37 +1703,42 @@ out:
 }
 
 /**
- * rdtgroup_cbm_to_size - Translate CBM to size in bytes
+ * resctrl_cache_ctrl_to_size - Translate cache control value to size in bytes
  * @r: RDT resource to which @d belongs.
  * @ctrl: Properties of the cache control
  * @d: RDT domain instance.
- * @cbm: bitmask for which the size should be computed.
+ * @ctrl_val: control value for which the size should be computed.
  *
- * The bitmask provided associated with the RDT domain instance @d will be
- * translated into how many bytes it represents. The size in bytes is
- * computed by first dividing the total cache size by the CBM length to
- * determine how many bytes each bit in the bitmask represents. The result
- * is multiplied with the number of bits set in the bitmask.
+ * Translate the control value associated with the RDT domain instance
+ * @d into how many bytes of the available cache it represents.
  *
- * @cbm is unsigned long, even if only 32 bits are used to make the
- * bitmap functions work correctly.
+ * @ctrl_val is unsigned long to make the bitmap functions work correctly.
  *
- * Return: Size (in bytes) of cache portion represented by CBM, 0 on failure.
+ * Return: Size (in bytes) of cache portion represented by @ctrl_val, 0 on failure.
  */
-unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
-				  struct rdt_ctrl_domain *d, unsigned long cbm)
+unsigned int resctrl_cache_ctrl_to_size(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+					struct rdt_ctrl_domain *d, unsigned long ctrl_val)
 {
 	unsigned int size = 0;
 	struct cacheinfo *ci;
-	int num_b;
 
 	if (WARN_ON_ONCE(ctrl->scope != RESCTRL_L2_CACHE && ctrl->scope != RESCTRL_L3_CACHE))
 		return size;
 
-	num_b = bitmap_weight(&cbm, ctrl->bitmap.cbm_len);
 	ci = get_cpu_cacheinfo_level(cpumask_any(&d->hdr.cpu_mask), ctrl->scope);
-	if (ci)
+	if (!ci)
+		return size;
+
+	if (ctrl->type == RESCTRL_CTRL_BITMAP) {
+		int num_b;
+
+		num_b = bitmap_weight(&ctrl_val, ctrl->bitmap.cbm_len);
 		size = ci->size / ctrl->bitmap.cbm_len * num_b;
+	} else if (ctrl->type == RESCTRL_CTRL_SCALAR) {
+		size = ci->size / ctrl->scalar.resolution * ctrl->scalar.scale * ctrl_val;
+	} else {
+		WARN_ONCE(1, "Unsupported cache control type %d\n", ctrl->type);
+	}
 
 	return size;
 }
@@ -1764,25 +1769,52 @@ bool is_mba_sc(struct rdt_resource *r, struct resctrl_ctrl *ctrl)
 	return ctrl->scalar.mba_sc;
 }
 
+static unsigned int rdtgroup_portion_size(struct rdtgroup *rdtgrp,
+					  struct rdt_resource_final *f,
+					  struct rdt_ctrl_domain *d,
+					  struct resctrl_ctrl *ctrl)
+{
+	struct rdt_resource *r = f->res;
+
+	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP)
+		return 0;
+
+	switch (r->rid) {
+	case RDT_RESOURCE_MBA:
+	case RDT_RESOURCE_SMBA:
+		if (is_mba_sc(r, ctrl))
+			return d->mbps_val[rdtgrp->closid];
+		return resctrl_arch_get_config(r, ctrl, d, rdtgrp->closid, f->conf_type);
+	case RDT_RESOURCE_L2:
+	case RDT_RESOURCE_L3: {
+		u32 ctrl_val;
+
+		ctrl_val = resctrl_arch_get_config(r, ctrl, d, rdtgrp->closid, f->conf_type);
+		return resctrl_cache_ctrl_to_size(r, ctrl, d, ctrl_val);
+	}
+	case RDT_RESOURCE_PERF_PKG:
+		return 0;
+	}
+
+	return 0;
+}
+
 /*
- * rdtgroup_size_show - Display size in bytes of allocated regions
+ * rdtgroup_size_show - Display size of allocated portions
  *
- * The "size" file mirrors the layout of the "schemata" file, printing the
- * size in bytes of each region instead of the capacity bitmask.
+ * The "size" file mirrors the layout of the "schemata" file, when
+ * possible, print the size of each portion instead of the control value.
  */
 static int rdtgroup_size_show(struct kernfs_open_file *of,
 			      struct seq_file *s, void *v)
 {
 	struct rdt_resource_final *f;
-	enum resctrl_conf_type type;
 	struct rdt_ctrl_domain *d;
 	struct resctrl_ctrl *ctrl;
 	struct rdtgroup *rdtgrp;
 	struct rdt_resource *r;
 	unsigned int size;
-	u32 ctrl_val;
 	int ret = 0;
-	u32 closid;
 	bool sep;
 
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
@@ -1803,20 +1835,16 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 			}
 			seq_printf(s, "%*s:", max_name_width,
 				   rdtgrp->plr->f->name);
-			size = rdtgroup_cbm_to_size(rdtgrp->plr->f->res,
-						    ctrl,
-						    rdtgrp->plr->d,
-						    rdtgrp->plr->cbm);
+			size = resctrl_cache_ctrl_to_size(rdtgrp->plr->f->res,
+							  ctrl, rdtgrp->plr->d,
+							  rdtgrp->plr->cbm);
 			seq_printf(s, "%d=%u\n", rdtgrp->plr->d->hdr.id, size);
 		}
 		goto out;
 	}
 
-	closid = rdtgrp->closid;
-
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
-		type = f->conf_type;
 		for_each_resource_ctrl(ctrl, r) {
 			sep = false;
 			seq_printf(s, "%*s%s:", resctrl_prefix_width_adjust(ctrl),
@@ -1825,21 +1853,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 						lockdep_is_cpus_held()) {
 				if (sep)
 					seq_putc(s, ';');
-				if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
-					size = 0;
-				} else {
-					if (is_mba_sc(r, ctrl))
-						ctrl_val = d->mbps_val[closid];
-					else
-						ctrl_val = resctrl_arch_get_config(r, ctrl, d,
-										   closid,
-										   type);
-					if (r->rid == RDT_RESOURCE_MBA ||
-					    r->rid == RDT_RESOURCE_SMBA)
-						size = ctrl_val;
-					else
-						size = rdtgroup_cbm_to_size(r, ctrl, d, ctrl_val);
-				}
+				size = rdtgroup_portion_size(rdtgrp, f, d, ctrl);
 				seq_printf(s, "%d=%u", d->hdr.id, size);
 				sep = true;
 			}

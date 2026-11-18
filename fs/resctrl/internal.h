@@ -362,8 +362,8 @@ bool rdtgroup_cbm_overlaps(struct rdt_resource_final *f, struct rdt_ctrl_domain 
 			   unsigned long cbm, int closid, bool exclusive,
 			   struct resctrl_ctrl *ctrl);
 
-unsigned int rdtgroup_cbm_to_size(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
-				  struct rdt_ctrl_domain *d, unsigned long cbm);
+unsigned int resctrl_cache_ctrl_to_size(struct rdt_resource *r, struct resctrl_ctrl *ctrl,
+					struct rdt_ctrl_domain *d, unsigned long ctrl_val);
 
 enum rdtgrp_mode rdtgroup_mode_by_closid(int closid);
 
